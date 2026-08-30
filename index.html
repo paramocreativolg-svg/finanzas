@@ -1390,7 +1390,7 @@ function estadoCobroMes(companyId,ym){
 
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
-  ['panel','Dashboard'],['proyeccion','Proyección'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
+  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
   ['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
@@ -1582,7 +1582,7 @@ document.addEventListener('drop',function(e){
 /* ═══════════ NAV ═══════════ */
 function renderNav(){
   const sets=[
-    ['n1',[['panel','ti-home','Inicio',null],['proyeccion','ti-chart-donut','Proyección',null]]],
+    ['n1',[['panel','ti-home','Inicio',null],['proyeccion','ti-chart-donut','Proyección',null],['estadisticas-clientes','ti-chart-pie','Estadísticas clientes',null]]],
     ['n2',[['empresas','ti-building','Empresas',visibleCompanies().filter(c=>c.estado==='activo').length],
            ['contactos','ti-address-book','Contactos',visibleContacts().length],
            ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length]]],
@@ -1632,7 +1632,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -1938,6 +1938,53 @@ function mProspectModal(){
 
 
 
+/* ─────────── ESTADÍSTICAS DE CLIENTES ─────────── */
+function inferirPais(c){
+  if(c&&c.pais)return c.pais;
+  const u=String(c&&c.ubicacion||'').toLowerCase();
+  if(/venezuela|táchira|tachira|la grita|caracas|maracaibo|valencia,?\s*ve/.test(u))return'Venezuela';
+  if(/colombia|bogotá|bogota|medellín|medellin|cúcuta|cucuta/.test(u))return'Colombia';
+  if(/usa|united states|miami|orlando|florida|texas|california/.test(u))return'Estados Unidos';
+  if(/españa|espana|madrid|barcelona/.test(u))return'España';
+  if(/méxico|mexico|cdmx|guadalajara|monterrey/.test(u))return'México';
+  return'No especificado';
+}
+function vEstadisticasClientes(v){
+  const act=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
+  head(v,'Análisis','Estadísticas de clientes','Entiende cómo está compuesta tu cartera, dónde están tus clientes y qué tanto representa cada grupo.');
+  const total=act.length, ingresos=r2(act.reduce((s,c)=>s+(Number(c.tarifaBruta)||0),0)), ticket=total?ingresos/total:0;
+  const country={};act.forEach(c=>{const k=inferirPais(c);country[k]=(country[k]||0)+1});
+  const industry={};act.forEach(c=>{const k=String(c.industria||'No especificado').trim()||'No especificado';industry[k]=(industry[k]||0)+1});
+  const freq={Mensual:0,Quincenal:0};act.forEach(c=>{c.frecuencia==='quincenal'?freq.Quincenal++:freq.Mensual++});
+  const topCountries=Object.entries(country).sort((a,b)=>b[1]-a[1]);
+  v.appendChild(frag('<div class="mets">'+
+    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+total+'</div><div class="msub">Cartera actual</div></div>'+
+    '<div class="met"><div class="mlab">Ticket promedio</div><div class="mval">'+money(ticket)+'</div><div class="msub">Facturación mensual promedio</div></div>'+
+    '<div class="met"><div class="mlab">Ingresos mensuales</div><div class="mval">'+money(ingresos)+'</div><div class="msub">Tarifas de clientes activos</div></div>'+
+    '<div class="met"><div class="mlab">Quincenales</div><div class="mval">'+freq.Quincenal+'</div><div class="msub">'+(total?Math.round(freq.Quincenal/total*1000)/10:0)+'% de la cartera</div></div>'+
+    '</div>'));
+  const c1=document.createElement('div');c1.className='g2b';
+  const countryCard=document.createElement('div');countryCard.className='card';
+  countryCard.innerHTML='<div class="ctitle">Clientes por país <span class="cnt">'+total+'</span></div>'+(topCountries.length?topCountries.map(([k,n])=>'<div class="lrow"><div><div class="lname">'+esc(k)+'</div><div class="lsub">'+n+' cliente'+(n===1?'':'s')+'</div></div><div class="mono" style="font-weight:700">'+(total?Math.round(n/total*1000)/10:0)+'%</div></div>').join(''):'<div class="empty">No hay clientes activos.</div>');
+  c1.appendChild(countryCard);
+  const indCard=document.createElement('div');indCard.className='card';
+  const inds=Object.entries(industry).sort((a,b)=>b[1]-a[1]);
+  indCard.innerHTML='<div class="ctitle">Clientes por industria <span class="cnt">'+inds.length+'</span></div>'+(inds.length?inds.map(([k,n])=>'<div class="lrow"><div><div class="lname">'+esc(k)+'</div><div class="lsub">'+n+' cliente'+(n===1?'':'s')+'</div></div><div class="mono">'+(total?Math.round(n/total*1000)/10:0)+'%</div></div>').join(''):'<div class="empty">Sin industrias registradas.</div>');
+  c1.appendChild(indCard);v.appendChild(c1);
+  const c2=document.createElement('div');c2.className='card';c2.style.marginTop='16px';
+  const ranked=act.map(c=>({c,rev:Number(c.tarifaBruta)||0})).sort((a,b)=>b.rev-a.rev);
+  const top5=ranked.slice(0,5);const top5rev=top5.reduce((s,x)=>s+x.rev,0);
+  c2.innerHTML='<div class="ctitle">Concentración de ingresos <span class="cnt">top 5 clientes</span></div>'+
+    '<div class="sim"><div class="simrow"><span>Top 5 representan</span><span class="v">'+(ingresos?Math.round(top5rev/ingresos*1000)/10:0)+'%</span></div>'+
+    '<div class="simrow"><span>Promedio por cliente</span><span class="v">'+money(ticket)+'</span></div>'+
+    '<div class="simrow"><span>Ticket más alto</span><span class="v">'+money(ranked[0]?ranked[0].rev:0)+'</span></div>'+
+    '<div class="simrow"><span>Ticket más bajo</span><span class="v">'+money(ranked.length?ranked[ranked.length-1].rev:0)+'</span></div></div>';
+  v.appendChild(c2);
+  const c3=document.createElement('div');c3.className='card';c3.style.marginTop='16px';
+  c3.innerHTML='<div class="ctitle">Detalle de cartera</div>'+(ranked.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>País</th><th>Industria</th><th>Frecuencia</th><th>Ticket</th><th>% del ingreso</th></tr></thead><tbody>'+ranked.map(x=>'<tr><td><strong>'+esc(x.c.negocio)+'</strong></td><td>'+esc(inferirPais(x.c))+'</td><td>'+esc(x.c.industria||'No especificado')+'</td><td>'+(x.c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(x.rev)+'</td><td class="n">'+(ingresos?Math.round(x.rev/ingresos*1000)/10:0)+'%</td></tr>').join('')+'</tbody></table></div>':'<div class="empty">No hay clientes activos.</div>');
+  v.appendChild(c3);
+}
+
 /* ─────────── PROYECCIÓN FINANCIERA ─────────── */
 function proyeccionBase(){
   const act=(S.companies||[]).filter(c=>c.estado==='activo');
@@ -1950,7 +1997,8 @@ function proyeccionBase(){
   const gastosFijos=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
   const margenBruto=r2(ingresos-comisionesCobro-equipoVariable);
   const utilidad=r2(margenBruto-sueldosFijos-gastosFijos);
-  return{clientes:act.length,ingresos,comisionesCobro,equipoVariable,sueldosFijos,gastosFijos,margenBruto,utilidad};
+  const netoClientes=r2(ingresos-comisionesCobro);
+  return{clientes:act.length,ingresos,comisionesCobro,netoClientes,equipoVariable,sueldosFijos,gastosFijos,margenBruto,utilidad};
 }
 function vProyeccion(v){
   const b=proyeccionBase(), gastoFijo=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
@@ -1959,6 +2007,7 @@ function vProyeccion(v){
   v.appendChild(frag('<div class="mets">'+
     '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+b.clientes+'</div><div class="msub">Cartera actual</div></div>'+ 
     '<div class="met"><div class="mlab">Ingresos proyectados</div><div class="mval">'+money(b.ingresos)+'</div><div class="msub">Tarifas mensuales actuales</div></div>'+ 
+    '<div class="met"><div class="mlab">Neto después de comisión</div><div class="mval">'+money(b.netoClientes)+'</div><div class="msub">Lo que teóricamente queda del cliente</div></div>'+
     '<div class="met"><div class="mlab">Costo variable equipo</div><div class="mval">'+money(b.equipoVariable)+'</div><div class="msub">Pagos ligados a clientes</div></div>'+ 
     '<div class="met"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">Nómina fija mensual</div></div>'+ 
     '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Suscripciones y otros</div></div>'+ 
@@ -1979,7 +2028,8 @@ function vProyeccion(v){
   const c1=document.createElement('div');c1.className='card';
   c1.innerHTML='<div class="ctitle">Estructura mensual <span class="p '+(b.utilidad>=0?'p-ok':'p-d')+'">'+(b.ingresos>0?Math.round(b.utilidad/b.ingresos*1000)/10:0)+'% neto</span></div>'+
     '<div class="lrow"><div><div class="lname">Ingresos</div><div class="lsub">Suma de tarifas de clientes activos</div></div><div class="mono">'+money(b.ingresos)+'</div></div>'+
-    '<div class="lrow"><div><div class="lname">Comisiones / costos de cobro</div><div class="lsub">Según wallet configurada</div></div><div class="mono" style="color:var(--red)">−'+money(b.comisionesCobro)+'</div></div>'+
+    '<div class="lrow"><div><div class="lname">Comisiones teóricas de cobro</div><div class="lsub">Según comisión del cliente o método configurado</div></div><div class="mono" style="color:var(--red)">−'+money(b.comisionesCobro)+'</div></div>'+
+    '<div class="lrow"><div><div class="lname">Neto después de comisiones</div><div class="lsub">Ingresos menos comisiones teóricas</div></div><div class="mono">'+money(b.netoClientes)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Equipo variable</div><div class="lsub">Asignaciones y comisiones por cliente</div></div><div class="mono" style="color:var(--red)">−'+money(b.equipoVariable)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Sueldos fijos</div><div class="lsub">Empleados sueldo / mixtos</div></div><div class="mono" style="color:var(--red)">−'+money(b.sueldosFijos)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Gastos fijos</div><div class="lsub">Suscripciones, herramientas y otros</div></div><div class="mono" style="color:var(--red)">−'+money(b.gastosFijos)+'</div></div>'+
@@ -1991,8 +2041,8 @@ function vProyeccion(v){
   c2.appendChild(frag('<div class="msec"><div class="mstitle">Total mensual</div><div class="mval">'+money(gastoFijo)+'</div><div class="sub" style="font-size:12px">Estos gastos son de proyección y no modifican tus egresos reales.</div></div>'));
   g.appendChild(c2);v.appendChild(g);
   const cClients=document.createElement('div');cClients.className='card';cClients.style.marginTop='16px';
-  const trs=(S.companies||[]).filter(c=>c.estado==='activo').map(c=>{const cs=cascadaCliente(c);return '<tr><td><strong>'+esc(c.negocio)+'</strong></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(cs.bruto)+'</td><td class="n">−'+money(cs.comisionMonto)+'</td><td class="n">−'+money(cs.equipo)+'</td><td class="n" style="font-weight:700">'+money(cs.agencia)+'</td><td class="n">'+money(cs.agencia*100/(cs.bruto||1))+'%</td></tr>'}).join('');
-  cClients.innerHTML='<div class="ctitle">Cuánto deja cada cliente <span class="cnt">sin gastos fijos</span></div>'+(trs?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Ingreso mensual</th><th>Comisión cobro</th><th>Equipo variable</th><th>Libre para agencia</th><th>Margen</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<div style="font-size:12.5px;color:var(--tx3)">No hay clientes activos.</div>');
+  const trs=(S.companies||[]).filter(c=>c.estado==='activo').map(c=>{const cs=cascadaCliente(c);return '<tr><td><strong>'+esc(c.negocio)+'</strong></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(cs.bruto)+'</td><td class="n">−'+money(cs.comisionMonto)+'</td><td class="n">'+money(cs.neto)+'</td><td class="n">−'+money(cs.equipo)+'</td><td class="n" style="font-weight:700">'+money(cs.agencia)+'</td><td class="n">'+money(cs.agencia*100/(cs.bruto||1))+'%</td></tr>'}).join('');
+  cClients.innerHTML='<div class="ctitle">Cuánto deja cada cliente <span class="cnt">sin gastos fijos</span></div>'+(trs?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Ingreso mensual</th><th>Comisión cobro</th><th>Neto después de comisión</th><th>Equipo variable</th><th>Libre para agencia</th><th>Margen</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<div style="font-size:12.5px;color:var(--tx3)">No hay clientes activos.</div>');
   v.appendChild(cClients);
   const c3=document.createElement('div');c3.className='card';c3.style.marginTop='16px';
   const newClients=Number((S.proyeccionNuevosClientes||0));
@@ -2095,7 +2145,7 @@ function vEmpresas(v){
 }
 function mCompanyModal(){
   const isNew=S.mCompany==='new';
-  const c=isNew?{id:'new',negocio:'',ubicacion:'',tarifaBruta:120,metodoPagoId:(S.metodos[0]||{}).id,
+  const c=isNew?{id:'new',negocio:'',ubicacion:'',pais:'',tarifaBruta:120,metodoPagoId:(S.metodos[0]||{}).id,
     estado:'activo',frecuencia:'mensual',diaCobro:5,equipoIds:[],pesos:{},notas:[],fechaInicio:today()}:companyById(S.mCompany);
   if(!c){S.mCompany=null;return}
   const editing=isNew||S.eCompany===c.id;
@@ -2107,7 +2157,8 @@ function mCompanyModal(){
     m.innerHTML='<div class="mhd"><div class="mid">'+av(c.negocio||'?','l',0,c.foto)+'<div><div class="mtitle">'+(isNew?'Nueva empresa':esc(c.negocio))+'</div><div class="esub">Configura tarifa y reparto</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
       fotoCampo('e-foto',c.foto,'Logo del cliente')+
       '<div class="row"><div class="f"><label>Negocio</label><input id="e-neg" value="'+esc(c.negocio)+'" placeholder="Fatness"></div>'+
-      '<div class="f"><label>Ubicación</label><input id="e-ubi" value="'+esc(c.ubicacion||'')+'" placeholder="La Grita, Táchira"></div></div>'+
+      '<div class="f"><label>Ubicación</label><input id="e-ubi" value="'+esc(c.ubicacion||'')+'" placeholder="La Grita, Táchira"></div>'+
+      '<div class="f"><label>País</label><select id="e-pais"><option value="">No especificado</option>'+['Venezuela','Estados Unidos','Colombia','España','México','Chile','Argentina','Perú','Panamá','Canadá','República Dominicana','Otro'].map(x=>'<option'+(c.pais===x?' selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+
       '<div class="row"><div class="f"><label>Industria / rubro</label><input id="e-ind" value="'+esc(c.industria||'')+'" placeholder="Restaurante, clínica, retail…"></div>'+
       '<div class="f"><label>Sitio web</label><input id="e-web" value="'+esc(c.web||'')+'" placeholder="https://…"></div></div>'+
       '<div class="row"><div class="f"><label>Tarifa bruta mensual</label><input id="e-tar" type="number" step="0.01" value="'+c.tarifaBruta+'"><div class="hint">Lo que paga el cliente</div></div>'+
@@ -2242,7 +2293,7 @@ function mCompanyModal(){
       const cm=document.getElementById('e-com').value;
       const gv=id=>{const el=document.getElementById(id);return el?el.value.trim():''};
       const gn=id=>{const el=document.getElementById(id);if(!el||el.value==='')return null;return Number(el.value)||0};
-      const patch={negocio:neg,ubicacion:document.getElementById('e-ubi').value.trim(),
+      const patch={negocio:neg,ubicacion:document.getElementById('e-ubi').value.trim(),pais:document.getElementById('e-pais').value,
         foto:getFotoEmpresa(),
         industria:gv('e-ind'),web:gv('e-web'),
         servicios:Array.from(document.querySelectorAll('#e-servs .chip.on')).map(b=>b.dataset.sv),
