@@ -945,6 +945,12 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .ov{align-items:flex-start!important;justify-content:center!important;overflow-y:auto!important;overflow-x:hidden!important;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;}
 .ov .mdl{max-height:calc(100dvh - 24px)!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;}
 @media(max-width:560px){.ov .mdl{max-height:calc(100dvh - 16px)!important;padding:18px 14px 24px!important;border-radius:18px!important}}
+
+/* Scroll robusto para todos los modales y formularios largos */
+.ov{overflow-y:auto!important;overflow-x:hidden!important;align-items:flex-start!important;}
+.mdl{max-height:calc(100dvh - 28px);overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;margin:auto 0;}
+.mdl.wide{max-height:calc(100dvh - 28px);}
+@media(max-width:880px){.ov{padding:12px!important;}.mdl,.mdl.wide{max-height:calc(100dvh - 24px)!important;width:100%;}}
 </style>
 </head>
 <body>
@@ -1306,13 +1312,13 @@ const DB={
     return{key:k,deleted:true};
   }
 };
-const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos'];
+const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos'];
 async function save(k){await DB.set('pc2_'+k,JSON.stringify(S[k]))}
 async function saveAll(){for(const k of KEYS)await save(k)}
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
-  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],
+  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],
   mCompany:null,mContact:null,mProspect:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',
@@ -1751,11 +1757,73 @@ function vFacturas(v){
     S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);await save('invoices');render()});
 }
 
+/* ─────────── GASTOS FIJOS RECURRENTES ─────────── */
+function fechaVencimientoFijo(g,ym){
+  const [y,m]=ym.split('-').map(Number);const last=new Date(y,m,0).getDate();
+  const d=Math.min(Math.max(1,Number(g.dia)||1),last);
+  return ym+'-'+String(d).padStart(2,'0');
+}
+function pagoFijoDelMes(g,ym){
+  return (S.egresos||[]).find(e=>e.fijoId===g.id&&String(e.periodo||'')===ym)||null;
+}
+function totalGastosFijosMensual(){return r2((S.gastosFijos||[]).filter(g=>g.activo!==false).reduce((s,g)=>s+(Number(g.monto)||0),0))}
+function gastoFijoModal(id){
+  const g=id?(S.gastosFijos||[]).find(x=>x.id===id):null;
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const m=document.createElement('div');m.className='mdl';
+  m.innerHTML='<div class="mhd"><div><div class="mtitle">'+(g?'Editar gasto fijo':'Nuevo gasto fijo')+'</div><div class="esub">Programa una suscripción o gasto recurrente mensual.</div></div><button class="ib" id="gf-x"><i class="ti ti-x"></i></button></div>'+ 
+    '<div class="row"><div class="f"><label>Nombre</label><input id="gf-n" value="'+esc(g?g.nombre:'')+'" placeholder="Canva, Adobe, Hosting…"></div>'+ 
+    '<div class="f"><label>Categoría</label><select id="gf-c">'+CATS.map(c=>'<option'+((g?g.categoria:'Suscripción')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div></div>'+ 
+    '<div class="row"><div class="f"><label>Monto mensual</label><input id="gf-m" type="number" min="0" step="0.01" value="'+(g?g.monto:'')+'"></div>'+ 
+    '<div class="f"><label>Día de vencimiento</label><input id="gf-d" type="number" min="1" max="31" step="1" value="'+(g?g.dia:1)+'"><div class="hint">Si el mes tiene menos días, se ajusta al último día.</div></div></div>'+ 
+    '<div class="row"><div class="f"><label>Wallet habitual</label><select id="gf-w">'+S.metodos.map(w=>'<option value="'+w.id+'"'+((g&&g.walletId===w.id)||(!g&&w.id===(S.metodos[0]||{}).id)?' selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div>'+ 
+    '<div class="f"><label>Estado</label><select id="gf-a"><option value="1"'+((!g||g.activo!==false)?' selected':'')+'>Activo</option><option value="0"'+(g&&g.activo===false?' selected':'')+'>Pausado</option></select></div></div>'+ 
+    '<div class="brow"><button class="b bp" id="gf-ok">Guardar</button><button class="b bg" id="gf-cancel">Cancelar</button></div>';
+  ov.appendChild(m);document.body.appendChild(ov);
+  document.getElementById('gf-x').onclick=()=>ov.remove();document.getElementById('gf-cancel').onclick=()=>ov.remove();
+  document.getElementById('gf-ok').onclick=async()=>{
+    const nombre=document.getElementById('gf-n').value.trim(),monto=Number(document.getElementById('gf-m').value)||0,dia=Math.min(31,Math.max(1,Number(document.getElementById('gf-d').value)||1));
+    if(!nombre||monto<=0){alert('Completa nombre y monto.');return}
+    const patch={nombre,categoria:document.getElementById('gf-c').value,monto:r2(monto),dia,walletId:document.getElementById('gf-w').value,activo:document.getElementById('gf-a').value==='1'};
+    S.gastosFijos=S.gastosFijos||[];if(g)Object.assign(g,patch);else S.gastosFijos.push({id:uid(),...patch});
+    await save('gastosFijos');ov.remove();toast('Gasto fijo guardado');render();
+  };
+}
+async function pagarGastoFijo(id,ym){
+  const g=(S.gastosFijos||[]).find(x=>x.id===id);if(!g)return;
+  if(pagoFijoDelMes(g,ym)){alert('Este gasto ya está marcado como pagado para este mes.');return}
+  const fecha=fechaVencimientoFijo(g,ym),w=walletById(g.walletId);
+  if(!w){alert('Selecciona una wallet para este gasto fijo.');return}
+  const sw=saldoWallet(w.id,today()),disponible=r2(sw.saldo);
+  if(disponible+0.005<Number(g.monto)){alert('La wallet seleccionada no tiene saldo suficiente.');return}
+  const e={id:uid(),fecha,categoria:g.categoria||'General',descripcion:g.nombre,monto:r2(g.monto),walletId:g.walletId,fijoId:g.id,periodo:ym,esGastoFijo:true};
+  S.egresos.push(e);await save('egresos');toast('Gasto fijo marcado como pagado');render();
+}
+function vGastosFijos(v){
+  const hoy=new Date(),ym=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0');
+  const months=[];for(let i=0;i<3;i++){const d=new Date(hoy.getFullYear(),hoy.getMonth()+i,1);months.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'))}
+  const active=(S.gastosFijos||[]).filter(g=>g.activo!==false);
+  const total=totalGastosFijosMensual();
+  const c=document.createElement('div');c.className='card';
+  c.innerHTML='<div class="ctitle">Gastos fijos recurrentes <span class="mono" style="font-size:13px;color:var(--pink)">'+money(total)+'/mes</span></div>'+
+    '<p class="sub" style="font-size:12.5px;margin-bottom:14px">Programa suscripciones y otros pagos recurrentes. El dinero solo se descuenta de la wallet cuando marcas el gasto como pagado.</p>'+ 
+    (active.length?months.map(m=>{const lbl=new Date(m+'-01T00:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'});return '<div class="msec" style="margin-top:8px"><div class="mstitle" style="text-transform:capitalize">'+lbl+'</div>'+active.map(g=>{const pay=pagoFijoDelMes(g,m),vence=fechaVencimientoFijo(g,m);return '<div class="lrow"><div style="min-width:0"><div class="lname">'+esc(g.nombre)+' '+(pay?'<span class="p p-ok">Pagado</span>':'<span class="p p-w">Pendiente</span>')+'</div><div class="lsub">'+esc(g.categoria||'General')+' · vence '+fdate(vence)+' · '+money(g.monto)+' · '+esc(walletLabel(walletById(g.walletId)))+'</div></div><div style="display:flex;gap:6px;align-items:center">'+(!pay?'<button class="b bp bs" data-gfp="'+g.id+'|'+m+'">Pagar</button>':'<span class="mono" style="font-size:12px;color:var(--tx3)">Pagado '+fdate(pay.fecha)+'</span>')+'<button class="ib" data-gfe="'+g.id+'"><i class="ti ti-edit"></i></button></div></div>'}).join('')+'</div>'}).join(''):'<div class="empty" style="padding:20px 0">Agrega tu primer gasto fijo recurrente.</div>');
+  v.appendChild(c);
+  const card2=document.createElement('div');card2.className='card';card2.style.marginTop='14px';card2.innerHTML='<div class="ctitle">Configuración de gastos fijos <button class="b bp bs" id="new-gf"><i class="ti ti-plus"></i>Nuevo</button></div>'+((S.gastosFijos||[]).length?(S.gastosFijos||[]).map(g=>'<div class="lrow"><div><div class="lname">'+esc(g.nombre)+'</div><div class="lsub">'+money(g.monto)+' al mes · día '+g.dia+' · '+esc(walletLabel(walletById(g.walletId)))+'</div></div><div style="display:flex;gap:6px"><span class="p '+(g.activo===false?'p-g':'p-ok')+'">'+(g.activo===false?'Pausado':'Activo')+'</span><button class="ib" data-gfe2="'+g.id+'"><i class="ti ti-edit"></i></button><button class="ib dg" data-gfd="'+g.id+'"><i class="ti ti-trash"></i></button></div></div>').join(''):'<div class="sub" style="font-size:12.5px">Ninguno configurado.</div>');
+  v.appendChild(card2);
+  const ng=document.getElementById('new-gf');if(ng)ng.onclick=()=>gastoFijoModal();
+  v.querySelectorAll('[data-gfp]').forEach(b=>b.onclick=async()=>{const [id,m]=b.dataset.gfp.split('|');await pagarGastoFijo(id,m)});
+  v.querySelectorAll('[data-gfe]').forEach(b=>b.onclick=()=>gastoFijoModal(b.dataset.gfe));
+  card2.querySelectorAll('[data-gfe2]').forEach(b=>b.onclick=()=>gastoFijoModal(b.dataset.gfe2));
+  card2.querySelectorAll('[data-gfd]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar este gasto fijo?'))return;S.gastosFijos=S.gastosFijos.filter(x=>x.id!==b.dataset.gfd);await save('gastosFijos');render()});
+}
+
 /* ─────────── EGRESOS ─────────── */
 const CATS=['General','Herramientas','Publicidad','Oficina','Impuestos','Otros'];
 function vEgresos(v){
   head(v,'Dinero','Egresos','Gastos de la agencia que no son pagos al equipo.',
-    '<button class="b bp" id="new-eg"><i class="ti ti-plus"></i>Nuevo egreso</button>');
+    '<div style="display:flex;gap:7px;flex-wrap:wrap"><button class="b bg" id="new-gf-top"><i class="ti ti-repeat"></i>Gastos fijos</button><button class="b bp" id="new-eg"><i class="ti ti-plus"></i>Nuevo egreso</button></div>');
+  vGastosFijos(v);
   if(S.eEgreso){
     const e=S.eEgreso==='new'?{fecha:today(),categoria:'General',descripcion:'',monto:''}:S.egresos.find(x=>x.id===S.eEgreso);
     const f=document.createElement('div');f.className='card';f.style.marginBottom='16px';
@@ -1783,6 +1851,7 @@ function vEgresos(v){
     v.appendChild(c);
   });
   document.getElementById('new-eg').onclick=()=>{S.eEgreso='new';render()};
+  const gft=document.getElementById('new-gf-top');if(gft)gft.onclick=()=>gastoFijoModal();
   const gs=document.getElementById('g-save');
   if(gs)gs.onclick=async()=>{
     const p={fecha:document.getElementById('g-fe').value||today(),categoria:document.getElementById('g-ca').value,
@@ -1895,6 +1964,17 @@ function vProyeccion(v){
     '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Suscripciones y otros</div></div>'+ 
     '<div class="met"><div class="mlab">Ganancia mensual proyectada</div><div class="mval">'+money(b.utilidad)+'</div><div class="msub">Sin usar movimientos reales</div></div>'+ 
     '</div>'));
+  const ticketPromedio=b.clientes?b.ingresos/b.clientes:0;
+  v.appendChild(frag('<div class="card" style="margin-bottom:16px">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
+      '<div><div class="ctitle" style="margin-bottom:4px">Ticket promedio mensual</div>'+
+      '<div class="sub">Promedio de facturación mensual por cliente activo.</div></div>'+
+      '<div class="mono" style="font-size:28px;font-weight:700">'+money(ticketPromedio)+'</div>'+
+    '</div>'+
+    '<div class="sim" style="margin-top:12px"><div class="simrow"><span>Ingresos proyectados</span><span class="v">'+money(b.ingresos)+'</span></div>'+
+      '<div class="simrow"><span>Clientes activos</span><span class="v">'+b.clientes+'</span></div>'+
+      '<div class="simrow tot"><span>Ticket promedio</span><span class="v">'+money(ticketPromedio)+'</span></div></div>'+
+    '</div>'));
   const g=document.createElement('div');g.className='g2b';
   const c1=document.createElement('div');c1.className='card';
   c1.innerHTML='<div class="ctitle">Estructura mensual <span class="p '+(b.utilidad>=0?'p-ok':'p-d')+'">'+(b.ingresos>0?Math.round(b.utilidad/b.ingresos*1000)/10:0)+'% neto</span></div>'+
@@ -1915,10 +1995,10 @@ function vProyeccion(v){
   cClients.innerHTML='<div class="ctitle">Cuánto deja cada cliente <span class="cnt">sin gastos fijos</span></div>'+(trs?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Ingreso mensual</th><th>Comisión cobro</th><th>Equipo variable</th><th>Libre para agencia</th><th>Margen</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<div style="font-size:12.5px;color:var(--tx3)">No hay clientes activos.</div>');
   v.appendChild(cClients);
   const c3=document.createElement('div');c3.className='card';c3.style.marginTop='16px';
-  const baseTicket=b.clientes?b.ingresos/b.clientes:0;const extra=3;const newClients=Number((S.proyeccionNuevosClientes||0));
+  const newClients=Number((S.proyeccionNuevosClientes||0));
   c3.innerHTML='<div class="ctitle">Escenario de crecimiento</div><div class="row">'+
     '<div class="f"><label>Clientes nuevos</label><input id="pf-cl" type="number" min="0" step="1" value="'+newClients+'"><div class="hint">Se suman a la cartera actual.</div></div>'+ 
-    '<div class="f"><label>Ticket mensual por cliente nuevo</label><input id="pf-ti" type="number" min="0" step="0.01" value="'+r2(baseTicket)+'"><div class="hint">Promedio actual: '+money(baseTicket)+'</div></div>'+ 
+    '<div class="f"><label>Ticket mensual por cliente nuevo</label><input id="pf-ti" type="number" min="0" step="0.01" value="'+r2(ticketPromedio)+'"><div class="hint">Promedio actual: '+money(ticketPromedio)+'</div></div>'+ 
     '</div><div id="pf-scenario"></div>';
   v.appendChild(c3);
   function drawScenario(){
@@ -3404,6 +3484,7 @@ async function bootData(authUser){
     ensureRolePerms();await save('roles');
   }
   if(ensureUsers()){await save('roles');await save('users');}
+  if(!Array.isArray(S.gastosFijos))S.gastosFijos=[];
   if(!seeded&&!S.companies.length){
     const zelle=S.metodos[0].id;
     S.companies=SEED.map(([n,m])=>({id:uid(),negocio:n,ubicacion:'La Grita, Táchira',tarifaBruta:m,
