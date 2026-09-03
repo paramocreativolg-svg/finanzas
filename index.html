@@ -1696,7 +1696,7 @@ function vFacturas(v){
   hist.innerHTML='<div class="ctitle">Historial<span class="cnt">'+inv.length+'</span></div>'+
     (inv.length?'<table class="t"><thead><tr><th>Orden</th><th>Cliente</th><th>Fecha</th><th>Período</th><th>Monto</th><th></th></tr></thead><tbody>'+
     inv.slice(0,40).map(i=>'<tr><td class="n">'+esc(i.orden)+'</td><td>'+esc(i.negocio)+'</td><td class="n">'+fdate(i.fecha)+'</td><td>'+(esc(i.periodoEtiqueta||i.periodo||'Servicio mensual'))+'</td><td class="n">'+(Number(i.descuento||0)>0?money(i.subtotal||i.total)+' → '+money(i.total):money(i.total))+'</td>'+
-    '<td class="ta"><button class="ib" data-pdf="'+i.id+'"><i class="ti ti-download"></i></button><button class="ib dg" data-di="'+i.id+'"><i class="ti ti-trash"></i></button></td></tr>').join('')+'</tbody></table>'
+    '<td class="ta"><button class="ib" data-pdf="'+i.id+'" title="Descargar PDF"><i class="ti ti-download"></i></button><button class="ib" data-editi="'+i.id+'" title="Editar factura"><i class="ti ti-edit"></i></button><button class="ib dg" data-di="'+i.id+'" title="Eliminar factura"><i class="ti ti-trash"></i></button></td></tr>').join('')+'</tbody></table>'
     :mt('ti-file-invoice','Sin facturas.'));
   v.appendChild(hist);
 
@@ -1788,8 +1788,80 @@ function vFacturas(v){
     await save('invoices');await save('counter');facturaPDF(iv);toast('Factura generada');render();
   };
   hist.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>facturaPDF(S.invoices.find(i=>i.id===b.dataset.pdf)));
+  hist.querySelectorAll('[data-editi]').forEach(b=>b.onclick=()=>editarFacturaModal(b.dataset.editi));
   hist.querySelectorAll('[data-di]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar factura?'))return;
     S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);await save('invoices');render()});
+}
+
+
+/* ─────────── EDICIÓN DE MOVIMIENTOS ─────────── */
+function cerrarModalEdicion(ov){ov.remove();render()}
+function editarFacturaModal(id){
+  const i=S.invoices.find(x=>x.id===id);if(!i)return;
+  const act=visibleCompanies().filter(c=>c.estado!=='perdido');
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)cerrarModalEdicion(ov)};
+  const md=document.createElement('div');md.className='mdl wide';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar factura</div><div class="esub">'+esc(i.orden||'')+' · puedes corregir los datos y volver a generar el PDF.</div></div><button class="ib" id="ef-x"><i class="ti ti-x"></i></button></div>'+ 
+    '<div class="row"><div class="f"><label>Cliente</label><select id="ef-co">'+act.map(c=>'<option value="'+c.id+'" '+(c.id===i.companyId?'selected':'')+'>'+esc(c.negocio)+'</option>').join('')+'</select></div><div class="f"><label>N° orden</label><input id="ef-or" value="'+esc(i.orden||'')+'"></div></div>'+ 
+    '<div class="row"><div class="f"><label>Fecha</label><input id="ef-fe" type="date" value="'+esc(i.fecha||today())+'"></div><div class="f"><label>Subtotal</label><input id="ef-mo" type="number" min="0" step="0.01" value="'+Number(i.subtotal??i.monto??i.total??0)+'"></div></div>'+ 
+    '<div class="row"><div class="f"><label>Descuento %</label><input id="ef-dp" type="number" min="0" max="100" step="0.01" value="'+Number(i.descuentoPct||0)+'"></div><div class="f"><label>Descuento monto</label><input id="ef-da" type="number" min="0" step="0.01" value="'+Number(i.descuento||0)+'"></div></div>'+ 
+    '<div class="f"><label>Descripción</label><input id="ef-de" value="'+esc(i.descripcion||'')+'"></div>'+ 
+    '<div class="f"><label>Nota al pie</label><input id="ef-nt" value="'+esc(i.footNote||'')+'"></div>'+ 
+    '<div id="ef-per-wrap" class="f" style="display:none"><label>Período que cubre</label><select id="ef-per"><option value="1">Primera parte de la estrategia · días 1–15</option><option value="2">Segunda parte de la estrategia · días 16–fin de mes</option></select></div>'+ 
+    '<div class="sim" id="ef-prev"></div>'+ 
+    '<div class="brow"><button class="b bp" id="ef-save">Guardar cambios</button><button class="b bg" id="ef-cancel">Cancelar</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  const co=md.querySelector('#ef-co'),mo=md.querySelector('#ef-mo'),dp=md.querySelector('#ef-dp'),da=md.querySelector('#ef-da'),per=md.querySelector('#ef-per'),pw=md.querySelector('#ef-per-wrap'),prev=md.querySelector('#ef-prev');
+  let lock=false;
+  function amounts(){const sub=Math.max(0,Number(mo.value)||0),disc=Math.max(0,Math.min(sub,Number(da.value)||0));return{sub:r2(sub),disc:r2(disc),pct:sub>0?r2(disc/sub*100):0,total:r2(sub-disc)}}
+  function draw(){const a=amounts(),c=companyById(co.value);if(c&&c.frecuencia==='quincenal'){pw.style.display='block';per.value=String(i.periodoMitad||1)}else pw.style.display='none';prev.innerHTML='<div class="simrow"><span>Subtotal</span><span class="v">'+money(a.sub)+'</span></div>'+(a.disc>0?'<div class="simrow neg"><span>Descuento ('+pct(a.pct)+')</span><span class="v">−'+money(a.disc)+'</span></div>':'')+'<div class="simrow tot"><span>Total</span><span class="v">'+money(a.total)+'</span></div>'}
+  dp.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),p=Math.max(0,Math.min(100,Number(dp.value)||0));da.value=r2(sub*p/100).toFixed(2);lock=false;draw()};
+  da.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),d=Math.max(0,Math.min(sub,Number(da.value)||0));da.value=d.toFixed(2);dp.value=sub>0?r2(d/sub*100).toFixed(2):'0';lock=false;draw()};
+  mo.oninput=draw;co.onchange=draw;md.querySelector('#ef-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ef-cancel').onclick=()=>cerrarModalEdicion(ov);draw();
+  md.querySelector('#ef-save').onclick=async()=>{const c=companyById(co.value),a=amounts();if(!c){alert('Selecciona un cliente.');return}i.companyId=c.id;i.negocio=c.negocio;i.fecha=md.querySelector('#ef-fe').value||today();i.orden=md.querySelector('#ef-or').value.trim();i.nombre=(contactsOf(c.id)[0]?fullName(contactsOf(c.id)[0].contact):(i.nombre||''));i.ubicacion=c.ubicacion||'';i.frecuencia=c.frecuencia||i.frecuencia||'mensual';i.periodoMitad=i.frecuencia==='quincenal'?Number(per.value)||1:null;i.periodoEtiqueta=i.frecuencia==='quincenal'?(i.periodoMitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual';i.periodo=periodoFacturaCliente(c,i.fecha,i.periodoMitad);i.subtotal=a.sub;i.descuento=a.disc;i.descuentoPct=a.pct;i.total=a.total;i.tarifaMensual=Number(c.tarifaBruta)||0;i.descripcion=md.querySelector('#ef-de').value.trim();i.footNote=md.querySelector('#ef-nt').value.trim();await save('invoices');toast('Factura actualizada');ov.remove();facturaPDF(i);render()};
+}
+function editarCobroModal(id){
+  const p=S.cobros.find(x=>x.id===id);if(!p||!visibleCobros().some(x=>x.id===id))return;
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)cerrarModalEdicion(ov)};const md=document.createElement('div');md.className='mdl wide';
+  const clienteMode=p.tipoIngreso!=='externo';
+  const act=visibleCompanies().filter(c=>c.estado==='activo');
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar cobro</div><div class="esub">Corrige monto, fecha, wallet y aplicación del cobro sin crear un movimiento duplicado.</div></div><button class="ib" id="ec-x"><i class="ti ti-x"></i></button></div>'+ 
+    '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip '+(clienteMode?'on':'')+'" id="ec-client">Cobro de cliente</button><button type="button" class="chip '+(!clienteMode?'on':'')+'" id="ec-ext">Ingreso externo</button></div>'+ 
+    '<div id="ec-client-box">'+
+    '<div class="row"><div class="f"><label>Cliente</label><select id="ec-co">'+act.map(c=>'<option value="'+c.id+'" '+(c.id===p.companyId?'selected':'')+'>'+esc(c.negocio)+'</option>').join('')+'</select></div><div class="f"><label>Monto bruto</label><input id="ec-mo" type="number" min="0" step="0.01" value="'+Number(p.montoBruto||0)+'"></div></div>'+ 
+    '<div class="row"><div class="f"><label>Wallet / método</label><select id="ec-me">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.metodoPagoId?'selected':'')+'>'+esc(walletLabel(w))+' · '+pct(w.comisionPct)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ec-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div>'+ 
+    '<div class="msec"><div class="mstitle">Quincenas que cubre</div><div class="hint" style="margin-bottom:8px">Puedes cambiar qué períodos cubre este mismo cobro. El sistema reparte el monto entre las quincenas seleccionadas.</div><div id="ec-alloc" class="qgrid"></div></div></div>'+ 
+    '<div id="ec-ext-box" style="display:none"><div class="row"><div class="f"><label>Concepto / origen</label><input id="ec-con" value="'+esc(p.concepto||'')+'"></div><div class="f"><label>Monto</label><input id="ec-emo" type="number" min="0" step="0.01" value="'+Number(p.montoBruto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet / método</label><select id="ec-eme">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.metodoPagoId?'selected':'')+'>'+esc(walletLabel(w))+' · '+pct(w.comisionPct)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ec-efe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><textarea id="ec-no">'+esc(p.nota||'')+'</textarea></div></div>'+ 
+    '<div class="f" id="ec-note-wrap" style="display:'+ (clienteMode?'none':'block') +'"><label>Nota</label><textarea id="ec-cno">'+esc(p.nota||'')+'</textarea></div>'+ 
+    '<div id="ec-prev" class="sim"></div><div class="brow"><button class="b bp" id="ec-save">Guardar cambios</button><button class="b bg" id="ec-cancel">Cancelar</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  const cbox=md.querySelector('#ec-client-box'),ebox=md.querySelector('#ec-ext-box'),mc=md.querySelector('#ec-client'),meb=md.querySelector('#ec-ext'),alloc=md.querySelector('#ec-alloc'),prev=md.querySelector('#ec-prev');let mode=clienteMode?'cliente':'externo';
+  function setMode(m){mode=m;const c=m==='cliente';cbox.style.display=c?'block':'none';ebox.style.display=c?'none':'block';mc.classList.toggle('on',c);meb.classList.toggle('on',!c);draw();if(c)renderAlloc()}
+  mc.onclick=()=>setMode('cliente');meb.onclick=()=>setMode('externo');
+  const qCandidates=(fecha)=>{const d=new Date((fecha||today())+'T12:00:00'),all=[];for(let y=d.getFullYear()-1;y<=d.getFullYear()+1;y++)all.push(...quincenasAnio(y));const idx=all.findIndex(q=>fecha>=q.inicio&&fecha<=q.fin);return all.slice(Math.max(0,(idx<0?0:idx)-3),Math.max(0,(idx<0?0:idx)-3)+8)};
+  function renderAlloc(){if(!alloc)return;const c=companyById(md.querySelector('#ec-co').value);const fecha=md.querySelector('#ec-fe').value||today();if(!c)return;const cand=qCandidates(fecha);let selected=(p.aplicaciones||[]).map(a=>a.quincenaKey);if(!selected.length){const q=quincenasAnio(Number(fecha.slice(0,4))).find(x=>fecha>=x.inicio&&fecha<=x.fin);selected=q?[q.key]:[]}alloc.innerHTML=cand.map(q=>'<button type="button" class="qopt '+(selected.includes(q.key)?'on':'')+'" data-eq="'+q.key+'"><span>'+esc(labelQ(q))+'</span><span class="mono">'+money(r2(Number(c.tarifaBruta||0)*0.5))+'</span></button>').join('');alloc.querySelectorAll('[data-eq]').forEach(b=>b.onclick=()=>{b.classList.toggle('on');refreshAlloc()});refreshAlloc()}
+  function refreshAlloc(){const total=r2(Number(md.querySelector('#ec-mo').value)||0),c=companyById(md.querySelector('#ec-co').value);if(!c)return;const btns=[...alloc.querySelectorAll('.qopt.on')];let rem=total;btns.forEach(b=>{const cap=r2(Number(c.tarifaBruta||0)*0.5),v=r2(Math.min(cap,Math.max(0,rem)));rem=r2(rem-v);b.dataset.amount=v.toFixed(2);b.querySelector('.mono').textContent=money(v)});prev.innerHTML='<div class="simrow"><span>Monto bruto</span><span class="v">'+money(total)+'</span></div><div class="simrow tot"><span>Quincenas seleccionadas</span><span class="v">'+btns.length+'</span></div>'}
+  function draw(){if(mode==='externo'){const b=Number(md.querySelector('#ec-emo').value)||0,m2=S.metodos.find(x=>x.id===md.querySelector('#ec-eme').value),cp=m2?m2.comisionPct:0;prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(r2(b*cp/100))+'</span></div><div class="simrow tot"><span>Neto a wallet</span><span class="v">'+money(r2(b-r2(b*cp/100)))+'</span></div>'}else refreshAlloc()}
+  md.querySelector('#ec-mo').oninput=refreshAlloc;md.querySelector('#ec-co').onchange=renderAlloc;md.querySelector('#ec-fe').oninput=renderAlloc;md.querySelector('#ec-emo').oninput=draw;md.querySelector('#ec-eme').onchange=draw;
+  md.querySelector('#ec-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ec-cancel').onclick=()=>cerrarModalEdicion(ov);if(mode==='cliente')renderAlloc();else draw();
+  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await save('cobros');await save('companies');toast('Cobro actualizado');ov.remove();render()}
+}
+function editarPagoModal(id){
+  const p=S.payouts.find(x=>x.id===id);if(!p||!visiblePayouts().some(x=>x.id===id))return;const m=memberById(p.memberId);if(!m)return;
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)cerrarModalEdicion(ov)};const md=document.createElement('div');md.className='mdl wide';
+  if(p.tipo==='adelanto'){
+    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar adelanto</div><div class="esub">El monto del adelanto afecta el saldo pendiente del empleado.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Empleado</label><select id="epay-m">'+S.members.map(x=>'<option value="'+x.id+'" '+(x.id===p.memberId?'selected':'')+'>'+esc(x.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="epay-mo" type="number" min="0" step="0.01" value="'+Number(p.monto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
+  }else{
+    const rows=(p.detalle||[]).map((d,i)=>'<div class="assoc" style="cursor:default"><div class="ai"><div class="an">'+esc(d.negocio||'Cliente')+'</div><div class="as">Se pagó '+money(d.pagable||0)+' · retenido '+money(d.retenido||0)+'</div></div><input class="epay-det" data-i="'+i+'" type="number" min="0" step="0.01" value="'+Number(d.pagable||0)+'" style="width:120px"></div>').join('');
+    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar pago de nómina</div><div class="esub">Puedes corregir lo pagado por cliente, la fecha, wallet y nota. El sueldo base de la quincena se conserva.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="msec"><div class="mstitle">Pagos variables por cliente</div>'+(rows||'<div class="empty">Este pago no tiene detalle por cliente.</div>')+'</div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="sim"><div class="simrow"><span>Sueldo base registrado</span><span class="v">'+money(p.sueldoBase||0)+'</span></div><div class="simrow"><span>Adelantos descontados</span><span class="v">−'+money(p.adelantosDescontados||0)+'</span></div><div class="simrow tot"><span>Nuevo total</span><span class="v" id="epay-total">'+money(p.monto||0)+'</span></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
+  }
+  ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#epay-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#epay-cancel').onclick=()=>cerrarModalEdicion(ov);
+  if(p.tipo==='adelanto'){
+    md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;if(mo<=0||!wid){alert('Completa monto y wallet.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.walletId=wid;p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Adelanto actualizado');ov.remove();render()};
+  }else{
+    md.querySelectorAll('.epay-det').forEach(inp=>inp.oninput=()=>{let total=r2(Number(p.sueldoBase||0)+[...md.querySelectorAll('.epay-det')].reduce((s,x)=>s+(Number(x.value)||0),0)-Number(p.adelantosDescontados||0));md.querySelector('#epay-total').textContent=money(Math.max(0,total))});
+    md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;p.walletId=md.querySelector('#epay-wa').value;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Pago actualizado');ov.remove();render()};
+  }
 }
 
 /* ─────────── GASTOS FIJOS RECURRENTES ─────────── */
@@ -2572,7 +2644,7 @@ function vCobros(v){
   v.appendChild(f);
   const hist=document.createElement('div');hist.className='card';
   const ord=visibleCobros().slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
-  hist.innerHTML='<div class="ctitle">Historial<span class="cnt">'+ord.length+'</span></div>'+(ord.length?'<table class="t"><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente / concepto</th><th>Método</th><th>Bruto</th><th>Comisión</th><th>Neto</th><th></th></tr></thead><tbody>'+    ord.slice(0,80).map(p=>{const co=p.companyId?companyById(p.companyId):null,me=S.metodos.find(x=>x.id===p.metodoPagoId);const cm=p.comisionPct!=null?Number(p.comisionPct):(me?me.comisionPct:0),com=r2((Number(p.montoBruto)||0)*cm/100);const tipo=p.tipoIngreso==='externo'?'Ingreso externo':'Cliente';const concepto=co?co.negocio:(p.concepto||'Ingreso externo');return '<tr><td class="n">'+fdate(p.fecha)+'</td><td><span class="p '+(p.tipoIngreso==='externo'?'p-n':'p-i')+'">'+tipo+'</span></td><td>'+esc(concepto)+'</td><td>'+(me?esc(walletLabel(me)):'—')+'</td><td class="n">'+money(p.montoBruto)+'</td><td class="n" style="color:var(--red)">'+(com?'−'+money(com):'—')+'</td><td class="n">'+money(r2((Number(p.montoBruto)||0)-com))+'</td><td class="ta"><button class="ib dg" data-dk="'+p.id+'"><i class="ti ti-trash"></i></button></td></tr>'}).join('')+'</tbody></table>':mt('ti-cash','Sin ingresos registrados.'));
+  hist.innerHTML='<div class="ctitle">Historial<span class="cnt">'+ord.length+'</span></div>'+(ord.length?'<table class="t"><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente / concepto</th><th>Método</th><th>Bruto</th><th>Comisión</th><th>Neto</th><th></th></tr></thead><tbody>'+    ord.slice(0,80).map(p=>{const co=p.companyId?companyById(p.companyId):null,me=S.metodos.find(x=>x.id===p.metodoPagoId);const cm=p.comisionPct!=null?Number(p.comisionPct):(me?me.comisionPct:0),com=r2((Number(p.montoBruto)||0)*cm/100);const tipo=p.tipoIngreso==='externo'?'Ingreso externo':'Cliente';const concepto=co?co.negocio:(p.concepto||'Ingreso externo');return '<tr><td class="n">'+fdate(p.fecha)+'</td><td><span class="p '+(p.tipoIngreso==='externo'?'p-n':'p-i')+'">'+tipo+'</span></td><td>'+esc(concepto)+'</td><td>'+(me?esc(walletLabel(me)):'—')+'</td><td class="n">'+money(p.montoBruto)+'</td><td class="n" style="color:var(--red)">'+(com?'−'+money(com):'—')+'</td><td class="n">'+money(r2((Number(p.montoBruto)||0)-com))+'</td><td class="ta"><button class="ib" data-ek="'+p.id+'" title="Editar cobro"><i class="ti ti-edit"></i></button><button class="ib dg" data-dk="'+p.id+'" title="Eliminar cobro"><i class="ti ti-trash"></i></button></td></tr>'}).join('')+'</tbody></table>':mt('ti-cash','Sin ingresos registrados.'));
   v.appendChild(hist);
   const modeC=document.getElementById('k-client-mode'),modeE=document.getElementById('k-ext-mode'),clientBox=document.getElementById('k-client-fields'),extBox=document.getElementById('k-external-fields'),prev=document.getElementById('k-prev');let mode='cliente';
   function setMode(next){mode=next;const isC=next==='cliente';clientBox.style.display=isC?'block':'none';extBox.style.display=isC?'none':'block';modeC.classList.toggle('on',isC);modeE.classList.toggle('on',!isC);document.getElementById('k-add').innerHTML=isC?'<i class="ti ti-circle-plus"></i>Registrar cobro':'<i class="ti ti-circle-plus"></i>Registrar ingreso';draw()}
@@ -2594,6 +2666,7 @@ function vCobros(v){
     if(mode==='externo'){const b=r2(Number(document.getElementById('k-ex-mo').value)||0),concepto=document.getElementById('k-ex-con').value.trim();if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!concepto){alert('Escribe el concepto u origen del ingreso.');return}S.cobros.push({id:uid(),tipoIngreso:'externo',concepto,montoBruto:b,metodoPagoId:document.getElementById('k-ex-me').value,fecha:document.getElementById('k-ex-fe').value||today(),nota:document.getElementById('k-ex-no').value.trim()});await save('cobros');toast('Ingreso registrado');render();return}
     const b=r2(Number(mo.value)||0);if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!canSeeCompanyId(co.value)){alert('No tienes acceso a este cliente.');return}const fechaPago=fe.value||today();let aplicaciones=allocationPayload();if(!aplicaciones.length){alert('Selecciona al menos una quincena que cubra este cobro.');return}let suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0));if(suma>0&&Math.abs(suma-b)>0.01){aplicaciones[aplicaciones.length-1].monto=r2(aplicaciones[aplicaciones.length-1].monto+(b-suma));suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0))}if(Math.abs(suma-b)>0.01){alert('El reparto por quincenas no coincide con el monto del cobro.');return}S.cobros.push({id:uid(),tipoIngreso:'cliente',companyId:co.value,montoBruto:b,metodoPagoId:me.value,fecha:fechaPago,aplicaciones});const cc=companyById(co.value);registrarFechaPagoCliente(cc,fechaPago);await save('cobros');await save('companies');toast('Cobro registrado');render();
   };
+  hist.querySelectorAll('[data-ek]').forEach(b=>b.onclick=()=>editarCobroModal(b.dataset.ek));
   hist.querySelectorAll('[data-dk]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar ingreso?'))return;if(!visibleCobros().some(x=>x.id===b.dataset.dk)){alert('No tienes acceso a este ingreso.');return}S.cobros=S.cobros.filter(x=>x.id!==b.dataset.dk);await save('cobros');render()});
 }
 
@@ -3322,9 +3395,10 @@ function vPagosEquipo(v){
   if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();return}
   c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
     const m=memberById(p.memberId);const clientes=(p.detalle||[]).map(x=>x.negocio).filter(Boolean).join(', ')||'—';
-    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
+    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
   }).join('')+'</tbody></table></div>';
   v.appendChild(c);
+  c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
   c.querySelectorAll('[data-pdfpay]').forEach(b=>b.onclick=()=>{const p=S.payouts.find(x=>x.id===b.dataset.pdfpay);if(p&&visiblePayouts().some(x=>x.id===p.id))comprobantePDF(p)});
   c.querySelectorAll('[data-delpay]').forEach(b=>b.onclick=async()=>{if(!visiblePayouts().some(x=>x.id===b.dataset.delpay)){alert('No tienes acceso a este pago.');return}if(!confirm('¿Eliminar este pago?'))return;S.payouts=S.payouts.filter(x=>x.id!==b.dataset.delpay);await save('payouts');toast('Pago eliminado');render()});
   const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();
@@ -3337,6 +3411,22 @@ function adelantoGeneralModal(){
  md.innerHTML='<div class="mhd"><div><div class="mtitle">Nuevo adelanto al equipo</div><div class="esub">No depende de que el cliente haya pagado. El dinero sale de una wallet.</div></div><button class="ib" id="ag-x"><i class="ti ti-x"></i></button></div>'+ '<div class="row"><div class="f"><label>Empleado</label><select id="ag-m">'+ms.map(m=>'<option value="'+m.id+'">'+esc(m.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="ag-mo" type="number" min="0" step="0.01"></div></div>'+ '<div class="row"><div class="f"><label>Sale de la wallet</label><select id="ag-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ag-fe" type="date" value="'+today()+'"></div></div>'+ '<div class="f"><label>Nota</label><input id="ag-no" placeholder="Motivo o referencia"></div>'+ '<div class="brow"><button class="b bp" id="ag-ok">Registrar adelanto</button></div>';
  ov.appendChild(md);document.body.appendChild(ov);document.getElementById('ag-x').onclick=()=>ov.remove();
  document.getElementById('ag-ok').onclick=async()=>{const memberId=document.getElementById('ag-m').value,monto=r2(Number(document.getElementById('ag-mo').value)||0),walletId=document.getElementById('ag-wa').value;if(!memberId||monto<=0){alert('Selecciona un empleado y un monto válido.');return}if(!walletId){alert('Selecciona la wallet de salida.');return}const sw=saldoWallet(walletId);if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}const fecha=document.getElementById('ag-fe').value||today();const y=Number(fecha.slice(0,4));const q=quincenasAnio(y).find(x=>x.inicio<=fecha&&x.fin>=fecha);S.payouts.push({id:uid(),memberId,fecha,quincenaKey:q?q.key:'',tipo:'adelanto',monto,nota:document.getElementById('ag-no').value.trim(),walletId,general:true,detalle:[]});await save('payouts');ov.remove();toast('Adelanto registrado y descontado de la wallet');render()};
+}
+
+/* Restauración segura desde un respaldo JSON de la propia app. */
+function importarRespaldoCompleto(){
+  const input=document.createElement('input');input.type='file';input.accept='.json,application/json';
+  input.onchange=async()=>{const f=input.files&&input.files[0];if(!f)return;const fr=new FileReader();fr.onload=async()=>{
+    try{
+      const d=JSON.parse(fr.result);if(!d||typeof d!=='object'){alert('El respaldo no es válido.');return}
+      const disponibles=KEYS.filter(k=>Object.prototype.hasOwnProperty.call(d,k));
+      if(!disponibles.length){alert('El respaldo no contiene datos de la aplicación.');return}
+      if(!confirm('Esto restaurará los datos contenidos en el respaldo y reemplazará los datos actuales de esas secciones. ¿Continuar?'))return;
+      for(const k of disponibles){S[k]=d[k];await save(k)}
+      if(d.roles)ensureRolePerms();
+      toast('Respaldo restaurado');location.reload();
+    }catch(e){console.error(e);alert('No se pudo leer el respaldo JSON.')}
+  };fr.readAsText(f)};input.click();
 }
 
 /* ─────────── AJUSTES ─────────── */
@@ -3375,7 +3465,9 @@ function vAjustes(v){
   const dz=document.createElement('div');dz.className='card';dz.style.marginTop='16px';
   dz.innerHTML='<div class="ctitle">Datos</div>'+
     '<div class="brow"><button class="b bg bs" id="dl-json"><i class="ti ti-download"></i>Descargar respaldo</button>'+
-    '<button class="b bg bs bd" id="wipe"><i class="ti ti-trash"></i>Borrar todo</button></div>';
+    '<button class="b bg bs" id="imp-full"><i class="ti ti-upload"></i>Restaurar respaldo</button>'+
+    '<button class="b bg bs bd" id="wipe"><i class="ti ti-trash"></i>Borrar todo</button></div>'+
+    '<p class="sub" style="font-size:12px;margin-top:10px">Restaurar respaldo reemplaza las secciones incluidas en el JSON. Úsalo para recuperar cobros, wallets y movimientos desde una copia anterior.</p>';
   v.appendChild(dz);
 
   document.getElementById('go-w').onclick=()=>{S.tab='wallets';render()};
@@ -3396,6 +3488,7 @@ function vAjustes(v){
     if(!confirm('¿Eliminar este usuario?'))return;
     S.users=S.users.filter(x=>x.id!==b.dataset.udel);await save('users');render()});
 
+  document.getElementById('imp-full').onclick=()=>importarRespaldoCompleto();
   document.getElementById('dl-json').onclick=()=>{
     const d={};KEYS.forEach(k=>d[k]=S[k]);
     const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');
@@ -3594,8 +3687,13 @@ async function bootData(authUser){
     }),
     (async()=>{try{const r=await DB.get('pc2_seed');if(r)seeded=JSON.parse(r.value)}catch(e){}})()
   ]);
-  let txReset=false;try{const rr=await DB.get('pc2_tx_reset_v3');txReset=rr?JSON.parse(rr.value):false}catch(e){}
-  if(!txReset){S.cobros=[];S.payouts=[];S.adelantos=[];S.entregas=[];S.calendario={};await Promise.all([save('cobros'),save('payouts'),save('adelantos'),save('entregas'),save('calendario')]);await DB.set('pc2_tx_reset_v3',JSON.stringify(true));}
+  /* SEGURIDAD DE DATOS: nunca borres transacciones al iniciar/actualizar la app.
+     Una versión anterior usaba pc2_tx_reset_v3 para limpiar cobros, nómina,
+     adelantos, entregas y calendario automáticamente. Ese comportamiento es
+     peligroso porque los balances de las wallets dependen de esos movimientos.
+     El marcador legado se conserva solo como referencia y NO ejecuta ningún
+     borrado ni reemplazo de datos. */
+  try{const rr=await DB.get('pc2_tx_reset_v3');if(!rr)await DB.set('pc2_tx_reset_v3',JSON.stringify(true))}catch(e){}
   /* No sobrescribas nunca una cartera vacía con wallets por defecto.
      Si el registro no existe, se deja vacío para que el administrador las cree
      manualmente; así una actualización nunca puede reemplazar wallets reales. */
@@ -3610,7 +3708,7 @@ async function bootData(authUser){
   if(ensureUsers()){await save('roles');await save('users');}
   if(!Array.isArray(S.gastosFijos))S.gastosFijos=[];
   if(!seeded&&!S.companies.length){
-    const zelle=S.metodos[0].id;
+    const zelle=(S.metodos[0]||{}).id||'';
     S.companies=SEED.map(([n,m])=>({id:uid(),negocio:n,ubicacion:'La Grita, Táchira',tarifaBruta:m,
       metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
       equipoIds:[],pesos:{},notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:''}));
