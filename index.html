@@ -607,6 +607,8 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent;}
 }
 
 .line-card{padding:12px 14px}.line-table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:14px;background:var(--card)}.line-mtx{min-width:980px}.line-mtx th.hmes{padding:10px 8px}.line-mtx td.cel{height:48px;min-width:82px}.line-mtx td.cel.pagada{background:var(--lime2)}.line-mtx td.cel.pendiente{background:var(--amb2)}.line-mtx td.cel.vencida{background:var(--red2)}.cell-status{display:inline-flex;align-items:center;justify-content:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:700}.cell-status.pagada{background:#DFF0D0;color:#3D6B18}.cell-status.pendiente{background:#FDF3E3;color:#8A5A0F}.cell-status.vencida{background:#FDEDED;color:#9B2C2C}.line-legend{padding:10px 14px;margin:12px 0}.line-legend span{font-size:11.5px;color:var(--tx2);display:inline-flex;gap:5px;align-items:center}.view-month{font-size:13px;min-width:150px;text-align:center}.ec-card{min-height:250px}
+
+.inv-item{align-items:flex-end;margin-bottom:8px}.inv-item .f{margin-bottom:0}.inv-item .ib{margin-bottom:2px}
 </style>
 
 <style>
@@ -1150,20 +1152,30 @@ function fechaInicioControl(){return S.controlInicioFecha||null}
 function cobrosEnControl(list){const ini=fechaInicioControl();return (list||[]).filter(p=>!ini||String(p.fecha||'')>=ini)}
 function pagoEnPeriodo(cid,ini,fin){const ps=cobrosEnControl(S.cobros).filter(p=>p.companyId===cid&&p.fecha>=ini&&p.fecha<=fin);
 return{pagos:ps,totalBruto:r2(ps.reduce((s,p)=>s+(Number(p.montoBruto)||0),0)),pagado:ps.length>0}}
-function montoFacturaCliente(c){return r2((Number(c&&c.tarifaBruta)||0)*(c&&c.frecuencia==='quincenal'?0.5:1))}
+function montoFacturaCliente(c){if(!c)return 0;return r2((Number(c.tarifaBruta)||0)*((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'?0.5:1))}
 function addDaysISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
 function addMonthISO(iso){const d=new Date(iso+'T12:00:00');const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return d.toISOString().slice(0,10)}
-function siguienteFechaPago(c,fecha){return c&&c.frecuencia==='quincenal'?addDaysISO(fecha,15):addMonthISO(fecha)}
-function registrarFechaPagoCliente(c,fecha){if(!c)return;const f=fecha||today();c.ultimaFechaPago=f;c.proximaFechaPago=siguienteFechaPago(c,f);c.diaCobro=Number(c.proximaFechaPago.slice(8,10))||c.diaCobro||5}
-function fechaPagoCliente(c){if(!c)return null;if(c.proximaFechaPago)return c.proximaFechaPago;const d=Number(c.diaCobro)||5;const base=c.fechaInicio||today();const ym=base.slice(0,7);const last=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7)),0).getDate();return ym+'-'+String(Math.min(d,last)).padStart(2,'0')}
-
-function periodoFacturaCliente(c,fecha,mitad){
+function clampDay(y,m,d){const last=new Date(y,m,0).getDate();return Math.min(Math.max(Number(d)||1,last),last)}
+function fechaConDia(y,m,d){return y+'-'+String(m).padStart(2,'0')+'-'+String(clampDay(y,m,d)).padStart(2,'0')}
+function diasCobro(c){const d1=Number(c&&c.diaCobro1)||Number(c&&c.diaCobro)||5;const d2=Number(c&&c.diaCobro2)||20;return [d1,d2].map(x=>Math.min(31,Math.max(1,x))).sort((a,b)=>a-b);}
+function siguienteFechaPago(c,fecha){
+  if(!c||c.tipoContrato==='unico')return'';
   const f=fecha||today();
-  if(!c||c.frecuencia!=='quincenal')return 'Servicio mensual';
-  const y=Number(f.slice(0,4)),m=Number(f.slice(5,7));
-  const mitadN=Number(mitad)||((Number(f.slice(8,10))||1)<=15?1:2);
-  const qs=quincenasAnio(y),q=qs.find(x=>x.mes===m&&x.mitad===mitadN);
-  return q?labelQ(q)+' '+q.year:'Quincena '+mitadN;
+  if(c.frecuencia!=='quincenal')return addMonthISO(f);
+  const d=new Date(f+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1,ds=diasCobro(c);
+  for(const day of ds){const cand=fechaConDia(y,m,day);if(cand>f)return cand;}
+  const ny=m===12?y+1:y,nm=m===12?1:m+1;return fechaConDia(ny,nm,ds[0]);
+}
+function registrarFechaPagoCliente(c,fecha){
+  if(!c)return;const f=fecha||today();c.ultimaFechaPago=f;c.proximaFechaPago=siguienteFechaPago(c,f);
+  if(c.frecuencia==='quincenal'){const ds=diasCobro(c);c.diaCobro1=ds[0];c.diaCobro2=ds[1];c.diaCobro=c.diaCobro1;}else c.diaCobro=Number(c.diaCobro1)||Number(c.diaCobro)||5;
+}
+function fechaPagoCliente(c){
+  if(!c)return null;if(c.proximaFechaPago)return c.proximaFechaPago;
+  const base=c.fechaInicio||today(),d=new Date(base+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1;
+  const ds=c.frecuencia==='quincenal'?diasCobro(c):[Number(c.diaCobro1)||Number(c.diaCobro)||5];
+  const candidatos=ds.map(x=>fechaConDia(y,m,x)).filter(x=>x>=base).sort();
+  if(candidatos.length)return candidatos[0];const ny=m===12?y+1:y,nm=m===12?1:m+1;return fechaConDia(ny,nm,ds[0]);
 }
 /* Distribución secuencial de cobros para nómina. */
 function cobroNominaCliente(c,q){
@@ -1725,14 +1737,14 @@ function vFacturas(v){
     '<div class="row"><div class="f"><label>Cliente</label><select id="i-co">'+act.map(c=>'<option value="'+c.id+'"'+(pre===c.id?' selected':'')+'>'+esc(c.negocio)+'</option>').join('')+'</select></div>'+
     '<div class="f"><label>N° orden</label><input id="i-or" value="'+nextO+'"></div></div>'+
     '<div class="row"><div class="f"><label>Fecha</label><input id="i-fe" type="date" value="'+today()+'"></div>'+
-    '<div class="f"><label>Subtotal</label><input id="i-mo" type="number" step="0.01"></div></div>'+
+    '<div class="f"><label>Subtotal</label><input id="i-mo" type="number" step="0.01" readonly><div class="hint">Se calcula automáticamente sumando los servicios de abajo.</div></div></div>'+
     '<div class="row"><div class="f"><label>Descuento %</label><input id="i-dp" type="number" min="0" max="100" step="0.01" value="0"></div>'+
     '<div class="f"><label>Descuento monto</label><input id="i-da" type="number" min="0" step="0.01" value="0"></div></div>'+
     '<div id="i-total-info" class="sim" style="margin-bottom:12px"></div>'+
     '<div id="i-periodo-wrap" class="f" style="display:none"><label>Período que cubre</label><select id="i-per"><option value="1">Primera parte de la estrategia · días 1–15</option><option value="2">Segunda parte de la estrategia · días 16–fin de mes</option></select><div class="hint">Selecciona qué quincena estás facturando. Se guardará en la factura y aparecerá en el PDF.</div></div>'+
     '<div id="i-info" class="hint" style="margin:-5px 0 12px"></div>'+
-    '<div class="f"><label>Descripción</label><input id="i-de" value="Gestión de Redes Sociales"></div>'+
-    '<div class="f"><label>Nota al pie</label><input id="i-nt" placeholder="Cuota de servicio mensual"></div>'+
+    '<div class="msec"><div class="mstitle">Servicios / conceptos de esta factura</div><div id="i-items"></div><button type="button" class="b bg bs" id="i-add-item"><i class="ti ti-plus"></i>Agregar otro servicio</button><div class="hint" style="margin-top:7px">Puedes agregar Community Management, logo, web, campaña, diseño, pauta u otro servicio y ponerle su monto.</div></div>'+
+    '<div class="f"><label>Nota al pie</label><input id="i-nt" placeholder="Detalle adicional"></div>'+
     '<div class="brow"><button class="b bp" id="i-gen"><i class="ti ti-download"></i>Generar PDF</button></div>';
   g.appendChild(f);
   const pw=document.createElement('div');pw.className='pvwrap';
@@ -1751,7 +1763,14 @@ function vFacturas(v){
   v.appendChild(hist);
 
   const co=document.getElementById('i-co'),or=document.getElementById('i-or'),fe=document.getElementById('i-fe'),
-    mo=document.getElementById('i-mo'),dp=document.getElementById('i-dp'),da=document.getElementById('i-da'),totalInfo=document.getElementById('i-total-info'),de=document.getElementById('i-de'),nt=document.getElementById('i-nt'),info=document.getElementById('i-info'),perWrap=document.getElementById('i-periodo-wrap'),per=document.getElementById('i-per');
+    mo=document.getElementById('i-mo'),dp=document.getElementById('i-dp'),da=document.getElementById('i-da'),totalInfo=document.getElementById('i-total-info'),nt=document.getElementById('i-nt'),info=document.getElementById('i-info'),perWrap=document.getElementById('i-periodo-wrap'),per=document.getElementById('i-per'),itemsBox=document.getElementById('i-items');
+  let invoiceItems=[{descripcion:'Gestión de Redes Sociales',monto:0}];
+  function renderItems(){
+    itemsBox.innerHTML=invoiceItems.map((it,idx)=>'<div class="row inv-item" data-ii="'+idx+'"><div class="f" style="flex:1.5"><label>Servicio / concepto</label><input class="ii-desc" value="'+esc(it.descripcion||'')+'" placeholder="Logo, página web, campaña…"></div><div class="f" style="max-width:180px"><label>Monto</label><input class="ii-mo" type="number" min="0" step="0.01" value="'+Number(it.monto||0)+'"></div>'+(idx>0?'<div style="display:flex;align-items:end;padding-bottom:4px"><button type="button" class="ib dg ii-del" title="Eliminar concepto"><i class="ti ti-trash"></i></button></div>':'')+'</div>').join('');
+    itemsBox.querySelectorAll('[data-ii]').forEach(row=>{const idx=Number(row.dataset.ii);row.querySelector('.ii-desc').oninput=e=>{invoiceItems[idx].descripcion=e.target.value;draw()};row.querySelector('.ii-mo').oninput=e=>{invoiceItems[idx].monto=Number(e.target.value)||0;updateSubtotalFromItems();draw()};const del=row.querySelector('.ii-del');if(del)del.onclick=()=>{invoiceItems.splice(idx,1);renderItems();updateSubtotalFromItems();draw()}});
+  }
+  function updateSubtotalFromItems(){mo.value=r2(invoiceItems.reduce((sum,it)=>sum+(Number(it.monto)||0),0))}
+  document.getElementById('i-add-item').onclick=()=>{invoiceItems.push({descripcion:'',monto:0});renderItems()};
   let lockDiscount=false,discountDefaultAppliedFor='';
   function syncDiscountFromPct(){
     if(lockDiscount)return;lockDiscount=true;
@@ -1774,7 +1793,8 @@ function vFacturas(v){
     const c=companyById(co.value);
     if(c){
       const monto=montoFacturaCliente(c);
-      mo.value=monto;
+      if(invoiceItems.length===1 && (!invoiceItems[0].descripcion||invoiceItems[0].descripcion==='Gestión de Redes Sociales')){invoiceItems[0].descripcion=c.tipoContrato==='unico'?'Servicio contratado':'Gestión de Redes Sociales';invoiceItems[0].monto=monto;}
+      renderItems();updateSubtotalFromItems();
       if(discountDefaultAppliedFor!==c.id){
         const defPct=Math.max(0,Math.min(100,Number(c.descuentoPredeterminadoPct)||0));
         dp.value=defPct.toFixed(2);
@@ -1782,7 +1802,7 @@ function vFacturas(v){
         discountDefaultAppliedFor=c.id;
       }
       
-      if(c.frecuencia==='quincenal'){
+      if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){
         perWrap.style.display='block';
         const mitadFecha=(Number((fe.value||today()).slice(8,10))||1)<=15?1:2;
         if(per&&!per.dataset.user){per.value=String(mitadFecha)}
@@ -1791,7 +1811,7 @@ function vFacturas(v){
       }else{
         perWrap.style.display='none';
         if(per)per.dataset.user='';
-        info.textContent='Cliente mensual: se factura la tarifa completa de '+money(monto)+'.';
+        info.textContent=c.tipoContrato==='unico'?'Cliente de pago único: esta factura no genera cobros recurrentes.':'Cliente recurrente: se factura según la frecuencia configurada.';
         nt.placeholder='Cuota de servicio mensual';
       }
     }
@@ -1801,12 +1821,12 @@ function vFacturas(v){
   fe.oninput=()=>{if(per)per.dataset.user='';sync()};
   if(per)per.onchange=()=>{per.dataset.user='1';draw()};
   [or,de,nt].forEach(e=>e.oninput=draw);
-  mo.oninput=()=>{dp.value='0';da.value='0';draw()};
+  mo.oninput=()=>{updateSubtotalFromItems();draw()};
   dp.oninput=syncDiscountFromPct;
   da.oninput=syncDiscountFromAmt;
   function periodoSeleccionado(){
     const c=companyById(co.value);
-    return c&&c.frecuencia==='quincenal'?periodoFacturaCliente(c,fe.value,Number(per&&per.value)||1):'Servicio mensual';
+    return c&&(!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'?periodoFacturaCliente(c,fe.value,Number(per&&per.value)||1):(c&&c.tipoContrato==='unico'?'Servicio puntual · pago único':'Servicio mensual');
   }
   function draw(){
     const c=companyById(co.value);if(!c)return;
@@ -1815,11 +1835,11 @@ function vFacturas(v){
     const cts=contactsOf(c.id);const nm=cts.length?fullName(cts[0].contact):'';
     document.getElementById('pv-i').innerHTML=[esc(nm).toUpperCase(),esc(c.negocio).toUpperCase(),esc(c.ubicacion||'').toUpperCase()].filter(Boolean).join('<br>');
     document.getElementById('pv-t').innerHTML='<div><span class="l">N° orden</span><span class="v">'+esc(or.value)+'</span></div><div><span class="l">Fecha</span><span class="v">'+fdate(fe.value)+'</span></div>';
-    document.getElementById('pv-b').innerHTML='<div class="h"><span>Descripción</span><span>Total</span></div>'+
-      '<div class="r"><span>'+esc(de.value)+(c.frecuencia==='quincenal'&&periodoSeleccionado()?' · '+esc(periodoSeleccionado()):'')+'</span><span class="a">'+money(ia.subtotal)+'</span></div>'+
+    const itemRows=invoiceItems.filter(it=>(it.descripcion||'').trim()||Number(it.monto)).map(it=>'<div class="r"><span>'+esc(it.descripcion||'Servicio')+'</span><span class="a">'+money(Number(it.monto)||0)+'</span></div>').join('');
+    document.getElementById('pv-b').innerHTML='<div class="h"><span>Descripción</span><span>Total</span></div>'+itemRows+
       (ia.descuento>0?'<div class="r"><span>Descuento ('+pct(ia.descuentoPct)+')</span><span class="a">−'+money(ia.descuento)+'</span></div>':'')+
       '<div class="tt"><span>Total</span><span class="a">'+money(ia.total)+'</span></div>';
-    document.getElementById('pv-n').textContent=nt.value||(c.frecuencia==='quincenal'?periodoSeleccionado():'Cuota de servicio mensual');
+    document.getElementById('pv-n').textContent=nt.value||periodoSeleccionado();
   }
   sync();
   document.getElementById('i-gen').onclick=async()=>{
@@ -1829,10 +1849,10 @@ function vFacturas(v){
     const ia=invoiceAmounts();
     const iv={id:uid(),companyId:c.id,orden:or.value.trim(),fecha:fe.value,negocio:c.negocio,
       nombre:cts.length?fullName(cts[0].contact):'',ubicacion:c.ubicacion||'',
-      frecuencia:c.frecuencia||'mensual',periodo:periodoFacturaCliente(c,fe.value,mitad),periodoMitad:mitad,
-      periodoEtiqueta:c.frecuencia==='quincenal'?(mitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual',
+      frecuencia:c.frecuencia||'mensual',tipoContrato:c.tipoContrato||'recurrente',periodo:periodoFacturaCliente(c,fe.value,mitad),periodoMitad:mitad,
+      periodoEtiqueta:c.tipoContrato==='unico'?'Servicio puntual · pago único':(c.frecuencia==='quincenal'?(mitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual'),
       subtotal:ia.subtotal||totalSugerido,descuento:ia.descuento,descuentoPct:ia.descuentoPct,total:ia.total||totalSugerido,tarifaMensual:Number(c.tarifaBruta)||0,
-      descripcion:de.value.trim(),footNote:nt.value.trim()||(c.frecuencia==='quincenal'?periodoFacturaCliente(c,fe.value,mitad):'Cuota de servicio mensual')};
+      items:invoiceItems.filter(x=>(x.descripcion||'').trim()||Number(x.monto)),descripcion:(invoiceItems.find(x=>(x.descripcion||'').trim())||{}).descripcion||'Servicio',footNote:nt.value.trim()||(c.frecuencia==='quincenal'?periodoFacturaCliente(c,fe.value,mitad):'Cuota de servicio mensual')};
     S.invoices.unshift(iv);
     const n=parseInt(iv.orden.replace(/\D/g,''))||S.counter;if(n>S.counter)S.counter=n;
     await save('invoices');await save('counter');facturaPDF(iv);toast('Factura generada');render();
@@ -1853,22 +1873,27 @@ function editarFacturaModal(id){
   const md=document.createElement('div');md.className='mdl wide';
   md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar factura</div><div class="esub">'+esc(i.orden||'')+' · puedes corregir los datos y volver a generar el PDF.</div></div><button class="ib" id="ef-x"><i class="ti ti-x"></i></button></div>'+ 
     '<div class="row"><div class="f"><label>Cliente</label><select id="ef-co">'+act.map(c=>'<option value="'+c.id+'" '+(c.id===i.companyId?'selected':'')+'>'+esc(c.negocio)+'</option>').join('')+'</select></div><div class="f"><label>N° orden</label><input id="ef-or" value="'+esc(i.orden||'')+'"></div></div>'+ 
-    '<div class="row"><div class="f"><label>Fecha</label><input id="ef-fe" type="date" value="'+esc(i.fecha||today())+'"></div><div class="f"><label>Subtotal</label><input id="ef-mo" type="number" min="0" step="0.01" value="'+Number(i.subtotal??i.monto??i.total??0)+'"></div></div>'+ 
+    '<div class="row"><div class="f"><label>Fecha</label><input id="ef-fe" type="date" value="'+esc(i.fecha||today())+'"></div><div class="f"><label>Subtotal</label><input id="ef-mo" type="number" min="0" step="0.01" value="'+Number(i.subtotal??i.monto??i.total??0)+'" readonly></div></div>'+ 
     '<div class="row"><div class="f"><label>Descuento %</label><input id="ef-dp" type="number" min="0" max="100" step="0.01" value="'+Number(i.descuentoPct||0)+'"></div><div class="f"><label>Descuento monto</label><input id="ef-da" type="number" min="0" step="0.01" value="'+Number(i.descuento||0)+'"></div></div>'+ 
-    '<div class="f"><label>Descripción</label><input id="ef-de" value="'+esc(i.descripcion||'')+'"></div>'+ 
+    '<div class="msec"><div class="mstitle">Servicios / conceptos de esta factura</div><div id="ef-items"></div><button type="button" class="b bg bs" id="ef-add-item"><i class="ti ti-plus"></i>Agregar otro servicio</button></div>'+ 
     '<div class="f"><label>Nota al pie</label><input id="ef-nt" value="'+esc(i.footNote||'')+'"></div>'+ 
     '<div id="ef-per-wrap" class="f" style="display:none"><label>Período que cubre</label><select id="ef-per"><option value="1">Primera parte de la estrategia · días 1–15</option><option value="2">Segunda parte de la estrategia · días 16–fin de mes</option></select></div>'+ 
     '<div class="sim" id="ef-prev"></div>'+ 
     '<div class="brow"><button class="b bp" id="ef-save">Guardar cambios</button><button class="b bg" id="ef-cancel">Cancelar</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);
-  const co=md.querySelector('#ef-co'),mo=md.querySelector('#ef-mo'),dp=md.querySelector('#ef-dp'),da=md.querySelector('#ef-da'),per=md.querySelector('#ef-per'),pw=md.querySelector('#ef-per-wrap'),prev=md.querySelector('#ef-prev');
+  const co=md.querySelector('#ef-co'),mo=md.querySelector('#ef-mo'),dp=md.querySelector('#ef-dp'),da=md.querySelector('#ef-da'),per=md.querySelector('#ef-per'),pw=md.querySelector('#ef-per-wrap'),prev=md.querySelector('#ef-prev'),itemsBox=md.querySelector('#ef-items');
+  let invoiceItems=Array.isArray(i.items)&&i.items.length?JSON.parse(JSON.stringify(i.items)):[{descripcion:i.descripcion||'Servicio',monto:Number(i.subtotal??i.total??0)}];
+  function renderItems(){itemsBox.innerHTML=invoiceItems.map((it,idx)=>'<div class="row inv-item" data-eii="'+idx+'"><div class="f" style="flex:1.5"><label>Servicio / concepto</label><input class="eii-desc" value="'+esc(it.descripcion||'')+'"></div><div class="f" style="max-width:180px"><label>Monto</label><input class="eii-mo" type="number" min="0" step="0.01" value="'+Number(it.monto||0)+'"></div>'+(idx>0?'<div style="display:flex;align-items:end;padding-bottom:4px"><button type="button" class="ib dg eii-del"><i class="ti ti-trash"></i></button></div>':'')+'</div>').join('');
+    itemsBox.querySelectorAll('[data-eii]').forEach(row=>{const idx=Number(row.dataset.eii);row.querySelector('.eii-desc').oninput=e=>{invoiceItems[idx].descripcion=e.target.value;draw()};row.querySelector('.eii-mo').oninput=e=>{invoiceItems[idx].monto=Number(e.target.value)||0;updateSubtotal();draw()};const del=row.querySelector('.eii-del');if(del)del.onclick=()=>{invoiceItems.splice(idx,1);renderItems();updateSubtotal();draw()}});}
+  function updateSubtotal(){mo.value=r2(invoiceItems.reduce((sum,it)=>sum+(Number(it.monto)||0),0))}
+  md.querySelector('#ef-add-item').onclick=()=>{invoiceItems.push({descripcion:'',monto:0});renderItems();updateSubtotal();draw()};
   let lock=false;
   function amounts(){const sub=Math.max(0,Number(mo.value)||0),disc=Math.max(0,Math.min(sub,Number(da.value)||0));return{sub:r2(sub),disc:r2(disc),pct:sub>0?r2(disc/sub*100):0,total:r2(sub-disc)}}
-  function draw(){const a=amounts(),c=companyById(co.value);if(c&&c.frecuencia==='quincenal'){pw.style.display='block';per.value=String(i.periodoMitad||1)}else pw.style.display='none';prev.innerHTML='<div class="simrow"><span>Subtotal</span><span class="v">'+money(a.sub)+'</span></div>'+(a.disc>0?'<div class="simrow neg"><span>Descuento ('+pct(a.pct)+')</span><span class="v">−'+money(a.disc)+'</span></div>':'')+'<div class="simrow tot"><span>Total</span><span class="v">'+money(a.total)+'</span></div>'}
+  function draw(){const a=amounts(),c=companyById(co.value);if(c&&(!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){pw.style.display='block';per.value=String(i.periodoMitad||1)}else pw.style.display='none';prev.innerHTML='<div class="simrow"><span>Subtotal</span><span class="v">'+money(a.sub)+'</span></div>'+(a.disc>0?'<div class="simrow neg"><span>Descuento ('+pct(a.pct)+')</span><span class="v">−'+money(a.disc)+'</span></div>':'')+'<div class="simrow tot"><span>Total</span><span class="v">'+money(a.total)+'</span></div>'}
   dp.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),p=Math.max(0,Math.min(100,Number(dp.value)||0));da.value=r2(sub*p/100).toFixed(2);lock=false;draw()};
   da.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),d=Math.max(0,Math.min(sub,Number(da.value)||0));da.value=d.toFixed(2);dp.value=sub>0?r2(d/sub*100).toFixed(2):'0';lock=false;draw()};
-  mo.oninput=draw;co.onchange=draw;md.querySelector('#ef-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ef-cancel').onclick=()=>cerrarModalEdicion(ov);draw();
-  md.querySelector('#ef-save').onclick=async()=>{const c=companyById(co.value),a=amounts();if(!c){alert('Selecciona un cliente.');return}i.companyId=c.id;i.negocio=c.negocio;i.fecha=md.querySelector('#ef-fe').value||today();i.orden=md.querySelector('#ef-or').value.trim();i.nombre=(contactsOf(c.id)[0]?fullName(contactsOf(c.id)[0].contact):(i.nombre||''));i.ubicacion=c.ubicacion||'';i.frecuencia=c.frecuencia||i.frecuencia||'mensual';i.periodoMitad=i.frecuencia==='quincenal'?Number(per.value)||1:null;i.periodoEtiqueta=i.frecuencia==='quincenal'?(i.periodoMitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual';i.periodo=periodoFacturaCliente(c,i.fecha,i.periodoMitad);i.subtotal=a.sub;i.descuento=a.disc;i.descuentoPct=a.pct;i.total=a.total;i.tarifaMensual=Number(c.tarifaBruta)||0;i.descripcion=md.querySelector('#ef-de').value.trim();i.footNote=md.querySelector('#ef-nt').value.trim();await save('invoices');toast('Factura actualizada');ov.remove();facturaPDF(i);render()};
+  mo.oninput=draw;co.onchange=()=>{renderItems();updateSubtotal();draw()};md.querySelector('#ef-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ef-cancel').onclick=()=>cerrarModalEdicion(ov);renderItems();updateSubtotal();draw();
+  md.querySelector('#ef-save').onclick=async()=>{const c=companyById(co.value),a=amounts();if(!c){alert('Selecciona un cliente.');return}i.companyId=c.id;i.negocio=c.negocio;i.fecha=md.querySelector('#ef-fe').value||today();i.orden=md.querySelector('#ef-or').value.trim();i.nombre=(contactsOf(c.id)[0]?fullName(contactsOf(c.id)[0].contact):(i.nombre||''));i.ubicacion=c.ubicacion||'';i.frecuencia=c.frecuencia||i.frecuencia||'mensual';i.tipoContrato=c.tipoContrato||i.tipoContrato||'recurrente';i.periodoMitad=(i.tipoContrato==='recurrente'&&i.frecuencia==='quincenal')?Number(per.value)||1:null;i.periodoEtiqueta=i.tipoContrato==='unico'?'Servicio puntual · pago único':i.frecuencia==='quincenal'?(i.periodoMitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual';i.periodo=periodoFacturaCliente(c,i.fecha,i.periodoMitad);i.items=invoiceItems.filter(x=>(x.descripcion||'').trim()||Number(x.monto));i.subtotal=a.sub;i.descuento=a.disc;i.descuentoPct=a.pct;i.total=a.total;i.tarifaMensual=Number(c.tarifaBruta)||0;i.descripcion=(invoiceItems.find(x=>(x.descripcion||'').trim())||{}).descripcion||'Servicio';i.footNote=md.querySelector('#ef-nt').value.trim();await save('invoices');toast('Factura actualizada');ov.remove();facturaPDF(i);render()};
 }
 function editarCobroModal(id){
   const p=S.cobros.find(x=>x.id===id);if(!p||!visibleCobros().some(x=>x.id===id))return;
@@ -2298,19 +2323,32 @@ function vPanel(v){
 function labelQ(q){const m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 return (q.mitad===1?'1–15':'16–'+q.fin.slice(8))+' '+m[q.mes-1]}
 
+function tipoContratoLabel(c){
+  const t=c&&c.tipoContrato;
+  if(t==='unico')return'Pago único';
+    return c&&c.frecuencia==='quincenal'?'Recurrente · quincenal':'Recurrente · mensual';
+}
+function esRecurrente(c){return !c || !c.tipoContrato || c.tipoContrato==='recurrente'}
+function tarifaClienteLabel(c){
+  if(!c)return'—';
+  const t=Number(c.tarifaBruta)||0;
+  if(c.tipoContrato==='unico')return money(t)+' pago único';
+    return c.frecuencia==='quincenal'?money(t*0.5)+' por quincena':money(t)+' / mes';
+}
+
 /* ─────────── EMPRESAS ─────────── */
 function vEmpresas(v){
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
   const ch=document.createElement('div');ch.className='chips';[['todos','Todas'],['activo','Activas'],['pausado','Pausadas'],['perdido','Perdidas']].forEach(([k,l])=>{const b=document.createElement('button');b.className='chip'+(S.fCompany===k?' on':'');b.textContent=l;b.onclick=()=>{S.fCompany=k;render()};ch.appendChild(b)});v.appendChild(ch);const list=visibleCompanies().filter(c=>S.fCompany==='todos'||c.estado===S.fCompany);
   if(!list.length)v.appendChild(frag(mt('ti-building','No hay empresas con ese filtro.')));
-  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Frecuencia</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(fechaPagoCliente(c)?fdate(fechaPagoCliente(c)):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
+  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(fechaPagoCliente(c)?fdate(fechaPagoCliente(c)):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
   else{const g=document.createElement('div');g.className='grid';list.forEach(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>',card=document.createElement('div');card.className='ecard';card.innerHTML='<div class="etop">'+av(c.negocio,'',0,c.foto)+'<div style="min-width:0;flex:1"><div class="ename">'+esc(c.negocio)+'</div><div class="esub">'+(rn.numMiembros||0)+' en el equipo · margen '+money(rn.margenAgencia)+'</div></div></div><div style="display:flex;gap:6px;flex-wrap:wrap">'+pill+'<span class="p '+(c.estado==='activo'?'p-ok':c.estado==='pausado'?'p-w':'p-g')+'">'+(c.estado==='activo'?'Activo':c.estado==='pausado'?'Pausado':'Perdido')+'</span></div><div class="emeta"><div><div class="eamt">'+money(c.tarifaBruta)+'</div><div class="enote">bruto al mes</div></div><div style="text-align:right"><div class="eamt" style="font-size:13px;color:var(--tx2)">'+money(rn.porMiembroMes)+'</div><div class="enote">equipo variable</div></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};g.appendChild(card)});v.appendChild(g)}
   const newCo=document.getElementById('new-co');if(newCo)newCo.onclick=()=>{S.mCompany='new';S.eCompany='new';render()};document.getElementById('emp-cards').onclick=()=>{S.viewEmpresas='cards';render()};document.getElementById('emp-list').onclick=()=>{S.viewEmpresas='list';render()};
 }
 function mCompanyModal(){
   const isNew=S.mCompany==='new';
-  const c=isNew?{id:'new',negocio:'',ubicacion:'',pais:'',tarifaBruta:120,descuentoPredeterminadoPct:0,metodoPagoId:(S.metodos[0]||{}).id,
-    estado:'activo',frecuencia:'mensual',diaCobro:5,equipoIds:[],pesos:{},notas:[],fechaInicio:today()}:companyById(S.mCompany);
+  const c=isNew?{id:'new',negocio:'',ubicacion:'',pais:'',tarifaBruta:120,descuentoPredeterminadoPct:0,tipoContrato:'recurrente',metodoPagoId:(S.metodos[0]||{}).id,
+    estado:'activo',frecuencia:'mensual',diaCobro:5,diaCobro1:5,diaCobro2:20,equipoIds:[],pesos:{},notas:[],fechaInicio:today()}:companyById(S.mCompany);
   if(!c){S.mCompany=null;return}
   const editing=isNew||S.eCompany===c.id;
   const ov=document.createElement('div');ov.className='ov';
@@ -2329,9 +2367,11 @@ function mCompanyModal(){
       '<div class="f"><label>Método de pago</label><select id="e-met">'+S.metodos.map(x=>'<option value="'+x.id+'"'+(c.metodoPagoId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+pct(x.comisionPct)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Comisión manual %</label><input id="e-com" type="number" step="0.1" min="0" max="60" value="'+(c.comisionPct!=null&&c.comisionPct!==''?c.comisionPct:'')+'" placeholder="auto"><div class="hint">Vacío = usa la del método</div></div></div>'+
       '<div class="row"><div class="f"><label>Descuento predeterminado %</label><input id="e-desc" type="number" step="0.01" min="0" max="100" value="'+(c.descuentoPredeterminadoPct||0)+'"><div class="hint">Se aplicará automáticamente al crear facturas de este cliente.</div></div></div>'+
-      '<div class="row"><div class="f"><label>Frecuencia</label><select id="e-fr">'+[['mensual','Mensual'],['quincenal','Quincenal']].map(([k,l])=>'<option value="'+k+'"'+(c.frecuencia===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
-      '<div class="f"><label>Día de cobro</label><input id="e-dia" type="number" min="1" max="31" value="'+(c.diaCobro||5)+'"></div>'+
-      '<div class="f"><label>Estado</label><select id="e-est">'+['activo','pausado','perdido'].map(x=>'<option value="'+x+'"'+(c.estado===x?' selected':'')+'>'+x[0].toUpperCase()+x.slice(1)+'</option>').join('')+'</select></div>'+
+      '<div class="row"><div class="f"><label>Tipo de contratación</label><select id="e-tipo"><option value="recurrente"'+((c.tipoContrato||'recurrente')==='recurrente'||false?' selected':'')+'>Recurrente</option><option value="unico"'+(c.tipoContrato==='unico'?' selected':'')+'>Pago único</option></select><div class="hint">Recurrente para clientes mensuales o quincenales. Pago único para servicios puntuales.</div></div>'+
+      '<div class="f"><label>Frecuencia</label><select id="e-fr">'+[['mensual','Mensual'],['quincenal','Quincenal']].map(([k,l])=>'<option value="'+k+'"'+(c.frecuencia===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
+      '<div class="f"><label>Fecha de cobro 1</label><input id="e-dia1" type="number" min="1" max="31" value="'+(c.diaCobro1||c.diaCobro||5)+'"><div class="hint">Día del mes. En quincenal es la primera fecha.</div></div>'+
+      '<div class="f"><label>Fecha de cobro 2</label><input id="e-dia2" type="number" min="1" max="31" value="'+(c.diaCobro2||20)+'"><div class="hint">Solo para clientes recurrentes quincenales.</div></div>'+
+'<div class="f"><label>Estado</label><select id="e-est">'+['activo','pausado','perdido'].map(x=>'<option value="'+x+'"'+(c.estado===x?' selected':'')+'>'+x[0].toUpperCase()+x.slice(1)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Cliente desde</label><input id="e-fi" type="date" value="'+(c.fechaInicio||'')+'"></div></div>'+
 
       '<div class="msec"><div class="mstitle">Servicios y entregables</div>'+
@@ -2362,7 +2402,7 @@ function mCompanyModal(){
     const rn=rentabilidad(c);const cts=contactsOf(c.id);const team=teamOf(c.id);
     const invs=S.invoices.filter(i=>i.companyId===c.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
     const pagos=S.cobros.filter(p=>p.companyId===c.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
-    m.innerHTML='<div class="mhd"><div class="mid">'+av(c.negocio,'l',0,c.foto)+'<div><div class="mtitle">'+esc(c.negocio)+'</div><div class="esub">'+esc(c.ubicacion||'Sin ubicación')+' · '+money(c.tarifaBruta)+'/mes'+(Number(c.descuentoPredeterminadoPct||0)>0?' · descuento '+pct(c.descuentoPredeterminadoPct):'')+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
+    m.innerHTML='<div class="mhd"><div class="mid">'+av(c.negocio,'l',0,c.foto)+'<div><div class="mtitle">'+esc(c.negocio)+'</div><div class="esub">'+esc(c.ubicacion||'Sin ubicación')+' · '+esc(tarifaClienteLabel(c))+(Number(c.descuentoPredeterminadoPct||0)>0?' · descuento '+pct(c.descuentoPredeterminadoPct):'')+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
       '<div class="brow"><button class="b bp bs" id="a-cob"><i class="ti ti-cash"></i>Registrar cobro</button><button class="b bg bs" id="a-fac"><i class="ti ti-file-invoice"></i>Facturar</button><button class="b bg bs" id="a-edit"><i class="ti ti-edit"></i>Editar</button><button class="b bg bs bd" id="a-del"><i class="ti ti-trash"></i></button></div>'+
       fichaMarketing(c)+
       '<div class="msec"><div class="mstitle">Cómo se reparte cada mes</div><div class="sim">'+simRows(rn.cascada)+'</div></div>'+
@@ -2449,6 +2489,11 @@ function mCompanyModal(){
     ['e-tar','e-com'].forEach(id=>document.getElementById(id).oninput=drawSim);
     document.getElementById('e-met').onchange=drawSim;
     drawAsig();drawSim();
+    const syncCobroFields=()=>{const isRec=document.getElementById('e-tipo')&&document.getElementById('e-tipo').value==='recurrente';const isQ=isRec&&document.getElementById('e-fr')&&document.getElementById('e-fr').value==='quincenal';const d2=document.getElementById('e-dia2');if(d2){d2.disabled=!isQ;d2.parentElement.style.opacity=isQ?'1':'0.55';}};
+    const tipoCobEl=document.getElementById('e-tipo'),freqCobEl=document.getElementById('e-fr');
+    if(tipoCobEl)tipoCobEl.addEventListener('change',()=>{syncCobroFields();drawSim()});
+    if(freqCobEl)freqCobEl.addEventListener('change',syncCobroFields);
+    syncCobroFields();
     const getFotoEmpresa=fotoBind('e-foto',c.foto);
     document.querySelectorAll('#e-servs .chip').forEach(b=>b.onclick=()=>b.classList.toggle('on'));
 
@@ -2471,8 +2516,11 @@ function mCompanyModal(){
         descuentoPredeterminadoPct:Math.max(0,Math.min(100,Number(document.getElementById('e-desc').value)||0)),
         metodoPagoId:document.getElementById('e-met').value,
         comisionPct:cm===''?null:Number(cm)||0,
-        frecuencia:document.getElementById('e-fr').value,
-        diaCobro:Number(document.getElementById('e-dia').value)||5,
+        tipoContrato:document.getElementById('e-tipo').value||'recurrente',
+        frecuencia:document.getElementById('e-tipo').value==='recurrente'?document.getElementById('e-fr').value:'mensual',
+        diaCobro:Number(document.getElementById('e-dia1').value)||5,
+        diaCobro1:Number(document.getElementById('e-dia1').value)||5,
+        diaCobro2:Number(document.getElementById('e-dia2').value)||20,
         estado:document.getElementById('e-est').value,
         fechaInicio:document.getElementById('e-fi').value,
         ultimaFechaPago:c.ultimaFechaPago||'',proximaFechaPago:c.proximaFechaPago||'',
@@ -2701,7 +2749,7 @@ function vCobros(v){
   modeC.onclick=()=>setMode('cliente');modeE.onclick=()=>setMode('externo');
   const co=document.getElementById('k-co'),mo=document.getElementById('k-mo'),me=document.getElementById('k-me'),fe=document.getElementById('k-fe'),allocBox=document.getElementById('k-alloc');
   function qCandidates(fecha){const d=new Date((fecha||today())+'T12:00:00');const all=[];for(let yy=d.getFullYear()-1;yy<=d.getFullYear()+1;yy++)all.push(...quincenasAnio(yy));const idx=all.findIndex(q=>d.toISOString().slice(0,10)>=q.inicio&&d.toISOString().slice(0,10)<=q.fin);const base=idx>=0?idx:all.findIndex(q=>q.inicio>=d.toISOString().slice(0,10));const start=Math.max(0,(base<0?0:base)-3);return all.slice(start,start+8)}
-  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today(),cand=qCandidates(fecha);let selected=[];if(c.frecuencia==='quincenal'){const current=cand.find(q=>fecha>=q.inicio&&fecha<=q.fin)||cand[0];if(current)selected=[current]}else{const monthQs=quincenasAnio(Number(fecha.slice(0,4))).filter(q=>q.mes===Number(fecha.slice(5,7)));cand.splice(0,cand.length,...monthQs);selected=(Math.abs(total-Number(c.tarifaBruta||0))<=0.01?monthQs:monthQs.filter(q=>q.inicio<=fecha).slice(-1));if(!selected.length&&monthQs.length)selected=[monthQs[0]]}allocBox.innerHTML=cand.map(q=>{const on=selected.some(x=>x.key===q.key);return '<button type="button" class="qopt '+(on?'on':'')+'" data-aq="'+q.key+'"><span>'+esc(labelQ(q))+'</span><span class="mono">'+money(qBaseForClient(c))+'</span></button>'}).join('');allocBox.querySelectorAll('[data-aq]').forEach(b=>b.onclick=()=>{b.classList.toggle('on');refreshAllocAmounts()});refreshAllocAmounts()}
+  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today(),cand=qCandidates(fecha);let selected=[];if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){const current=cand.find(q=>fecha>=q.inicio&&fecha<=q.fin)||cand[0];if(current)selected=[current]}else{const monthQs=quincenasAnio(Number(fecha.slice(0,4))).filter(q=>q.mes===Number(fecha.slice(5,7)));cand.splice(0,cand.length,...monthQs);selected=(Math.abs(total-Number(c.tarifaBruta||0))<=0.01?monthQs:monthQs.filter(q=>q.inicio<=fecha).slice(-1));if(!selected.length&&monthQs.length)selected=[monthQs[0]]}allocBox.innerHTML=cand.map(q=>{const on=selected.some(x=>x.key===q.key);return '<button type="button" class="qopt '+(on?'on':'')+'" data-aq="'+q.key+'"><span>'+esc(labelQ(q))+'</span><span class="mono">'+money(qBaseForClient(c))+'</span></button>'}).join('');allocBox.querySelectorAll('[data-aq]').forEach(b=>b.onclick=()=>{b.classList.toggle('on');refreshAllocAmounts()});refreshAllocAmounts()}
   function qBaseForClient(c){return r2(Number(c.tarifaBruta||0)*0.5)}
   function refreshAllocAmounts(){const c=companyById(co.value),total=r2(Number(mo.value)||0);if(!c||!allocBox)return;const btns=[...allocBox.querySelectorAll('.qopt.on')];let remaining=total;btns.forEach(b=>{const cap=qBaseForClient(c);const val=r2(Math.min(cap,Math.max(0,remaining)));remaining=r2(remaining-val);b.dataset.amount=val.toFixed(2);b.querySelector('.mono').textContent=money(val)})}
   function allocationPayload(){const c=companyById(co.value);if(!c||!allocBox)return[];const out=[];allocBox.querySelectorAll('.qopt.on').forEach(b=>{const qk=b.dataset.aq;const q=quincenasAnio(Number(qk.slice(0,4))).find(x=>x.key===qk);const m=Math.max(0,Number(b.dataset.amount)||0);if(q&&m>0)out.push({quincenaKey:q.key,monto:r2(m)})});return out}
@@ -2723,12 +2771,12 @@ function vCobros(v){
 /* ─────────── LÍNEA DE COBRANZA (matriz) ─────────── */
 /* ¿A este cliente le toca cobrar en esta quincena? */
 function aplicaQuincena(c,q){
-  // Antes de ser cliente, no aplica
+  if(!c)return false;
+  if(c.tipoContrato==='unico')return false;
   const desde=c.fechaInicio||today().slice(0,7)+'-01';
   if(q.fin<desde)return false;
   if(c.frecuencia==='quincenal')return true;
-  // Mensual: cae en la quincena que contiene su día de cobro
-  const d=c.diaCobro||5;
+  const d=Number(c.diaCobro1)||Number(c.diaCobro)||5;
   return q.mitad===(d<=15?1:2);
 }
 function estadoCelda(companyId,q){
@@ -3643,7 +3691,10 @@ function facturaPDF(iv){
   d.setTextColor(90,83,101);d.setFontSize(8.5);d.text('N.º ORDEN',R-154,169);d.text('FECHA',R-154,188);d.text('PERÍODO',R-154,207);
   d.setTextColor(35,31,42);d.setFont('helvetica','bold');d.setFontSize(10);d.text(iv.orden||'—',R-18,169,{align:'right'});d.setFont('helvetica','normal');d.text(fdate(iv.fecha),R-18,188,{align:'right'});d.text(iv.periodo||'Servicio mensual',R-18,207,{align:'right',maxWidth:110});
   let y=254;d.setFillColor(35,31,42);d.roundedRect(M,y,R-M,32,8,8,'F');d.setTextColor(255,255,255);d.setFont('helvetica','bold');d.setFontSize(9.5);d.text('DESCRIPCIÓN',M+14,y+20);d.text('IMPORTE',R-14,y+20,{align:'right'});
-  y+=32;d.setTextColor(40,36,47);d.setFont('helvetica','normal');d.setFontSize(10.5);d.text((iv.descripcion||'Servicio')+(iv.periodo?' · '+iv.periodo:''),M+14,y+22,{maxWidth:R-M-130});d.setFont('helvetica','bold');d.text(money(iv.subtotal!=null?iv.subtotal:iv.total),R-14,y+22,{align:'right'});
+  y+=32;d.setTextColor(40,36,47);d.setFont('helvetica','normal');d.setFontSize(10.5);
+  const pdfItems=Array.isArray(iv.items)&&iv.items.length?iv.items:[{descripcion:(iv.descripcion||'Servicio')+(iv.periodo?' · '+iv.periodo:''),monto:iv.subtotal!=null?iv.subtotal:iv.total}];
+  pdfItems.filter(it=>(it.descripcion||'').trim()||Number(it.monto)).forEach(it=>{d.setFont('helvetica','normal');d.setTextColor(40,36,47);d.text(String(it.descripcion||'Servicio').slice(0,75),M+14,y+22,{maxWidth:R-M-130});d.setFont('helvetica','bold');d.text(money(Number(it.monto)||0),R-14,y+22,{align:'right'});y+=28;});
+  y-=28;
   if(Number(iv.descuento||0)>0){y+=30;d.setFont('helvetica','normal');d.setTextColor(145,70,88);d.text('Descuento '+pct(iv.descuentoPct||0),M+14,y+22);d.text('−'+money(iv.descuento),R-14,y+22,{align:'right'})}
   d.setDrawColor(227,222,231);d.line(M+12,y+40,R-12,y+40);
   y+=74;d.setFillColor(246,243,250);d.roundedRect(R-210,y-16,210,58,12,12,'F');d.setTextColor(95,89,102);d.setFont('helvetica','normal');d.setFontSize(9);d.text('TOTAL A PAGAR',R-192,y+5);d.setTextColor(110,75,198);d.setFont('helvetica','bold');d.setFontSize(18);d.text(money(iv.total),R-14,y+27,{align:'right'});
@@ -3770,6 +3821,11 @@ async function bootData(authUser){
      Si el registro no existe, se deja vacío para que el administrador las cree
      manualmente; así una actualización nunca puede reemplazar wallets reales. */
   if(!Array.isArray(S.metodos))S.metodos=[];
+  let normalizedCompanies=false;
+  (S.companies||[]).forEach(c=>{if(c.tipoContrato==='temporal'){c.tipoContrato='recurrente';normalizedCompanies=true;}if(!c.diaCobro1)c.diaCobro1=Number(c.diaCobro)||5;if(!c.diaCobro2)c.diaCobro2=Math.min(31,(Number(c.diaCobro1)||5)+15);if(!c.diaCobro)c.diaCobro=c.diaCobro1;});
+  if(normalizedCompanies)await save('companies');
+  /* Normaliza empresas antiguas sin tipoContrato: siguen siendo recurrentes. */
+  if(Array.isArray(S.companies))S.companies.forEach(c=>{if(!c.tipoContrato)c.tipoContrato='recurrente';});
   if(!S.roles.length){
     S.roles=[{id:uid(),nombre:'Administrador',permisos:allPerms()},{id:uid(),nombre:'Community Manager',permisos:defaultRolePerms('Community Manager')},{id:uid(),nombre:'Diseñador',permisos:defaultRolePerms('Diseñador')},
       {id:uid(),nombre:'Editor de video',permisos:defaultRolePerms('Editor de video')},{id:uid(),nombre:'Redactor',permisos:defaultRolePerms('Redactor')}];
@@ -3904,7 +3960,7 @@ async function bootData(authUser){
     /* Clientes que aparecen en la hoja pero no estaban en el catálogo base. */
     ['Mersy','Gustavo'].forEach(n=>{
       if(!byName(n))S.companies.push({id:uid(),negocio:n,ubicacion:'',tarifaBruta:0,metodoPagoId:(S.metodos[0]||{}).id,
-        estado:'activo',frecuencia:'mensual',diaCobro:5,equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:''});
+        estado:'activo',frecuencia:'mensual',diaCobro:5,diaCobro1:5,diaCobro2:20,equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:''});
     });
     PDF_TEAM_SEED.forEach(t=>{
       const member={id:uid(),nombre:t.nombre,roleId, email:'',telefono:'',activo:true,tipoCompensacion:'porCliente',sueldoMensual:0,foto:'',payouts:[]};
