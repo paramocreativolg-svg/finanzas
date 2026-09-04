@@ -1313,8 +1313,58 @@ const DB={
   }
 };
 const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos'];
-async function save(k){await DB.set('pc2_'+k,JSON.stringify(S[k]))}
+const PROTECTED_DATA_KEYS=new Set(['companies','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario']);
+const DATA_VERSION=34;
+let DB_BASELINE={};
+let AUTO_BACKUP_DONE=false;
+function dataCount(v){return Array.isArray(v)?v.length:(v&&typeof v==='object'?Object.keys(v).length:0)}
+function dataRisk(k,next,prev){
+  if(!PROTECTED_DATA_KEYS.has(k))return null;
+  const before=dataCount(prev), after=dataCount(next);
+  if(before>0&&after===0)return 'El intento de guardar '+k+' dejaría la colección vacía aunque antes tenía '+before+' registros.';
+  if(before>=8&&after<Math.floor(before*0.5))return 'El intento de guardar '+k+' reduciría los datos de '+before+' a '+after+' registros (más del 50%).';
+  return null;
+}
+async function save(k,opts={}){
+  const payload=JSON.stringify(S[k]);
+  if(!opts.force){
+    let remote=null;
+    try{const r=await DB.get('pc2_'+k);remote=r?r.value:null}catch(e){throw new Error('No se pudo verificar '+k+' antes de guardar. Por seguridad no se guardó el cambio.')}
+    const baseline=Object.prototype.hasOwnProperty.call(DB_BASELINE,k)?DB_BASELINE[k]:null;
+    if(baseline!==null&&remote!==baseline)throw new Error('Conflicto de datos en '+k+'. La información cambió en otro lugar; se bloqueó la sobrescritura para protegerla.');
+    const prev=remote?JSON.parse(remote):null;
+    const risk=dataRisk(k,S[k],prev);
+    if(risk)throw new Error('PROTECCIÓN DE DATOS: '+risk+'\nNo se guardó nada. Restaura desde respaldo o confirma la operación desde una acción explícita.');
+  }
+  await DB.set('pc2_'+k,payload);
+  DB_BASELINE[k]=payload;
+}
 async function saveAll(){for(const k of KEYS)await save(k)}
+async function snapshotAutoBackup(reason='inicio'){
+  if(AUTO_BACKUP_DONE)return;
+  const snap={version:DATA_VERSION,createdAt:new Date().toISOString(),reason};
+  KEYS.forEach(k=>snap[k]=S[k]);
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const key='pc2_auto_backup_'+stamp;
+  await DB.set(key,JSON.stringify(snap));
+  let index=[];try{const r=await DB.get('pc2_auto_backup_index');index=r&&r.value?JSON.parse(r.value):[]}catch(e){}
+  index=Array.isArray(index)?index:[];index.unshift({key,createdAt:snap.createdAt,reason});
+  const keep=index.slice(0,5);
+  await DB.set('pc2_auto_backup_index',JSON.stringify(keep));
+  for(const old of index.slice(5)){try{await DB.delete(old.key)}catch(e){}}
+  AUTO_BACKUP_DONE=true;
+}
+async function verifyDataIntegrity(){
+  const issues=[];
+  const companies=new Set((S.companies||[]).map(x=>x&&x.id).filter(Boolean));
+  const wallets=new Set((S.metodos||[]).map(x=>x&&x.id).filter(Boolean));
+  const members=new Set((S.members||[]).map(x=>x&&x.id).filter(Boolean));
+  (S.cobros||[]).forEach(x=>{if(x.companyId&&!companies.has(x.companyId))issues.push('Cobro '+x.id+' apunta a un cliente inexistente.');if(x.metodoPagoId&&!wallets.has(x.metodoPagoId))issues.push('Cobro '+x.id+' apunta a una wallet inexistente.')});
+  (S.invoices||[]).forEach(x=>{if(x.companyId&&!companies.has(x.companyId))issues.push('Factura '+x.id+' apunta a un cliente inexistente.')});
+  (S.payouts||[]).forEach(x=>{if(x.memberId&&!members.has(x.memberId))issues.push('Pago/adelanto '+x.id+' apunta a un miembro inexistente.');if(x.walletId&&!wallets.has(x.walletId))issues.push('Pago/adelanto '+x.id+' apunta a una wallet inexistente.');(x.detalle||[]).forEach(d=>{if(d.companyId&&!companies.has(d.companyId))issues.push('Detalle de pago '+x.id+' apunta a un cliente inexistente.')})});
+  (S.egresos||[]).forEach(x=>{if(x.walletId&&!wallets.has(x.walletId))issues.push('Egreso '+x.id+' apunta a una wallet inexistente.')});
+  return {ok:issues.length===0,issues,counts:{companies:companies.size,metodos:wallets.size,cobros:(S.cobros||[]).length,invoices:(S.invoices||[]).length,payouts:(S.payouts||[]).length,egresos:(S.egresos||[]).length}};
+}
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
@@ -3421,9 +3471,12 @@ function importarRespaldoCompleto(){
       const d=JSON.parse(fr.result);if(!d||typeof d!=='object'){alert('El respaldo no es válido.');return}
       const disponibles=KEYS.filter(k=>Object.prototype.hasOwnProperty.call(d,k));
       if(!disponibles.length){alert('El respaldo no contiene datos de la aplicación.');return}
-      if(!confirm('Esto restaurará los datos contenidos en el respaldo y reemplazará los datos actuales de esas secciones. ¿Continuar?'))return;
-      for(const k of disponibles){S[k]=d[k];await save(k)}
-      if(d.roles)ensureRolePerms();
+      if(!confirm('Esto restaurará los datos contenidos en el respaldo y reemplazará los datos actuales de esas secciones. Primero se creará un respaldo automático del estado actual. ¿Continuar?'))return;
+      try{
+        const backup={version:DATA_VERSION,createdAt:new Date().toISOString(),reason:'antes de restaurar respaldo manual'};KEYS.forEach(k=>backup[k]=S[k]);
+        const stamp=new Date().toISOString().replace(/[:.]/g,'-');const bk='pc2_auto_backup_'+stamp;await DB.set(bk,JSON.stringify(backup));
+        for(const k of disponibles){S[k]=d[k];await save(k,{force:true})}
+      }catch(err){console.error(err);alert('La restauración fue detenida para proteger tus datos: '+(err.message||err));return}
       toast('Respaldo restaurado');location.reload();
     }catch(e){console.error(e);alert('No se pudo leer el respaldo JSON.')}
   };fr.readAsText(f)};input.click();
@@ -3461,6 +3514,20 @@ function vAjustes(v){
     S.users.map(u=>{const r=roleById(u.roleId),m=memberById(u.memberId);return '<tr><td><div style="display:flex;align-items:center;gap:9px">'+av(u.nombre||u.usuario,'s',1,u.foto)+'<div><strong>'+esc(u.nombre||u.usuario)+'</strong><div class="lsub">@'+esc(u.usuario)+'</div></div></div></td><td>'+esc(r?r.nombre:'Sin rol')+'</td><td>'+esc(m?m.nombre:'—')+'</td><td>'+(u.activo!==false?'<span class="p p-ok">Activo</span>':'<span class="p p-g">Inactivo</span>')+'</td><td class="ta"><button class="ib" data-uedit="'+u.id+'"><i class="ti ti-edit"></i></button><button class="ib dg" data-udel="'+u.id+'"><i class="ti ti-trash"></i></button></td></tr>'}).join('')+
     '</tbody></table></div>';
   v.appendChild(users);
+
+  const sec=document.createElement('div');sec.className='card';sec.style.marginTop='16px';
+  const counts={clientes:(S.companies||[]).length,wallets:(S.metodos||[]).length,cobros:(S.cobros||[]).length,facturas:(S.invoices||[]).length,pagos:(S.payouts||[]).filter(x=>x.tipo==='pago').length};
+  sec.innerHTML='<div class="ctitle">🛡️ Seguridad de datos</div>'+
+    '<p class="sub" style="font-size:12.5px;margin-bottom:12px">La app ahora bloquea sobrescrituras peligrosas, detecta conflictos entre sesiones y crea respaldos automáticos antes de migraciones o restauraciones.</p>'+
+    '<div class="mets" style="margin-bottom:12px">'+
+      '<div class="met"><div class="mlab">Clientes</div><div class="mval">'+counts.clientes+'</div></div>'+
+      '<div class="met"><div class="mlab">Wallets</div><div class="mval">'+counts.wallets+'</div></div>'+
+      '<div class="met"><div class="mlab">Cobros</div><div class="mval">'+counts.cobros+'</div></div>'+
+      '<div class="met"><div class="mlab">Facturas</div><div class="mval">'+counts.facturas+'</div></div></div>'+
+    '<div class="brow"><button class="b bg bs" id="verify-data">Verificar integridad</button><button class="b bg bs" id="backup-now">Crear respaldo ahora</button></div>';
+  v.appendChild(sec);
+  document.getElementById('verify-data').onclick=async()=>{const r=await verifyDataIntegrity();alert(r.ok?'✅ Integridad correcta. No se detectaron referencias rotas.':'⚠️ Se detectaron '+r.issues.length+' problemas:\n\n'+r.issues.slice(0,20).join('\n'));};
+  document.getElementById('backup-now').onclick=async()=>{try{const snap={version:DATA_VERSION,createdAt:new Date().toISOString(),reason:'respaldo manual desde Ajustes'};KEYS.forEach(k=>snap[k]=S[k]);const stamp=new Date().toISOString().replace(/[:.]/g,'-');await DB.set('pc2_auto_backup_'+stamp,JSON.stringify(snap));toast('Respaldo de seguridad creado')}catch(e){alert('No se pudo crear el respaldo: '+(e.message||e))}};
 
   const dz=document.createElement('div');dz.className='card';dz.style.marginTop='16px';
   dz.innerHTML='<div class="ctitle">Datos</div>'+
@@ -3674,7 +3741,7 @@ async function boot(){
   let session=null;
   try{const{data}=await sb.auth.getSession();session=data.session}catch(e){}
   if(!session){S.loading=false;S.sessionUserId=null;render();return}
-  await bootData(session.user);
+  try{await bootData(session.user)}catch(err){console.error(err);S.loading=false;S.sessionUserId=null;render();setTimeout(()=>alert('🛡️ La app detectó un problema y bloqueó cualquier sobrescritura de datos.\n\n'+(err.message||err)+'\n\nTus datos no se han reemplazado.'),50)}
 }
 async function bootData(authUser){
   /* Las 16 claves se piden a la vez, no una detrás de otra. Antes cada
@@ -3687,6 +3754,11 @@ async function bootData(authUser){
     }),
     (async()=>{try{const r=await DB.get('pc2_seed');if(r)seeded=JSON.parse(r.value)}catch(e){}})()
   ]);
+  /* Captura una línea base inmutable. Ningún save podrá sobrescribir cambios
+     hechos por otra pestaña/usuario después de esta carga sin detectar conflicto. */
+  for(const k of KEYS){try{const r=await DB.get('pc2_'+k);DB_BASELINE[k]=r?r.value:null}catch(e){DB_BASELINE[k]=null}}
+  try{await DB.set('pc2_data_version',JSON.stringify(DATA_VERSION))}catch(e){}
+  try{await snapshotAutoBackup('antes de cualquier migración o recuperación')}catch(e){console.warn('No se pudo crear respaldo automático',e)}
   /* SEGURIDAD DE DATOS: nunca borres transacciones al iniciar/actualizar la app.
      Una versión anterior usaba pc2_tx_reset_v3 para limpiar cobros, nómina,
      adelantos, entregas y calendario automáticamente. Ese comportamiento es
@@ -3707,47 +3779,85 @@ async function bootData(authUser){
   }
   if(ensureUsers()){await save('roles');await save('users');}
   if(!Array.isArray(S.gastosFijos))S.gastosFijos=[];
-  if(!S.companies.length){
-    /* Recuperación de emergencia: si el catálogo de clientes desapareció pero
-       todavía existe información del equipo, reconstruye solo el catálogo base
-       conocido por la app. Esto evita que una actualización vuelva a dejar el
-       sistema sin clientes. No pisa clientes existentes. */
-    let shouldRecover=!seeded && S.members.length===0;
-    if(S.members.length>0){
-      try{const rk=await DB.get('pc2_companies_recovery_v1');shouldRecover=!rk}catch(e){shouldRecover=false}
+  /* ─────────── RECUPERACIÓN SEGURA DEL CATÁLOGO ───────────
+     Este catálogo se deriva del último respaldo disponible (03-09-2026).
+     La regla es: NUNCA reemplazar clientes existentes. Solo crear los que
+     falten y conservar los IDs que siguen referenciados por cobros/facturas.
+     Esto evita romper las relaciones históricas cuando companies fue
+     sobrescrito con un catálogo parcial. */
+  const RECOVERY_COMPANIES=[
+    {id:'8qt88lry',negocio:'Casa Dam',ubicacion:'La Grita, Táchira',tarifaBruta:180},
+    {id:'eqmhqxyn',negocio:'Arenas Insurance',ubicacion:'Florida, Estados Unidos',tarifaBruta:200},
+    {id:'s1vylzc3',negocio:'Injury Guardians',ubicacion:'Orlando, Florida',tarifaBruta:180},
+    {id:'i2swdtwv',negocio:'Alba Pasteles',ubicacion:'La Grita, Táchira',tarifaBruta:90},
+    {id:'h8ropm3a',negocio:'Anva Digital Mom',ubicacion:'Miami, Florida',tarifaBruta:150},
+    {id:'ey5ohu30',negocio:'Pressure Washing',ubicacion:'Orlando, Florida',tarifaBruta:150},
+    {id:'80h5pjyu',negocio:'Yeti Ice',ubicacion:'La Grita, Táchira',tarifaBruta:150},
+    {id:'ynxkfi1k',negocio:'Savica',ubicacion:'La Grita, Táchira',tarifaBruta:150},
+    {id:'tpxe0zxg',negocio:'Fabiola',ubicacion:'Miami, Florida',tarifaBruta:120},
+    {id:'lescx8ze',negocio:'Piloto',ubicacion:'La Grita, Táchira',tarifaBruta:127},
+    {id:'um8r8kic',negocio:'Travieso Multiservices',ubicacion:'Houston, Texas',tarifaBruta:120},
+    {id:'uhlvfx76',negocio:'Lond Insurance',ubicacion:'Ocala, Florida',tarifaBruta:120},
+    {id:'idhkbr2s',negocio:'Sancris',ubicacion:'Orlando, Florida',tarifaBruta:150},
+    {id:'qc7yta97',negocio:'Diamond Blue',ubicacion:'Texas, Estados Unidos',tarifaBruta:120},
+    {id:'gweir1t9',negocio:'Fatness',ubicacion:'La Grita, Táchira',tarifaBruta:120},
+    {id:'5ytb2qsy',negocio:'Terraza',ubicacion:'La Grita, Táchira',tarifaBruta:120},
+    {id:'9ricyf75',negocio:'MG Mora',ubicacion:'La Grita, Táchira',tarifaBruta:127},
+    {id:'yptcc9bw',negocio:'MD Insurance',ubicacion:'Ocala, Florida',tarifaBruta:200},
+    {id:'svrm8l1u',negocio:'BMG',ubicacion:'La Grita, Táchira',tarifaBruta:110},
+    {id:'bmplbbp0',negocio:'La Seguridad',ubicacion:'La Grita, Táchira',tarifaBruta:150},
+    {id:'knip4paq',negocio:'The Truck Garden',ubicacion:'',tarifaBruta:170},
+    {id:'ikmys0i6',negocio:'Mersy',ubicacion:'',tarifaBruta:0},
+    {id:'qjt9ff64',negocio:'Gustavo',ubicacion:'',tarifaBruta:0}
+  ];
+  const RECOVERY_NAMES=[
+    ['La Preferida',150],['Alba Pasteles',90],['Yeti Ice',150],['Doña Juana',120],['MG Mora',127],['Piloto',127],
+    ['Terraza',120],['Injury Guardians',180],['Diamond Blue',120],['Lond Insurance',120],['Sancris',150],['Anva Digital Mom',150],
+    ['Rafacars',180],['MD Insurance',200],['Savica',150],['Casa Dam',180],['BMG',110],['Fatness',120],['The Truck Garden',170],
+    ['Fabiola',120],['Travieso Multiservices',120],['Pressure Washing',150],['Sara Marmol',150],['La Seguridad',150],
+    ['Arenas Insurance',200],['Mersy',0],['Gustavo',0]
+  ];
+  const recById=new Map(RECOVERY_COMPANIES.map(c=>[c.id,c]));
+  const recByName=new Map(RECOVERY_NAMES.map(([n,m])=>[String(n).trim().toLowerCase(),[n,m]]));
+  /* Los IDs históricos presentes en cualquier movimiento deben existir. */
+  const referencedIds=new Set();
+  const orphanCompanyRefs=new Set();
+  (S.cobros||[]).forEach(x=>{if(x.companyId)referencedIds.add(x.companyId)});
+  (S.invoices||[]).forEach(x=>{if(x.companyId)referencedIds.add(x.companyId)});
+  (S.payouts||[]).forEach(x=>(x.detalle||[]).forEach(d=>{if(d.companyId)referencedIds.add(d.companyId)}));
+  const existingById=new Map((S.companies||[]).map(c=>[c.id,c]));
+  let recovered=0;
+  RECOVERY_COMPANIES.forEach(rc=>{
+    if(!existingById.has(rc.id)){
+      S.companies.push({id:rc.id,negocio:rc.negocio,ubicacion:rc.ubicacion,tarifaBruta:rc.tarifaBruta,metodoPagoId:'',estado:'activo',frecuencia:'mensual',diaCobro:5,
+        equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0});
+      recovered++;
     }
-    if(shouldRecover){
-      const zelle=(S.metodos[0]||{}).id||'';
-      const base=new Map(SEED.map(([n,m])=>[String(n).trim().toLowerCase(),Number(m)||0]));
-      const names=[...base.keys()];
-      /* Nombres que aparecen en asignaciones del equipo y que no estaban en
-         SEED también se recuperan para no romper relaciones del equipo. */
-      (S.members||[]).forEach(m=>(m.clientes||m.asignaciones||[]).forEach(a=>{
-        const n=typeof a==='string'?a:(a&&a.negocio)||''; if(n)names.push(String(n).trim().toLowerCase());
-      }));
-      ['Mersy','Gustavo','Victoria'].forEach(n=>names.push(n.toLowerCase()));
-      const unique=[...new Set(names)];
-      S.companies=unique.map(key=>({
-        id:uid(),negocio:key.replace(/\b\w/g,ch=>ch.toUpperCase()),ubicacion:'',
-        tarifaBruta:base.get(key)||0,metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
-        equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0
-      }));
-      /* Sustituye etiquetas recuperadas por nombres canónicos cuando están en
-         SEED para conservar la presentación original. */
-      S.companies.forEach(c=>{const hit=SEED.find(([n])=>String(n).trim().toLowerCase()===c.negocio.toLowerCase());if(hit){c.negocio=hit[0];c.tarifaBruta=Number(hit[1])||0}});
-      await save('companies');
-      await DB.set('pc2_companies_recovery_v1',JSON.stringify(true));
-      await DB.set('pc2_seed',JSON.stringify(true));
-      toast('Catálogo de clientes recuperado');
-    }else if(!seeded&&!S.companies.length){
-      /* Primera instalación limpia: deja el flujo de alta/seed original. */
-      const zelle=(S.metodos[0]||{}).id||'';
-      S.companies=SEED.map(([n,m])=>({id:uid(),negocio:n,ubicacion:'La Grita, Táchira',tarifaBruta:m,
-        metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
-        equipoIds:[],pesos:{},notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0}));
-      await save('companies');await DB.set('pc2_seed',JSON.stringify(true));
-    }
-  }
+  });
+  /* Clientes del catálogo base que no tenían ID histórico identificable. */
+  const currentNames=new Set(S.companies.map(c=>String(c.negocio||'').trim().toLowerCase()));
+  RECOVERY_NAMES.forEach(([name,tarifa])=>{
+    const key=String(name).trim().toLowerCase();
+    if(currentNames.has(key))return;
+    const c={id:uid(),negocio:name,ubicacion:'',tarifaBruta:Number(tarifa)||0,metodoPagoId:'',estado:'activo',frecuencia:'mensual',diaCobro:5,
+      equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0};
+    S.companies.push(c);currentNames.add(key);recovered++;
+  });
+  /* Completa campos faltantes sin tocar valores existentes. */
+  S.companies.forEach(c=>{
+    const rc=recById.get(c.id), rn=recByName.get(String(c.negocio||'').trim().toLowerCase());
+    if(rc){if(!c.ubicacion)c.ubicacion=rc.ubicacion;if(!(Number(c.tarifaBruta)>0))c.tarifaBruta=rc.tarifaBruta;if(!c.negocio)c.negocio=rc.negocio}
+    if(rn&&!(Number(c.tarifaBruta)>0))c.tarifaBruta=rn[1];
+    if(!Array.isArray(c.equipoIds))c.equipoIds=[];if(!c.pesos)c.pesos={};if(!Array.isArray(c.asignaciones))c.asignaciones=[];if(!Array.isArray(c.notas))c.notas=[];
+    if(c.descuentoPredeterminadoPct==null)c.descuentoPredeterminadoPct=0;
+  });
+  /* Asigna wallets solo cuando el cliente no tiene una, usando Zelle del respaldo. */
+  const recoveryWallet=(S.metodos||[]).find(w=>String(w.nombre||'').trim().toLowerCase()==='zelle') || S.metodos[0];
+  if(recoveryWallet)S.companies.forEach(c=>{if(!c.metodoPagoId)c.metodoPagoId=recoveryWallet.id});
+  referencedIds.forEach(id=>{if(!companyById(id))orphanCompanyRefs.add(id)});
+  if(orphanCompanyRefs.size)console.warn('Hay movimientos con companyId sin catálogo restaurado:',[...orphanCompanyRefs]);
+  if(recovered||S.companies.length)await save('companies');
+  if(recovered)toast('Clientes recuperados y vínculos históricos conservados');
   /* ─────────── CARGA INICIAL DEL EQUIPO ───────────
      Basado en la hoja PDF adjunta. Solo se cargan nombres/asignaciones
      que se pueden leer claramente; no se inventan filas que el PDF no
