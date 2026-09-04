@@ -3707,12 +3707,46 @@ async function bootData(authUser){
   }
   if(ensureUsers()){await save('roles');await save('users');}
   if(!Array.isArray(S.gastosFijos))S.gastosFijos=[];
-  if(!seeded&&!S.companies.length){
-    const zelle=(S.metodos[0]||{}).id||'';
-    S.companies=SEED.map(([n,m])=>({id:uid(),negocio:n,ubicacion:'La Grita, Táchira',tarifaBruta:m,
-      metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
-      equipoIds:[],pesos:{},notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:''}));
-    await save('companies');await DB.set('pc2_seed',JSON.stringify(true));
+  if(!S.companies.length){
+    /* Recuperación de emergencia: si el catálogo de clientes desapareció pero
+       todavía existe información del equipo, reconstruye solo el catálogo base
+       conocido por la app. Esto evita que una actualización vuelva a dejar el
+       sistema sin clientes. No pisa clientes existentes. */
+    let shouldRecover=!seeded && S.members.length===0;
+    if(S.members.length>0){
+      try{const rk=await DB.get('pc2_companies_recovery_v1');shouldRecover=!rk}catch(e){shouldRecover=false}
+    }
+    if(shouldRecover){
+      const zelle=(S.metodos[0]||{}).id||'';
+      const base=new Map(SEED.map(([n,m])=>[String(n).trim().toLowerCase(),Number(m)||0]));
+      const names=[...base.keys()];
+      /* Nombres que aparecen en asignaciones del equipo y que no estaban en
+         SEED también se recuperan para no romper relaciones del equipo. */
+      (S.members||[]).forEach(m=>(m.clientes||m.asignaciones||[]).forEach(a=>{
+        const n=typeof a==='string'?a:(a&&a.negocio)||''; if(n)names.push(String(n).trim().toLowerCase());
+      }));
+      ['Mersy','Gustavo','Victoria'].forEach(n=>names.push(n.toLowerCase()));
+      const unique=[...new Set(names)];
+      S.companies=unique.map(key=>({
+        id:uid(),negocio:key.replace(/\b\w/g,ch=>ch.toUpperCase()),ubicacion:'',
+        tarifaBruta:base.get(key)||0,metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
+        equipoIds:[],pesos:{},asignaciones:[],notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0
+      }));
+      /* Sustituye etiquetas recuperadas por nombres canónicos cuando están en
+         SEED para conservar la presentación original. */
+      S.companies.forEach(c=>{const hit=SEED.find(([n])=>String(n).trim().toLowerCase()===c.negocio.toLowerCase());if(hit){c.negocio=hit[0];c.tarifaBruta=Number(hit[1])||0}});
+      await save('companies');
+      await DB.set('pc2_companies_recovery_v1',JSON.stringify(true));
+      await DB.set('pc2_seed',JSON.stringify(true));
+      toast('Catálogo de clientes recuperado');
+    }else if(!seeded&&!S.companies.length){
+      /* Primera instalación limpia: deja el flujo de alta/seed original. */
+      const zelle=(S.metodos[0]||{}).id||'';
+      S.companies=SEED.map(([n,m])=>({id:uid(),negocio:n,ubicacion:'La Grita, Táchira',tarifaBruta:m,
+        metodoPagoId:zelle,estado:'activo',frecuencia:'mensual',diaCobro:5,
+        equipoIds:[],pesos:{},notas:[],fechaInicio:'',ultimaFechaPago:'',proximaFechaPago:'',descuentoPredeterminadoPct:0}));
+      await save('companies');await DB.set('pc2_seed',JSON.stringify(true));
+    }
   }
   /* ─────────── CARGA INICIAL DEL EQUIPO ───────────
      Basado en la hoja PDF adjunta. Solo se cargan nombres/asignaciones
