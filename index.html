@@ -1153,6 +1153,14 @@ function cobrosEnControl(list){const ini=fechaInicioControl();return (list||[]).
 function pagoEnPeriodo(cid,ini,fin){const ps=cobrosEnControl(S.cobros).filter(p=>p.companyId===cid&&p.fecha>=ini&&p.fecha<=fin);
 return{pagos:ps,totalBruto:r2(ps.reduce((s,p)=>s+(Number(p.montoBruto)||0),0)),pagado:ps.length>0}}
 function montoFacturaCliente(c){if(!c)return 0;return r2((Number(c.tarifaBruta)||0)*((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'?0.5:1))}
+function periodoFacturaCliente(c,fecha,mitad){
+  const f=fecha||today();
+  if(!c||c.frecuencia!=='quincenal')return 'Servicio mensual';
+  const y=Number(f.slice(0,4)),m=Number(f.slice(5,7));
+  const mitadN=Number(mitad)||((Number(f.slice(8,10))||1)<=15?1:2);
+  const qs=quincenasAnio(y),q=qs.find(x=>x.mes===m&&x.mitad===mitadN);
+  return q?labelQ(q)+' '+q.year:'Quincena '+mitadN;
+}
 function addDaysISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
 function addMonthISO(iso){const d=new Date(iso+'T12:00:00');const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return d.toISOString().slice(0,10)}
 function clampDay(y,m,d){const last=new Date(y,m,0).getDate();return Math.min(Math.max(Number(d)||1,last),last)}
@@ -1820,7 +1828,7 @@ function vFacturas(v){
   co.onchange=()=>{if(per)per.dataset.user='';sync()};
   fe.oninput=()=>{if(per)per.dataset.user='';sync()};
   if(per)per.onchange=()=>{per.dataset.user='1';draw()};
-  [or,de,nt].forEach(e=>e.oninput=draw);
+  [or,nt].forEach(e=>e.oninput=draw);
   mo.oninput=()=>{updateSubtotalFromItems();draw()};
   dp.oninput=syncDiscountFromPct;
   da.oninput=syncDiscountFromAmt;
@@ -1924,18 +1932,24 @@ function editarCobroModal(id){
 function editarPagoModal(id){
   const p=S.payouts.find(x=>x.id===id);if(!p||!visiblePayouts().some(x=>x.id===id))return;const m=memberById(p.memberId);if(!m)return;
   const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)cerrarModalEdicion(ov)};const md=document.createElement('div');md.className='mdl wide';
+  if(p.tipo!=='adelanto'){
+    const ewb=document.getElementById('epay-wallet-parts');
+    function addEditWalletPart(walletId='',amount=0){const row=document.createElement('div');row.className='row epay-wallet-row';row.style.marginBottom='8px';row.innerHTML='<div class="f"><label>Wallet</label><select class="epay-wallet-id">'+S.metodos.map(w=>'<option value="'+w.id+'"'+(w.id===walletId?' selected':'')+'>'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><div style="display:flex;gap:6px"><input class="epay-wallet-mo" type="number" min="0" step="0.01" value="'+Number(amount||0).toFixed(2)+'"><button type="button" class="ib dg epay-wallet-del"><i class="ti ti-trash"></i></button></div></div>';ewb.appendChild(row);row.querySelector('.epay-wallet-mo').oninput=syncEditWalletTotal;row.querySelector('.epay-wallet-del').onclick=()=>{if(ewb.children.length>1)row.remove();else row.querySelector('.epay-wallet-mo').value='0.00';syncEditWalletTotal()}}
+    function syncEditWalletTotal(){document.getElementById('epay-wallet-total').textContent=money(r2([...ewb.querySelectorAll('.epay-wallet-mo')].reduce((s,x)=>s+(Number(x.value)||0),0)))}
+    const oldParts=payoutWalletParts(p);(oldParts.length?oldParts:[{walletId:p.walletId||'',monto:Number(p.monto)||0}]).forEach(x=>addEditWalletPart(x.walletId,x.monto));document.getElementById('epay-add-wallet').onclick=()=>addEditWalletPart('',0);syncEditWalletTotal();
+  }
   if(p.tipo==='adelanto'){
     md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar adelanto</div><div class="esub">El monto del adelanto afecta el saldo pendiente del empleado.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Empleado</label><select id="epay-m">'+S.members.map(x=>'<option value="'+x.id+'" '+(x.id===p.memberId?'selected':'')+'>'+esc(x.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="epay-mo" type="number" min="0" step="0.01" value="'+Number(p.monto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
   }else{
     const rows=(p.detalle||[]).map((d,i)=>'<div class="assoc" style="cursor:default"><div class="ai"><div class="an">'+esc(d.negocio||'Cliente')+'</div><div class="as">Se pagó '+money(d.pagable||0)+' · retenido '+money(d.retenido||0)+'</div></div><input class="epay-det" data-i="'+i+'" type="number" min="0" step="0.01" value="'+Number(d.pagable||0)+'" style="width:120px"></div>').join('');
-    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar pago de nómina</div><div class="esub">Puedes corregir lo pagado por cliente, la fecha, wallet y nota. El sueldo base de la quincena se conserva.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="msec"><div class="mstitle">Pagos variables por cliente</div>'+(rows||'<div class="empty">Este pago no tiene detalle por cliente.</div>')+'</div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="sim"><div class="simrow"><span>Sueldo base registrado</span><span class="v">'+money(p.sueldoBase||0)+'</span></div><div class="simrow"><span>Adelantos descontados</span><span class="v">−'+money(p.adelantosDescontados||0)+'</span></div><div class="simrow tot"><span>Nuevo total</span><span class="v" id="epay-total">'+money(p.monto||0)+'</span></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
+    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar pago de nómina</div><div class="esub">Puedes corregir lo pagado por cliente, la fecha, distribución entre wallets y nota. El sueldo base de la quincena se conserva.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="msec"><div class="mstitle">Pagos variables por cliente</div>'+(rows||'<div class="empty">Este pago no tiene detalle por cliente.</div>')+'</div><div class="msec"><div class="mstitle">Distribución entre wallets</div><div id="epay-wallet-parts"></div><button type="button" class="b bg bs" id="epay-add-wallet"><i class="ti ti-plus"></i>Agregar wallet</button></div><div class="row"><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="sim"><div class="simrow"><span>Sueldo base registrado</span><span class="v">'+money(p.sueldoBase||0)+'</span></div><div class="simrow"><span>Adelantos descontados</span><span class="v">−'+money(p.adelantosDescontados||0)+'</span></div><div class="simrow"><span>Distribuido entre wallets</span><span class="v" id="epay-wallet-total">$0.00</span></div><div class="simrow tot"><span>Nuevo total</span><span class="v" id="epay-total">'+money(p.monto||0)+'</span></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
   }
   ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#epay-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#epay-cancel').onclick=()=>cerrarModalEdicion(ov);
   if(p.tipo==='adelanto'){
     md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;if(mo<=0||!wid){alert('Completa monto y wallet.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.walletId=wid;p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Adelanto actualizado');ov.remove();render()};
   }else{
     md.querySelectorAll('.epay-det').forEach(inp=>inp.oninput=()=>{let total=r2(Number(p.sueldoBase||0)+[...md.querySelectorAll('.epay-det')].reduce((s,x)=>s+(Number(x.value)||0),0)-Number(p.adelantosDescontados||0));md.querySelector('#epay-total').textContent=money(Math.max(0,total))});
-    md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;p.walletId=md.querySelector('#epay-wa').value;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Pago actualizado');ov.remove();render()};
+    md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;const walletParts=[...md.querySelectorAll('.epay-wallet-row')].map(row=>({walletId:row.querySelector('.epay-wallet-id').value,monto:r2(Number(row.querySelector('.epay-wallet-mo').value)||0)})).filter(x=>x.walletId&&x.monto>0);const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}p.walletId=walletParts[0]?.walletId||null;p.walletParts=walletParts;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Pago actualizado');ov.remove();render()};
   }
 }
 
@@ -2879,6 +2893,12 @@ function walletLabel(w){
   if(!w)return'—';
   return w.titular?w.nombre+' · '+w.titular:w.nombre;
 }
+function payoutWalletParts(p){
+  if(p&&Array.isArray(p.walletParts)&&p.walletParts.length)return p.walletParts.map(x=>({walletId:x.walletId,monto:r2(Number(x.monto)||0)})).filter(x=>x.walletId&&x.monto>0);
+  return p&&p.walletId&&Number(p.monto||0)>0?[{walletId:p.walletId,monto:r2(Number(p.monto)||0)}]:[];
+}
+function totalPayoutFromWallet(p,wid){return r2(payoutWalletParts(p).filter(x=>x.walletId===wid).reduce((s,x)=>s+x.monto,0))}
+function payoutWalletsLabel(p){return payoutWalletParts(p).map(x=>{const w=walletById(x.walletId);return (w?w.nombre:'Wallet')+' '+money(x.monto)}).join(' · ')||'—'}
 function saldoWallet(wid,hasta){
   const w=walletById(wid);if(!w)return{inicial:0,entradas:0,comisiones:0,salidas:0,saldo:0,movs:[]};
   const ini=Number(w.saldoInicial)||0;
@@ -2890,9 +2910,11 @@ function saldoWallet(wid,hasta){
     const co=companyById(p.companyId);
     movs.push({fecha:p.fecha,tipo:'cobro',desc:(co?co.negocio:'Cobro')+(cm>0?' · comisión '+money(cm):''),monto:nt});
   });
-  S.payouts.filter(p=>(p.walletId||null)===wid&&(!hasta||p.fecha<=hasta)).forEach(p=>{
-    const m=memberById(p.memberId);const mo=Number(p.monto)||0;sal+=mo;
-    movs.push({fecha:p.fecha,tipo:'nomina',desc:'Pago a '+(m?m.nombre:'equipo'),monto:-mo});
+  S.payouts.forEach(p=>{
+    if(hasta&&p.fecha>hasta)return;
+    const mo=totalPayoutFromWallet(p,wid);if(mo<=0)return;
+    const m=memberById(p.memberId);sal+=mo;
+    movs.push({fecha:p.fecha,tipo:'nomina',desc:'Pago a '+(m?m.nombre:'equipo')+(payoutWalletParts(p).length>1?' · pago dividido':''),monto:-mo});
   });
   S.egresos.filter(e=>(e.walletId||null)===wid&&(!hasta||e.fecha<=hasta)).forEach(e=>{
     const mo=Number(e.monto)||0;sal+=mo;
@@ -3397,7 +3419,7 @@ function payModal(memberId,q){
     '<div class="f" style="margin-top:14px"><label>Descontar de adelantos pendientes</label><input id="p-desc-adv" type="number" min="0" step="0.01" value="'+Math.min(adelPend,Math.max(0,pm.totalAntesAdelantos)).toFixed(2)+'"><div class="hint">Puedes descontar todo, una parte o $0. El saldo no descontado sigue pendiente para futuras quincenas.</div></div>'+ 
     '<div class="row" style="margin-top:10px"><div class="f"><label>Total a pagar</label><input id="p-mo" type="number" step="0.01" value="'+Math.max(0,pm.totalAntesAdelantos-adelPend).toFixed(2)+'" readonly></div>'+ 
     '<div class="f"><label>Fecha</label><input id="p-fe" type="date" value="'+today()+'"></div></div>'+ 
-    '<div class="f"><label>Sale de la wallet</label><select id="p-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div>'+ 
+    '<div class="msec" style="margin-top:14px"><div class="mstitle">¿Desde qué wallets se paga?</div><p class="sub" style="font-size:12px;margin:-4px 0 10px">Puedes dividir el pago entre varias wallets. Ejemplo: $300 en Efectivo + $200 en USDT.</p><div id="p-wallet-parts"></div><button type="button" class="b bg bs" id="p-add-wallet"><i class="ti ti-plus"></i>Agregar wallet</button><div class="sim" style="margin-top:10px"><div class="simrow"><span>Distribuido entre wallets</span><span class="v" id="p-wallet-total">$0.00</span></div></div></div>'+
     '<div class="f"><label>Nota</label><input id="p-no" placeholder="Opcional"></div>'+ 
     '<div class="brow"><button class="b bp" id="p-ok">Registrar y generar comprobante</button><button class="b bg" id="p-only">Solo registrar</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);
@@ -3429,7 +3451,16 @@ function payModal(memberId,q){
       const a=Math.max(0,Math.min(max,Number(amt.value)||0));amt.value=a.toFixed(2);pct.value=total>0?r2(((ya+a)/total)*100).toFixed(2):'0.00';syncTotal();
     };
   });
-  syncTotal();document.getElementById('p-desc-adv').oninput=syncTotal;document.getElementById('x').onclick=()=>{ov.remove();render()};
+  const walletBox=document.getElementById('p-wallet-parts');
+  function addWalletPart(walletId='',amount=0){
+    const row=document.createElement('div');row.className='row p-wallet-row';row.style.marginBottom='8px';
+    row.innerHTML='<div class="f"><label>Wallet</label><select class="p-wallet-id">'+S.metodos.map(w=>'<option value="'+w.id+'"'+(w.id===walletId?' selected':'')+'>'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><div style="display:flex;gap:6px"><input class="p-wallet-mo" type="number" min="0" step="0.01" value="'+Number(amount||0).toFixed(2)+'"><button type="button" class="ib dg p-wallet-del"><i class="ti ti-trash"></i></button></div></div>';
+    walletBox.appendChild(row);row.querySelector('.p-wallet-mo').oninput=syncWalletTotal;row.querySelector('.p-wallet-id').onchange=syncWalletTotal;
+    row.querySelector('.p-wallet-del').onclick=()=>{if(walletBox.children.length>1)row.remove();else row.querySelector('.p-wallet-mo').value='0.00';syncWalletTotal()};
+  }
+  function syncWalletTotal(){const total=r2([...walletBox.querySelectorAll('.p-wallet-mo')].reduce((s,x)=>s+(Number(x.value)||0),0));document.getElementById('p-wallet-total').textContent=money(total);return total}
+  addWalletPart(S.metodos[0]?.id||'',0);document.getElementById('p-add-wallet').onclick=()=>addWalletPart('',0);
+  syncTotal();syncWalletTotal();document.getElementById('p-desc-adv').oninput=syncTotal;document.getElementById('x').onclick=()=>{ov.remove();render()};
   async function doPay(gen){
     const detalle=pm.detalle.map((d,i)=>{const row=clientRows[i];const maxSel=Number(row?.querySelector('.pay-client-mo')?.dataset.max)||0;const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;return{companyId:d.companyId,negocio:d.negocio,monto:d.montoQuincena,pagable:r2(montoSel),liberado:r2(d.ganado),retenido:r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel)),cobrado:d.clientePago,coberturaManual:r2(Math.max(0,montoSel-(Number(d.ganado)||0)))};}).filter(d=>d.pagable>0||d.coberturaManual>0);
     const sumaClientes=r2(detalle.reduce((s,d)=>s+d.pagable,0));
@@ -3438,10 +3469,11 @@ function payModal(memberId,q){
     const plan=solicitadoAdv>0?distribuirDescuentoAdelantos(memberId,document.getElementById('p-fe').value||today(),solicitadoAdv):{aplicados:[],descontado:0,restante:0};
     const total=r2(Math.max(0,bruto-plan.descontado));
     if(total<=0&&plan.descontado<=0){alert('No hay monto para pagar.');return}
-    const walletId=(document.getElementById('p-wa')||{}).value||null;
-    if(!walletId){alert('Selecciona la wallet desde donde saldrá el pago.');return}
-    const sw=saldoWallet(walletId);if(total>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}
-    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId,detalle,sueldoBase:pm.sueldoPendiente};
+    const walletParts=[...walletBox.querySelectorAll('.p-wallet-row')].map(row=>({walletId:row.querySelector('.p-wallet-id').value,monto:r2(Number(row.querySelector('.p-wallet-mo').value)||0)})).filter(x=>x.walletId&&x.monto>0);
+    const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));
+    if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}
+    for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}
+    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:pm.sueldoPendiente};
     S.payouts.push(p);await save('payouts');ov.remove();toast('Pago registrado');if(gen)comprobantePDF(p);render();
   }
   document.getElementById('p-ok').onclick=()=>doPay(true);document.getElementById('p-only').onclick=()=>doPay(false);
@@ -3491,9 +3523,9 @@ function vPagosEquipo(v){
   const c=document.createElement('div');c.className='card';
   c.innerHTML='<div class="ctitle">Historial de pagos <span class="cnt">'+pagos.length+'</span></div>';
   if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();return}
-  c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
+  c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Wallet(s)</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
     const m=memberById(p.memberId);const clientes=(p.detalle||[]).map(x=>x.negocio).filter(Boolean).join(', ')||'—';
-    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
+    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+esc(payoutWalletsLabel(p))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
   }).join('')+'</tbody></table></div>';
   v.appendChild(c);
   c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
@@ -3714,6 +3746,7 @@ function comprobantePDF(p){
   if(Number(p.sueldoBase)>0){d.text('Sueldo base de quincena',M+14,y+22);d.text(money(p.sueldoBase),R-14,y+22,{align:'right'});y+=38}
   (p.detalle||[]).filter(x=>Number(x.pagable||0)>0).forEach(x=>{d.text(String(x.negocio||'').slice(0,42),M+14,y+22);d.text(money(x.pagable),R-14,y+22,{align:'right'});y+=30;if(y>H-220){d.addPage();d.setFillColor(255,255,255);d.rect(0,0,W,H,'F');y=70}});
   if(Number(p.adelantosDescontados)>0){d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=24;d.setTextColor(145,70,88);d.text('(-) Adelantos descontados',M+14,y);d.text('−'+money(p.adelantosDescontados),R-14,y,{align:'right'});y+=26}
+  if(p.walletParts&&p.walletParts.length){d.setTextColor(110,103,118);d.setFontSize(8.5);d.text('Pagado desde: '+payoutWalletsLabel(p),M+14,y,{maxWidth:R-M-28});y+=24}
   if(p.nota){d.setTextColor(110,103,118);d.setFontSize(9);d.text('Nota: '+p.nota,M+14,y,{maxWidth:R-M-28});y+=30}
   y+=8;d.setFillColor(246,243,250);d.roundedRect(M,y,R-M,72,14,14,'F');d.setTextColor(95,89,102);d.setFontSize(9);d.text('TOTAL PAGADO',M+16,y+24);d.setTextColor(110,75,198);d.setFont('helvetica','bold');d.setFontSize(19);d.text(money(p.monto),R-16,y+50,{align:'right'});
   d.setTextColor(120,114,126);d.setFont('helvetica','normal');d.setFontSize(8.5);d.text('Páramo Creativo · Comprobante generado automáticamente',M,H-52);
