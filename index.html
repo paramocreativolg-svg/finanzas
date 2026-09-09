@@ -1168,10 +1168,23 @@ function fechaConDia(y,m,d){return y+'-'+String(m).padStart(2,'0')+'-'+String(cl
 function diasCobro(c){const d1=Number(c&&c.diaCobro1)||Number(c&&c.diaCobro)||5;const d2=Number(c&&c.diaCobro2)||20;return [d1,d2].map(x=>Math.min(31,Math.max(1,x))).sort((a,b)=>a-b);}
 function siguienteFechaPago(c,fecha){
   if(!c||c.tipoContrato==='unico')return'';
-  const f=fecha||today();
-  if(c.frecuencia!=='quincenal')return addMonthISO(f);
-  const d=new Date(f+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1,ds=diasCobro(c);
+  const f=fecha||today(),d=new Date(f+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1;
+  if(c.frecuencia!=='quincenal'){
+    const day=Number(c.diaCobro1)||Number(c.diaCobro)||5;
+    const cand=fechaConDia(y,m,day);
+    if(cand>f)return cand;
+    const ny=m===12?y+1:y,nm=m===12?1:m+1;
+    return fechaConDia(ny,nm,day);
+  }
+  const ds=diasCobro(c);
   for(const day of ds){const cand=fechaConDia(y,m,day);if(cand>f)return cand;}
+  const ny=m===12?y+1:y,nm=m===12?1:m+1;return fechaConDia(ny,nm,ds[0]);
+}
+function proximaFechaConfigurada(c){
+  if(!c||c.tipoContrato==='unico')return '';
+  const base=c.ultimaFechaPago||today(),d=new Date(base+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1;
+  const ds=c.frecuencia==='quincenal'?diasCobro(c):[Number(c.diaCobro1)||Number(c.diaCobro)||5];
+  for(const day of ds){const cand=fechaConDia(y,m,day);if(c.ultimaFechaPago?cand>base:cand>=base)return cand;}
   const ny=m===12?y+1:y,nm=m===12?1:m+1;return fechaConDia(ny,nm,ds[0]);
 }
 function registrarFechaPagoCliente(c,fecha){
@@ -1179,11 +1192,12 @@ function registrarFechaPagoCliente(c,fecha){
   if(c.frecuencia==='quincenal'){const ds=diasCobro(c);c.diaCobro1=ds[0];c.diaCobro2=ds[1];c.diaCobro=c.diaCobro1;}else c.diaCobro=Number(c.diaCobro1)||Number(c.diaCobro)||5;
 }
 function fechaPagoCliente(c){
-  if(!c)return null;if(c.proximaFechaPago)return c.proximaFechaPago;
-  const base=c.fechaInicio||today(),d=new Date(base+'T12:00:00'),y=d.getFullYear(),m=d.getMonth()+1;
-  const ds=c.frecuencia==='quincenal'?diasCobro(c):[Number(c.diaCobro1)||Number(c.diaCobro)||5];
-  const candidatos=ds.map(x=>fechaConDia(y,m,x)).filter(x=>x>=base).sort();
-  if(candidatos.length)return candidatos[0];const ny=m===12?y+1:y,nm=m===12?1:m+1;return fechaConDia(ny,nm,ds[0]);
+  if(!c||c.tipoContrato==='unico')return null;
+  /* La agenda visible SIEMPRE sale de las fechas configuradas del cliente.
+     proximaFechaPago se conserva solo por compatibilidad con datos antiguos,
+     pero nunca debe imponerse sobre diaCobro1/diaCobro2. */
+  const f=proximaFechaConfigurada(c);
+  return f||null;
 }
 /* Distribución secuencial de cobros para nómina. */
 function cobroNominaCliente(c,q){
@@ -2537,7 +2551,7 @@ function mCompanyModal(){
         diaCobro2:Number(document.getElementById('e-dia2').value)||20,
         estado:document.getElementById('e-est').value,
         fechaInicio:document.getElementById('e-fi').value,
-        ultimaFechaPago:c.ultimaFechaPago||'',proximaFechaPago:c.proximaFechaPago||'',
+        ultimaFechaPago:c.ultimaFechaPago||'',proximaFechaPago:'',
         asignaciones:asigs.filter(a=>{
           const mm=memberById(a.memberId);
           if(!mm||mm.tipoCompensacion==='sueldo'||a.memberId==='')return false;
@@ -2550,8 +2564,16 @@ function mCompanyModal(){
           return x;
         }),
         equipoIds:asigs.filter(a=>{const mm=memberById(a.memberId);return mm&&mm.tipoCompensacion!=='sueldo'&&a.memberId&&montoAsignacionMensual(c,a)>0}).map(a=>a.memberId)};
-      if(isNew){const nc={id:uid(),...patch,notas:[]};S.companies.push(nc);S.mCompany=nc.id;toast('Empresa creada')}
-      else{Object.assign(c,patch);toast('Guardado')}
+      if(isNew){
+        const nc={id:uid(),...patch,notas:[]};
+        nc.proximaFechaPago=proximaFechaConfigurada(nc);
+        S.companies.push(nc);S.mCompany=nc.id;toast('Empresa creada')
+      }
+      else{
+        Object.assign(c,patch);
+        c.proximaFechaPago=proximaFechaConfigurada(c);
+        toast('Guardado')
+      }
       S.eCompany=null;await save('companies');render();
     };
     document.getElementById('e-cancel').onclick=()=>{if(isNew){S.mCompany=null}S.eCompany=null;render()};
@@ -3855,8 +3877,20 @@ async function bootData(authUser){
      manualmente; así una actualización nunca puede reemplazar wallets reales. */
   if(!Array.isArray(S.metodos))S.metodos=[];
   let normalizedCompanies=false;
-  (S.companies||[]).forEach(c=>{if(c.tipoContrato==='temporal'){c.tipoContrato='recurrente';normalizedCompanies=true;}if(!c.diaCobro1)c.diaCobro1=Number(c.diaCobro)||5;if(!c.diaCobro2)c.diaCobro2=Math.min(31,(Number(c.diaCobro1)||5)+15);if(!c.diaCobro)c.diaCobro=c.diaCobro1;});
-  if(normalizedCompanies)await save('companies');
+  let normalizedPaymentDates=false;
+  (S.companies||[]).forEach(c=>{
+    if(c.tipoContrato==='temporal'){c.tipoContrato='recurrente';normalizedCompanies=true;}
+    if(!c.diaCobro1)c.diaCobro1=Number(c.diaCobro)||5;
+    if(!c.diaCobro2)c.diaCobro2=Math.min(31,(Number(c.diaCobro1)||5)+15);
+    if(!c.diaCobro)c.diaCobro=c.diaCobro1;
+    /* Recalcula la fecha almacenada a partir de la configuración actual.
+       Esto corrige fechas antiguas (por ejemplo 30/09) sin tocar cobros, facturas, nómina ni wallets. */
+    if(c.tipoContrato!=='unico'){
+      const nueva=proximaFechaConfigurada(c);
+      if(nueva && c.proximaFechaPago!==nueva){c.proximaFechaPago=nueva;normalizedPaymentDates=true;}
+    }
+  });
+  if(normalizedCompanies||normalizedPaymentDates)await save('companies');
   /* Normaliza empresas antiguas sin tipoContrato: siguen siendo recurrentes. */
   if(Array.isArray(S.companies))S.companies.forEach(c=>{if(!c.tipoContrato)c.tipoContrato='recurrente';});
   if(!S.roles.length){
