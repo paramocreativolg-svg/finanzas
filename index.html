@@ -1163,7 +1163,7 @@ function periodoFacturaCliente(c,fecha,mitad){
 }
 function addDaysISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
 function addMonthISO(iso){const d=new Date(iso+'T12:00:00');const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return d.toISOString().slice(0,10)}
-function clampDay(y,m,d){const last=new Date(y,m,0).getDate();return Math.min(Math.max(Number(d)||1,last),last)}
+function clampDay(y,m,d){const last=new Date(y,m,0).getDate();return Math.min(Math.max(Number(d)||1,1),last)}
 function fechaConDia(y,m,d){return y+'-'+String(m).padStart(2,'0')+'-'+String(clampDay(y,m,d)).padStart(2,'0')}
 function diasCobro(c){const d1=Number(c&&c.diaCobro1)||Number(c&&c.diaCobro)||5;const d2=Number(c&&c.diaCobro2)||20;return [d1,d2].map(x=>Math.min(31,Math.max(1,x))).sort((a,b)=>a-b);}
 function siguienteFechaPago(c,fecha){
@@ -2211,14 +2211,16 @@ function proyeccionBase(){
     ingresos=r2(ingresos+bruto); comisionesCobro=r2(comisionesCobro+cob); equipoVariable=r2(equipoVariable+costoEquipoDe(c));
   });
   const sueldosFijos=r2((S.members||[]).filter(m=>m.activo&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')).reduce((s,m)=>s+(Number(m.sueldoMensual)||0),0));
-  const gastosFijos=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
+  const gastosFijosRecurrentes=totalGastosFijosMensual();
+  const gastosFijosProyeccion=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
+  const gastosFijos=r2(gastosFijosRecurrentes+gastosFijosProyeccion);
   const margenBruto=r2(ingresos-comisionesCobro-equipoVariable);
   const utilidad=r2(margenBruto-sueldosFijos-gastosFijos);
   const netoClientes=r2(ingresos-comisionesCobro);
-  return{clientes:act.length,ingresos,comisionesCobro,netoClientes,equipoVariable,sueldosFijos,gastosFijos,margenBruto,utilidad};
+  return{clientes:act.length,ingresos,comisionesCobro,netoClientes,equipoVariable,sueldosFijos,gastosFijos,gastosFijosRecurrentes,gastosFijosProyeccion,margenBruto,utilidad};
 }
 function vProyeccion(v){
-  const b=proyeccionBase(), gastoFijo=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
+  const b=proyeccionBase(), gastoFijo=b.gastosFijos;
   const ratioEquipo=b.ingresos>0?b.equipoVariable/b.ingresos:0, ratioCobro=b.ingresos>0?b.comisionesCobro/b.ingresos:0;
   head(v,'Análisis','Proyección financiera','Calcula cuánto puede dejar la agencia al mes sin usar cobros ni movimientos reales. Usa la cartera y los costos configurados.','<button class="b bp" id="pf-add"><i class="ti ti-plus"></i>Gasto fijo</button>');
   v.appendChild(frag('<div class="mets">'+
@@ -2227,7 +2229,7 @@ function vProyeccion(v){
     '<div class="met"><div class="mlab">Neto después de comisión</div><div class="mval">'+money(b.netoClientes)+'</div><div class="msub">Lo que teóricamente queda del cliente</div></div>'+
     '<div class="met"><div class="mlab">Costo variable equipo</div><div class="mval">'+money(b.equipoVariable)+'</div><div class="msub">Pagos ligados a clientes</div></div>'+ 
     '<div class="met"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">Nómina fija mensual</div></div>'+ 
-    '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Suscripciones y otros</div></div>'+ 
+    '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Recurrentes + extras de proyección</div></div>'+ 
     '<div class="met"><div class="mlab">Ganancia mensual proyectada</div><div class="mval">'+money(b.utilidad)+'</div><div class="msub">Sin usar movimientos reales</div></div>'+ 
     '</div>'));
   const ticketPromedio=b.clientes?b.ingresos/b.clientes:0;
@@ -2249,13 +2251,22 @@ function vProyeccion(v){
     '<div class="lrow"><div><div class="lname">Neto después de comisiones</div><div class="lsub">Ingresos menos comisiones teóricas</div></div><div class="mono">'+money(b.netoClientes)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Equipo variable</div><div class="lsub">Asignaciones y comisiones por cliente</div></div><div class="mono" style="color:var(--red)">−'+money(b.equipoVariable)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Sueldos fijos</div><div class="lsub">Empleados sueldo / mixtos</div></div><div class="mono" style="color:var(--red)">−'+money(b.sueldosFijos)+'</div></div>'+
-    '<div class="lrow"><div><div class="lname">Gastos fijos</div><div class="lsub">Suscripciones, herramientas y otros</div></div><div class="mono" style="color:var(--red)">−'+money(b.gastosFijos)+'</div></div>'+
+    '<div class="lrow"><div><div class="lname">Gastos fijos</div><div class="lsub">Recurrentes de Egresos + extras de proyección</div></div><div class="mono" style="color:var(--red)">−'+money(b.gastosFijos)+'</div></div>'+
     '<div class="lrow" style="padding-top:14px"><div><div class="lname" style="font-weight:700">Queda libre para la agencia</div><div class="lsub">Resultado mensual proyectado</div></div><div class="mono" style="font-size:16px;font-weight:700;color:'+(b.utilidad>=0?'var(--lime)':'var(--red)')+'">'+money(b.utilidad)+'</div></div>';
   g.appendChild(c1);
   const c2=document.createElement('div');c2.className='card';
-  const rows=(S.proyeccionGastosFijos||[]).map(x=>'<div class="lrow"><div><div class="lname">'+esc(x.nombre||'Gasto fijo')+'</div><div class="lsub">'+(x.categoria?esc(x.categoria)+' · ':'')+'Mensual</div></div><div style="display:flex;align-items:center;gap:6px"><span class="mono">'+money(x.monto)+'</span><button class="ib" data-pfedit="'+x.id+'"><i class="ti ti-edit"></i></button><button class="ib dg" data-pfdel="'+x.id+'"><i class="ti ti-trash"></i></button></div></div>').join('');
-  c2.innerHTML='<div class="ctitle">Gastos fijos incluidos <span class="cnt">'+(S.proyeccionGastosFijos||[]).length+'</span></div>'+(rows||'<div style="font-size:12.5px;color:var(--tx3);padding:8px 0">Agrega suscripciones, herramientas, dominios, software u otros costos mensuales.</div>');
-  c2.appendChild(frag('<div class="msec"><div class="mstitle">Total mensual</div><div class="mval">'+money(gastoFijo)+'</div><div class="sub" style="font-size:12px">Estos gastos son de proyección y no modifican tus egresos reales.</div></div>'));
+  const gfReales=(S.gastosFijos||[]).filter(g=>g.activo!==false);
+  const rowsReales=gfReales.map(x=>'<div class="lrow"><div><div class="lname">'+esc(x.nombre||'Gasto fijo')+'</div><div class="lsub">'+(x.categoria?esc(x.categoria)+' · ':'')+'Recurrente · día '+esc(String(x.dia||1))+'</div></div><div style="display:flex;align-items:center;gap:6px"><span class="mono">'+money(x.monto)+'</span><span class="p p-ok">Egresos</span></div></div>').join('');
+  const rows=(S.proyeccionGastosFijos||[]).map(x=>'<div class="lrow"><div><div class="lname">'+esc(x.nombre||'Gasto fijo')+'</div><div class="lsub">'+(x.categoria?esc(x.categoria)+' · ':'')+'Solo proyección</div></div><div style="display:flex;align-items:center;gap:6px"><span class="mono">'+money(x.monto)+'</span><button class="ib" data-pfedit="'+x.id+'"><i class="ti ti-edit"></i></button><button class="ib dg" data-pfdel="'+x.id+'"><i class="ti ti-trash"></i></button></div></div>').join('');
+  const totalFijos=gfReales.length+(S.proyeccionGastosFijos||[]).length;
+  c2.innerHTML='<div class="ctitle">Gastos fijos incluidos <span class="cnt">'+totalFijos+'</span></div>'+
+    (rowsReales||'')+(rows||'')+
+    (totalFijos?'':'<div style="font-size:12.5px;color:var(--tx3);padding:8px 0">Agrega suscripciones, herramientas, dominios, software u otros costos mensuales.</div>');
+  c2.appendChild(frag('<div class="msec"><div class="mstitle">Total mensual</div><div class="mval">'+money(gastoFijo)+'</div>'+
+    '<div class="sim" style="margin-top:8px"><div class="simrow"><span>Gastos fijos recurrentes (Egresos)</span><span class="v">'+money(b.gastosFijosRecurrentes)+'</span></div>'+
+    '<div class="simrow"><span>Extras solo de proyección</span><span class="v">'+money(b.gastosFijosProyeccion)+'</span></div>'+
+    '<div class="simrow tot"><span>Total</span><span class="v">'+money(gastoFijo)+'</span></div></div>'+
+    '<div class="sub" style="font-size:12px;margin-top:8px">Los recurrentes se configuran en Egresos; los extras son solo de proyección y no modifican tus egresos reales.</div></div>'));
   g.appendChild(c2);v.appendChild(g);
   const cClients=document.createElement('div');cClients.className='card';cClients.style.marginTop='16px';
   const trs=(S.companies||[]).filter(c=>c.estado==='activo').map(c=>{const cs=cascadaCliente(c);return '<tr><td><strong>'+esc(c.negocio)+'</strong></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(cs.bruto)+'</td><td class="n">−'+money(cs.comisionMonto)+'</td><td class="n">'+money(cs.neto)+'</td><td class="n">−'+money(cs.equipo)+'</td><td class="n" style="font-weight:700">'+money(cs.agencia)+'</td><td class="n">'+money(cs.agencia*100/(cs.bruto||1))+'%</td></tr>'}).join('');
