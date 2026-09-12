@@ -1225,7 +1225,29 @@ function cobroNominaCliente(c,q){
 function porcentajeCobradoCliente(c,q){const base=montoFacturaCliente(c);if(!base)return 0;return Math.max(0,Math.min(1,cobroNominaCliente(c,q).totalBruto/base))}
 function qActualGlobal(){const t=today();const y=Number(t.slice(0,4));const qs=quincenasAnio(y);return qs.find(x=>t>=x.inicio&&t<=x.fin)||qs[0]}
 function nominaDesdeKey(){return S.nominaInicioKey||qActualGlobal().key}
-function qPermitida(key){return String(key)>=String(nominaDesdeKey())}
+/* ─────────── VENTANA DE REGISTRO DE NÓMINA ───────────
+   Los clientes a veces pagan tarde, así que hace falta poder registrar pagos
+   de quincenas ya cerradas, y a veces adelantar la siguiente. La ventana es
+   de 2 quincenas hacia atrás y 2 hacia adelante desde la quincena actual.
+   Fuera de esa ventana: solo lectura. */
+const VENTANA_QUINCENAS=2;
+function qIndexGlobal(key){const m=String(key||'').match(/^(\d{4})-(\d{2})-Q([12])$/);return m?Number(m[1])*24+(Number(m[2])-1)*2+(Number(m[3])-1):null}
+function qOffsetActual(key){const a=qIndexGlobal(key),b=qIndexGlobal(qActualGlobal().key);return (a===null||b===null)?null:a-b}
+function qEnVentana(key){const o=qOffsetActual(key);return o!==null&&Math.abs(o)<=VENTANA_QUINCENAS}
+function qEtiquetaVentana(key){
+  const o=qOffsetActual(key);
+  if(o===null)return '';
+  if(o===0)return 'Quincena actual';
+  if(o<0)return Math.abs(o)+' quincena'+(o===-1?'':'s')+' atrás';
+  return o+' quincena'+(o===1?'':'s')+' adelante';
+}
+function qPermitida(key){
+  const o=qOffsetActual(key);
+  if(o===null)return String(key)>=String(nominaDesdeKey());
+  if(o>VENTANA_QUINCENAS)return false;            // demasiado en el futuro
+  if(o>=-VENTANA_QUINCENAS)return true;           // dentro de la ventana, siempre editable
+  return String(key)>=String(nominaDesdeKey());   // más atrás: regla antigua de inicio de control
+}
 function pagosNominaDeMiembroEnQ(memberId,qKey){return S.payouts.filter(p=>p.memberId===memberId&&p.quincenaKey===qKey&&p.tipo!=='adelanto')}
 function sueldoYaPagadoEnQ(memberId,q){
   const base=(Number(memberById(memberId)?.sueldoMensual)||0)/2;
@@ -1347,19 +1369,32 @@ const DB={
   }
 };
 const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos'];
-const PROTECTED_DATA_KEYS=new Set(['companies','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario']);
-const DATA_VERSION=34;
+/* Toda colección (array u objeto) queda protegida, no solo un subconjunto.
+   Antes contacts, links, members, roles, users y gastosFijos no tenían red. */
+const COLLECTION_KEYS=new Set(['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','nominaSaldosIniciales','proyeccionGastosFijos','gastosFijos']);
+const PROTECTED_DATA_KEYS=COLLECTION_KEYS;
+const DATA_VERSION=35;
 let DB_BASELINE={};
 let AUTO_BACKUP_DONE=false;
+/* Mientras no se confirme que TODAS las claves se leyeron bien, ningún save
+   puede escribir. Evita que un fallo de red deje la app con arrays vacíos
+   y que el primer guardado borre lo que había en el servidor. */
+let DATA_READY=false;
 function dataCount(v){return Array.isArray(v)?v.length:(v&&typeof v==='object'?Object.keys(v).length:0)}
 function dataRisk(k,next,prev){
   if(!PROTECTED_DATA_KEYS.has(k))return null;
   const before=dataCount(prev), after=dataCount(next);
   if(before>0&&after===0)return 'El intento de guardar '+k+' dejaría la colección vacía aunque antes tenía '+before+' registros.';
-  if(before>=8&&after<Math.floor(before*0.5))return 'El intento de guardar '+k+' reduciría los datos de '+before+' a '+after+' registros (más del 50%).';
+  /* En la app todos los borrados son de uno en uno con confirmación, salvo
+     "links", que pierde varios cuando se elimina una empresa o un contacto.
+     Así que perder 3+ registros en un solo guardado es señal de bug, no de
+     una acción real del usuario. */
+  if(before>=5&&k!=='links'&&(before-after)>=3)return 'El intento de guardar '+k+' eliminaría '+(before-after)+' registros de una sola vez ('+before+' → '+after+'). En esta app los borrados son de uno en uno.';
+  if(before>=5&&after<Math.ceil(before*0.6))return 'El intento de guardar '+k+' reduciría los datos de '+before+' a '+after+' registros (más del 40%).';
   return null;
 }
 async function save(k,opts={}){
+  if(!DATA_READY&&!opts.allowBeforeReady)throw new Error('Los datos no terminaron de cargarse correctamente. No se guardó nada para no sobrescribir información del servidor.');
   const payload=JSON.stringify(S[k]);
   if(!opts.force){
     let remote=null;
@@ -1374,6 +1409,37 @@ async function save(k,opts={}){
   DB_BASELINE[k]=payload;
 }
 async function saveAll(){for(const k of KEYS)await save(k)}
+/* ─────────── GUARDADO DESDE LA INTERFAZ ───────────
+   save() lanza excepciones a propósito (conflicto, protección, red caída).
+   Antes ningún handler las atrapaba: el modal se quedaba abierto, no había
+   aviso, y el dato quedaba solo en memoria. El usuario lo veía en pantalla
+   pero al recargar había desaparecido. saveUI() convierte ese fallo en algo
+   visible y devuelve false para que el flujo se detenga. */
+let SAVE_FALLIDO=false;
+function bannerGuardado(){
+  let el=document.getElementById('save-banner');
+  if(!SAVE_FALLIDO){if(el)el.remove();return}
+  if(!el){
+    el=document.createElement('div');el.id='save-banner';
+    el.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#7f1d1d;color:#fff;padding:10px 16px;font-size:13px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap';
+    el.innerHTML='<strong>⚠️ Hay cambios que NO se guardaron en el servidor.</strong><span>No sigas trabajando: recarga la página para volver a sincronizar.</span><button type="button" style="background:#fff;color:#7f1d1d;border:0;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer" onclick="location.reload()">Recargar ahora</button>';
+    document.body.appendChild(el);
+  }
+}
+function reportarFalloGuardado(k,e){
+  SAVE_FALLIDO=true;bannerGuardado();
+  console.error('Fallo al guardar '+k,e);
+  try{toast('No se pudo guardar '+k)}catch(_){}
+  setTimeout(()=>alert('🛡️ No se pudo guardar "'+k+'".\n\n'+((e&&e.message)||e)+'\n\nEl cambio quedó SOLO en pantalla, no en el servidor.\nRecarga la página para volver a sincronizar antes de seguir.'),30);
+}
+async function saveUI(k,opts){
+  try{await save(k,opts);if(SAVE_FALLIDO){SAVE_FALLIDO=false;bannerGuardado()}return true}
+  catch(e){reportarFalloGuardado(k,e);return false}
+}
+window.addEventListener('unhandledrejection',ev=>{
+  const m=(ev&&ev.reason&&ev.reason.message)||'';
+  if(/guardar|Conflicto|PROTECCIÓN|cargarse/i.test(m)){SAVE_FALLIDO=true;bannerGuardado();console.error('Promesa sin atrapar:',ev.reason)}
+});
 async function snapshotAutoBackup(reason='inicio'){
   if(AUTO_BACKUP_DONE)return;
   const snap={version:DATA_VERSION,createdAt:new Date().toISOString(),reason};
@@ -1877,12 +1943,12 @@ function vFacturas(v){
       items:invoiceItems.filter(x=>(x.descripcion||'').trim()||Number(x.monto)),descripcion:(invoiceItems.find(x=>(x.descripcion||'').trim())||{}).descripcion||'Servicio',footNote:nt.value.trim()||(c.frecuencia==='quincenal'?periodoFacturaCliente(c,fe.value,mitad):'Cuota de servicio mensual')};
     S.invoices.unshift(iv);
     const n=parseInt(iv.orden.replace(/\D/g,''))||S.counter;if(n>S.counter)S.counter=n;
-    await save('invoices');await save('counter');facturaPDF(iv);toast('Factura generada');render();
+    await saveUI('invoices');await saveUI('counter');facturaPDF(iv);toast('Factura generada');render();
   };
   hist.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>facturaPDF(S.invoices.find(i=>i.id===b.dataset.pdf)));
   hist.querySelectorAll('[data-editi]').forEach(b=>b.onclick=()=>editarFacturaModal(b.dataset.editi));
   hist.querySelectorAll('[data-di]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar factura?'))return;
-    S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);await save('invoices');render()});
+    S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);await saveUI('invoices');render()});
 }
 
 
@@ -1915,7 +1981,7 @@ function editarFacturaModal(id){
   dp.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),p=Math.max(0,Math.min(100,Number(dp.value)||0));da.value=r2(sub*p/100).toFixed(2);lock=false;draw()};
   da.oninput=()=>{if(lock)return;lock=true;const sub=Math.max(0,Number(mo.value)||0),d=Math.max(0,Math.min(sub,Number(da.value)||0));da.value=d.toFixed(2);dp.value=sub>0?r2(d/sub*100).toFixed(2):'0';lock=false;draw()};
   mo.oninput=draw;co.onchange=()=>{renderItems();updateSubtotal();draw()};md.querySelector('#ef-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ef-cancel').onclick=()=>cerrarModalEdicion(ov);renderItems();updateSubtotal();draw();
-  md.querySelector('#ef-save').onclick=async()=>{const c=companyById(co.value),a=amounts();if(!c){alert('Selecciona un cliente.');return}i.companyId=c.id;i.negocio=c.negocio;i.fecha=md.querySelector('#ef-fe').value||today();i.orden=md.querySelector('#ef-or').value.trim();i.nombre=(contactsOf(c.id)[0]?fullName(contactsOf(c.id)[0].contact):(i.nombre||''));i.ubicacion=c.ubicacion||'';i.frecuencia=c.frecuencia||i.frecuencia||'mensual';i.tipoContrato=c.tipoContrato||i.tipoContrato||'recurrente';i.periodoMitad=(i.tipoContrato==='recurrente'&&i.frecuencia==='quincenal')?Number(per.value)||1:null;i.periodoEtiqueta=i.tipoContrato==='unico'?'Servicio puntual · pago único':i.frecuencia==='quincenal'?(i.periodoMitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual';i.periodo=periodoFacturaCliente(c,i.fecha,i.periodoMitad);i.items=invoiceItems.filter(x=>(x.descripcion||'').trim()||Number(x.monto));i.subtotal=a.sub;i.descuento=a.disc;i.descuentoPct=a.pct;i.total=a.total;i.tarifaMensual=Number(c.tarifaBruta)||0;i.descripcion=(invoiceItems.find(x=>(x.descripcion||'').trim())||{}).descripcion||'Servicio';i.footNote=md.querySelector('#ef-nt').value.trim();await save('invoices');toast('Factura actualizada');ov.remove();facturaPDF(i);render()};
+  md.querySelector('#ef-save').onclick=async()=>{const c=companyById(co.value),a=amounts();if(!c){alert('Selecciona un cliente.');return}i.companyId=c.id;i.negocio=c.negocio;i.fecha=md.querySelector('#ef-fe').value||today();i.orden=md.querySelector('#ef-or').value.trim();i.nombre=(contactsOf(c.id)[0]?fullName(contactsOf(c.id)[0].contact):(i.nombre||''));i.ubicacion=c.ubicacion||'';i.frecuencia=c.frecuencia||i.frecuencia||'mensual';i.tipoContrato=c.tipoContrato||i.tipoContrato||'recurrente';i.periodoMitad=(i.tipoContrato==='recurrente'&&i.frecuencia==='quincenal')?Number(per.value)||1:null;i.periodoEtiqueta=i.tipoContrato==='unico'?'Servicio puntual · pago único':i.frecuencia==='quincenal'?(i.periodoMitad===1?'Primera parte de la estrategia · días 1–15':'Segunda parte de la estrategia · días 16–fin de mes'):'Servicio mensual';i.periodo=periodoFacturaCliente(c,i.fecha,i.periodoMitad);i.items=invoiceItems.filter(x=>(x.descripcion||'').trim()||Number(x.monto));i.subtotal=a.sub;i.descuento=a.disc;i.descuentoPct=a.pct;i.total=a.total;i.tarifaMensual=Number(c.tarifaBruta)||0;i.descripcion=(invoiceItems.find(x=>(x.descripcion||'').trim())||{}).descripcion||'Servicio';i.footNote=md.querySelector('#ef-nt').value.trim();await saveUI('invoices');toast('Factura actualizada');ov.remove();facturaPDF(i);render()};
 }
 function editarCobroModal(id){
   const p=S.cobros.find(x=>x.id===id);if(!p||!visibleCobros().some(x=>x.id===id))return;
@@ -1941,7 +2007,7 @@ function editarCobroModal(id){
   function draw(){if(mode==='externo'){const b=Number(md.querySelector('#ec-emo').value)||0,m2=S.metodos.find(x=>x.id===md.querySelector('#ec-eme').value),cp=m2?m2.comisionPct:0;prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(r2(b*cp/100))+'</span></div><div class="simrow tot"><span>Neto a wallet</span><span class="v">'+money(r2(b-r2(b*cp/100)))+'</span></div>'}else refreshAlloc()}
   md.querySelector('#ec-mo').oninput=refreshAlloc;md.querySelector('#ec-co').onchange=renderAlloc;md.querySelector('#ec-fe').oninput=renderAlloc;md.querySelector('#ec-emo').oninput=draw;md.querySelector('#ec-eme').onchange=draw;
   md.querySelector('#ec-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ec-cancel').onclick=()=>cerrarModalEdicion(ov);if(mode==='cliente')renderAlloc();else draw();
-  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await save('cobros');await save('companies');toast('Cobro actualizado');ov.remove();render()}
+  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await saveUI('cobros');await saveUI('companies');toast('Cobro actualizado');ov.remove();render()}
 }
 function editarPagoModal(id){
   const p=S.payouts.find(x=>x.id===id);if(!p||!visiblePayouts().some(x=>x.id===id))return;const m=memberById(p.memberId);if(!m)return;
@@ -1960,10 +2026,10 @@ function editarPagoModal(id){
   }
   ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#epay-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#epay-cancel').onclick=()=>cerrarModalEdicion(ov);
   if(p.tipo==='adelanto'){
-    md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;if(mo<=0||!wid){alert('Completa monto y wallet.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.walletId=wid;p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Adelanto actualizado');ov.remove();render()};
+    md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;if(mo<=0||!wid){alert('Completa monto y wallet.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.walletId=wid;p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await saveUI('payouts');toast('Adelanto actualizado');ov.remove();render()};
   }else{
     md.querySelectorAll('.epay-det').forEach(inp=>inp.oninput=()=>{let total=r2(Number(p.sueldoBase||0)+[...md.querySelectorAll('.epay-det')].reduce((s,x)=>s+(Number(x.value)||0),0)-Number(p.adelantosDescontados||0));md.querySelector('#epay-total').textContent=money(Math.max(0,total))});
-    md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;const walletParts=[...md.querySelectorAll('.epay-wallet-row')].map(row=>({walletId:row.querySelector('.epay-wallet-id').value,monto:r2(Number(row.querySelector('.epay-wallet-mo').value)||0)})).filter(x=>x.walletId&&x.monto>0);const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}p.walletId=walletParts[0]?.walletId||null;p.walletParts=walletParts;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await save('payouts');toast('Pago actualizado');ov.remove();render()};
+    md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;const walletParts=[...md.querySelectorAll('.epay-wallet-row')].map(row=>({walletId:row.querySelector('.epay-wallet-id').value,monto:r2(Number(row.querySelector('.epay-wallet-mo').value)||0)})).filter(x=>x.walletId&&x.monto>0);const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}p.walletId=walletParts[0]?.walletId||null;p.walletParts=walletParts;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await saveUI('payouts');toast('Pago actualizado');ov.remove();render()};
   }
 }
 
@@ -1996,7 +2062,7 @@ function gastoFijoModal(id){
     if(!nombre||monto<=0){alert('Completa nombre y monto.');return}
     const patch={nombre,categoria:document.getElementById('gf-c').value,monto:r2(monto),dia,walletId:document.getElementById('gf-w').value,activo:document.getElementById('gf-a').value==='1'};
     S.gastosFijos=S.gastosFijos||[];if(g)Object.assign(g,patch);else S.gastosFijos.push({id:uid(),...patch});
-    await save('gastosFijos');ov.remove();toast('Gasto fijo guardado');render();
+    await saveUI('gastosFijos');ov.remove();toast('Gasto fijo guardado');render();
   };
 }
 async function pagarGastoFijo(id,ym){
@@ -2007,7 +2073,7 @@ async function pagarGastoFijo(id,ym){
   const sw=saldoWallet(w.id,today()),disponible=r2(sw.saldo);
   if(disponible+0.005<Number(g.monto)){alert('La wallet seleccionada no tiene saldo suficiente.');return}
   const e={id:uid(),fecha,categoria:g.categoria||'General',descripcion:g.nombre,monto:r2(g.monto),walletId:g.walletId,fijoId:g.id,periodo:ym,esGastoFijo:true};
-  S.egresos.push(e);await save('egresos');toast('Gasto fijo marcado como pagado');render();
+  S.egresos.push(e);await saveUI('egresos');toast('Gasto fijo marcado como pagado');render();
 }
 function vGastosFijos(v){
   const hoy=new Date(),ym=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0');
@@ -2025,7 +2091,7 @@ function vGastosFijos(v){
   v.querySelectorAll('[data-gfp]').forEach(b=>b.onclick=async()=>{const [id,m]=b.dataset.gfp.split('|');await pagarGastoFijo(id,m)});
   v.querySelectorAll('[data-gfe]').forEach(b=>b.onclick=()=>gastoFijoModal(b.dataset.gfe));
   card2.querySelectorAll('[data-gfe2]').forEach(b=>b.onclick=()=>gastoFijoModal(b.dataset.gfe2));
-  card2.querySelectorAll('[data-gfd]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar este gasto fijo?'))return;S.gastosFijos=S.gastosFijos.filter(x=>x.id!==b.dataset.gfd);await save('gastosFijos');render()});
+  card2.querySelectorAll('[data-gfd]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar este gasto fijo?'))return;S.gastosFijos=S.gastosFijos.filter(x=>x.id!==b.dataset.gfd);await saveUI('gastosFijos');render()});
 }
 
 /* ─────────── EGRESOS ─────────── */
@@ -2070,11 +2136,11 @@ function vEgresos(v){
     if(p.monto<=0){alert('Monto inválido.');return}
     if(S.eEgreso==='new')S.egresos.push({id:uid(),...p});
     else Object.assign(S.egresos.find(x=>x.id===S.eEgreso),p);
-    S.eEgreso=null;await save('egresos');toast('Guardado');render()};
+    S.eEgreso=null;await saveUI('egresos');toast('Guardado');render()};
   const gc=document.getElementById('g-cancel');if(gc)gc.onclick=()=>{S.eEgreso=null;render()};
   v.querySelectorAll('[data-ee]').forEach(b=>b.onclick=()=>{S.eEgreso=b.dataset.ee;render()});
   v.querySelectorAll('[data-de]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar?'))return;
-    S.egresos=S.egresos.filter(x=>x.id!==b.dataset.de);await save('egresos');render()});
+    S.egresos=S.egresos.filter(x=>x.id!==b.dataset.de);await saveUI('egresos');render()});
 }
 
 function vProspectos(v){
@@ -2107,7 +2173,7 @@ function vProspectos(v){
     c.ondragleave=()=>c.style.background='var(--card2)';
     c.ondrop=async e=>{e.preventDefault();c.style.background='var(--card2)';
       const p=S.prospects.find(x=>x.id===e.dataTransfer.getData('text/plain'));
-      if(p&&p.estado!==k){p.estado=k;await save('prospects');toast('Movido a '+lb);render()}};
+      if(p&&p.estado!==k){p.estado=k;await saveUI('prospects');toast('Movido a '+lb);render()}};
     bd.appendChild(c);
   });
   v.appendChild(bd);
@@ -2118,7 +2184,7 @@ function vProspectos(v){
       metodoPagoId:(S.metodos[0]||{}).id,estado:'activo',frecuencia:'mensual',diaCobro:5,
       equipoIds:[],pesos:{},notas:[],fechaInicio:today()});
     S.prospects=S.prospects.filter(x=>x.id!==p.id);
-    await save('companies');await save('prospects');S.tab='empresas';toast('Convertido en cliente');render()});
+    await saveUI('companies');await saveUI('prospects');S.tab='empresas';toast('Convertido en cliente');render()});
 }
 function mProspectModal(){
   const isNew=S.mProspect==='new';
@@ -2140,10 +2206,10 @@ function mProspectModal(){
     const patch={negocio:n,ubicacion:document.getElementById('pp-u').value.trim(),
       montoEstimado:Number(document.getElementById('pp-m').value)||0,estado:document.getElementById('pp-e').value};
     if(isNew)S.prospects.push({id:uid(),...patch,fechaCreacion:today()});else Object.assign(p,patch);
-    S.mProspect=null;await save('prospects');toast('Guardado');render()};
+    S.mProspect=null;await saveUI('prospects');toast('Guardado');render()};
   const d=document.getElementById('pp-d');
   if(d)d.onclick=async()=>{if(!confirm('¿Eliminar?'))return;S.prospects=S.prospects.filter(x=>x.id!==p.id);
-    S.mProspect=null;await save('prospects');render()};
+    S.mProspect=null;await saveUI('prospects');render()};
 }
 
 
@@ -2287,10 +2353,10 @@ function vProyeccion(v){
   }
   function totalEquipment(x){return x}
   ['pf-cl','pf-ti'].forEach(id=>document.getElementById(id).oninput=drawScenario);drawScenario();
-  function editFixedExpense(id){const x=id?(S.proyeccionGastosFijos||[]).find(z=>z.id===id):null;const ov=document.createElement('div');ov.className='ov';const m=document.createElement('div');m.className='mdl';m.innerHTML='<div class="mhd"><div><div class="mtitle">'+(x?'Editar gasto fijo':'Nuevo gasto fijo')+'</div><div class="esub">Solo para proyecciones. No altera egresos reales.</div></div><button class="ib" id="pf-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Nombre</label><input id="pf-n" value="'+esc(x?x.nombre:'')+'" placeholder="Adobe, hosting, Canva…"></div><div class="f"><label>Categoría</label><input id="pf-c" value="'+esc(x?x.categoria:'')+'" placeholder="Suscripción"></div></div><div class="row"><div class="f"><label>Monto mensual</label><input id="pf-m" type="number" min="0" step="0.01" value="'+(x?x.monto:'')+'"></div></div><div class="brow"><button class="b bp" id="pf-ok">Guardar</button><button class="b bg" id="pf-cancel">Cancelar</button></div>';ov.appendChild(m);document.body.appendChild(ov);document.getElementById('pf-x').onclick=()=>ov.remove();document.getElementById('pf-cancel').onclick=()=>ov.remove();document.getElementById('pf-ok').onclick=async()=>{const nombre=document.getElementById('pf-n').value.trim();const monto=Number(document.getElementById('pf-m').value)||0;if(!nombre||monto<0){alert('Completa nombre y monto.');return}S.proyeccionGastosFijos=S.proyeccionGastosFijos||[];if(x)Object.assign(x,{nombre,categoria:document.getElementById('pf-c').value.trim(),monto:r2(monto)});else S.proyeccionGastosFijos.push({id:uid(),nombre,categoria:document.getElementById('pf-c').value.trim(),monto:r2(monto)});await save('proyeccionGastosFijos');ov.remove();render()};}
+  function editFixedExpense(id){const x=id?(S.proyeccionGastosFijos||[]).find(z=>z.id===id):null;const ov=document.createElement('div');ov.className='ov';const m=document.createElement('div');m.className='mdl';m.innerHTML='<div class="mhd"><div><div class="mtitle">'+(x?'Editar gasto fijo':'Nuevo gasto fijo')+'</div><div class="esub">Solo para proyecciones. No altera egresos reales.</div></div><button class="ib" id="pf-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Nombre</label><input id="pf-n" value="'+esc(x?x.nombre:'')+'" placeholder="Adobe, hosting, Canva…"></div><div class="f"><label>Categoría</label><input id="pf-c" value="'+esc(x?x.categoria:'')+'" placeholder="Suscripción"></div></div><div class="row"><div class="f"><label>Monto mensual</label><input id="pf-m" type="number" min="0" step="0.01" value="'+(x?x.monto:'')+'"></div></div><div class="brow"><button class="b bp" id="pf-ok">Guardar</button><button class="b bg" id="pf-cancel">Cancelar</button></div>';ov.appendChild(m);document.body.appendChild(ov);document.getElementById('pf-x').onclick=()=>ov.remove();document.getElementById('pf-cancel').onclick=()=>ov.remove();document.getElementById('pf-ok').onclick=async()=>{const nombre=document.getElementById('pf-n').value.trim();const monto=Number(document.getElementById('pf-m').value)||0;if(!nombre||monto<0){alert('Completa nombre y monto.');return}S.proyeccionGastosFijos=S.proyeccionGastosFijos||[];if(x)Object.assign(x,{nombre,categoria:document.getElementById('pf-c').value.trim(),monto:r2(monto)});else S.proyeccionGastosFijos.push({id:uid(),nombre,categoria:document.getElementById('pf-c').value.trim(),monto:r2(monto)});await saveUI('proyeccionGastosFijos');ov.remove();render()};}
   document.getElementById('pf-add').onclick=()=>editFixedExpense(null);
   c2.querySelectorAll('[data-pfedit]').forEach(btn=>btn.onclick=()=>editFixedExpense(btn.dataset.pfedit));
-  c2.querySelectorAll('[data-pfdel]').forEach(btn=>btn.onclick=async()=>{if(!confirm('¿Eliminar este gasto fijo de la proyección?'))return;S.proyeccionGastosFijos=S.proyeccionGastosFijos.filter(x=>x.id!==btn.dataset.pfdel);await save('proyeccionGastosFijos');render()});
+  c2.querySelectorAll('[data-pfdel]').forEach(btn=>btn.onclick=async()=>{if(!confirm('¿Eliminar este gasto fijo de la proyección?'))return;S.proyeccionGastosFijos=S.proyeccionGastosFijos.filter(x=>x.id!==btn.dataset.pfdel);await saveUI('proyeccionGastosFijos');render()});
 }
 
 /* ─────────── PANEL ─────────── */
@@ -2585,7 +2651,7 @@ function mCompanyModal(){
         c.proximaFechaPago=proximaFechaConfigurada(c);
         toast('Guardado')
       }
-      S.eCompany=null;await save('companies');render();
+      S.eCompany=null;await saveUI('companies');render();
     };
     document.getElementById('e-cancel').onclick=()=>{if(isNew){S.mCompany=null}S.eCompany=null;render()};
     return;
@@ -2597,16 +2663,16 @@ function mCompanyModal(){
   document.getElementById('a-del').onclick=async()=>{
     if(!confirm('¿Eliminar '+c.negocio+'? Los cobros y facturas se conservan.'))return;
     S.companies=S.companies.filter(x=>x.id!==c.id);S.links=S.links.filter(l=>l.companyId!==c.id);
-    S.mCompany=null;await save('companies');await save('links');toast('Eliminada');render();
+    S.mCompany=null;await saveUI('companies');await saveUI('links');toast('Eliminada');render();
   };
   m.querySelectorAll('[data-mem]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('button'))return;S.mCompany=null;S.mMember=e.dataset.mem;render()});
   m.querySelectorAll('[data-ct]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('button'))return;S.mCompany=null;S.mContact=e.dataset.ct;render()});
   m.querySelectorAll('[data-unlink]').forEach(b=>b.onclick=async ev=>{ev.stopPropagation();
-    S.links=S.links.filter(l=>l.id!==b.dataset.unlink);await save('links');render()});
+    S.links=S.links.filter(l=>l.id!==b.dataset.unlink);await saveUI('links');render()});
   const lb=document.getElementById('lk-btn');
   if(lb)lb.onclick=async()=>{const id=document.getElementById('lk-sel').value;if(!id)return;
     linkContact(id,c.id,document.getElementById('lk-rol').value.trim()||'Contacto');
-    await save('links');toast('Vinculado');render()};
+    await saveUI('links');toast('Vinculado');render()};
 }
 
 function simRows(cs,company){
@@ -2640,7 +2706,7 @@ function vContactos(v){
     v.appendChild(g);
   }
   document.getElementById('new-ct').onclick=async()=>{const c={id:uid(),nombre:'',apellido:'',email:'',telefono:'',notas:[]};
-    S.contacts.push(c);await save('contacts');S.mContact=c.id;S.eContact=c.id;render()};
+    S.contacts.push(c);await saveUI('contacts');S.mContact=c.id;S.eContact=c.id;render()};
   document.getElementById('exp').onclick=expCSV;
   document.getElementById('imp').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='.csv';
     i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>impCSV(ev.target.result);r.readAsText(f)};i.click()};
@@ -2683,19 +2749,19 @@ function mContactModal(){
       ct.email=document.getElementById('c-e').value.trim();ct.telefono=document.getElementById('c-t').value.trim();
       ct.cargo=document.getElementById('c-cg').value.trim();ct.cumple=document.getElementById('c-cu').value;
       ct.foto=getFotoContacto();
-      S.eContact=null;await save('contacts');toast('Guardado');render()};
+      S.eContact=null;await saveUI('contacts');toast('Guardado');render()};
     document.getElementById('c-cancel').onclick=()=>{S.eContact=null;render()};
     return;
   }
   document.getElementById('c-edit').onclick=()=>{S.eContact=ct.id;render()};
   document.getElementById('c-del').onclick=async()=>{if(!confirm('¿Eliminar contacto?'))return;
     S.contacts=S.contacts.filter(x=>x.id!==ct.id);S.links=S.links.filter(l=>l.contactId!==ct.id);
-    S.mContact=null;await save('contacts');await save('links');toast('Eliminado');render()};
+    S.mContact=null;await saveUI('contacts');await saveUI('links');toast('Eliminado');render()};
   m.querySelectorAll('[data-co]').forEach(e=>e.onclick=ev=>{if(ev.target.closest('button'))return;S.mContact=null;S.mCompany=e.dataset.co;render()});
   m.querySelectorAll('[data-ul]').forEach(b=>b.onclick=async ev=>{ev.stopPropagation();
-    S.links=S.links.filter(l=>l.id!==b.dataset.ul);await save('links');render()});
+    S.links=S.links.filter(l=>l.id!==b.dataset.ul);await saveUI('links');render()});
   document.getElementById('ac-btn').onclick=async()=>{const id=document.getElementById('ac-sel').value;if(!id)return;
-    linkContact(ct.id,id,document.getElementById('ac-rol').value.trim()||'Contacto');await save('links');toast('Vinculado');render()};
+    linkContact(ct.id,id,document.getElementById('ac-rol').value.trim()||'Contacto');await saveUI('links');toast('Vinculado');render()};
 }
 function csvEsc(s){s=s==null?'':String(s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
 function expCSV(){
@@ -2746,7 +2812,7 @@ async function impCSV(txt){
     else{const nc={id:uid(),nombre:g,apellido:fa,email:em,telefono:tel,notas:[]};S.contacts.push(nc);
       if(cid)linkContact(nc.id,cid,rol||'Contacto');nuevos++}
   }
-  await save('contacts');await save('companies');await save('links');
+  await saveUI('contacts');await saveUI('companies');await saveUI('links');
   toast(nuevos+' nuevos · '+act+' actualizados · '+emp+' empresas');render();
 }
 
@@ -2769,15 +2835,88 @@ function vEstadoCuenta(v){
 }
 function vFechasPago(v){
   const act=visibleCompanies().filter(c=>c.estado==='activo');
-  head(v,'Cobranza','Fechas de pago','Agenda de vencimientos: cuando registras un pago, la próxima fecha se calcula automáticamente según la frecuencia.');
-  const hoy=today();
-  const rows=act.map(c=>{const f=fechaPagoCliente(c);const monto=montoFacturaCliente(c);const dias=f?Math.ceil((new Date(f+'T12:00:00')-new Date(hoy+'T12:00:00'))/86400000):9999;return{c,f,monto,dias}}).sort((a,b)=>a.dias-b.dias);
-  const venc=rows.filter(x=>x.f&&x.dias<0).length, prox=rows.filter(x=>x.f&&x.dias>=0&&x.dias<=7).length;
-  v.appendChild(frag('<div class="mets"><div class="met"><div class="mlab">Vencidos</div><div class="mval" style="color:var(--red)">'+venc+'</div></div><div class="met"><div class="mlab">Próximos 7 días</div><div class="mval" style="color:var(--amb)">'+prox+'</div></div><div class="met"><div class="mlab">Clientes</div><div class="mval">'+rows.length+'</div></div></div>'));
-  const card=document.createElement('div');card.className='card';
-  card.innerHTML='<div class="ctitle">Agenda de cobros <span class="cnt">'+rows.length+'</span></div><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Próximo pago</th><th>Días</th><th>Monto</th><th>Último pago</th><th></th></tr></thead><tbody>'+rows.map(x=>'<tr><td>'+esc(x.c.negocio)+'</td><td>'+(x.c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+(x.f?fdate(x.f):'Sin fecha')+'</td><td class="n" style="color:'+(x.dias<0?'var(--red)':x.dias<=7?'var(--amb)':'inherit')+'">'+(x.dias===9999?'—':x.dias<0?'Vencido hace '+Math.abs(x.dias)+' d':x.dias+' d')+'</td><td class="n">'+money(x.monto)+'</td><td class="n">'+(x.c.ultimaFechaPago?fdate(x.c.ultimaFechaPago):'—')+'</td><td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>').join('')+'</tbody></table>';
-  v.appendChild(card);
-  card.querySelectorAll('[data-cobro]').forEach(b=>b.onclick=()=>{S.tab='cobros';S.presetCompany=b.dataset.cobro;render()});
+  const hoy=today(), ym=hoy.slice(0,7);
+  const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const diaSem=f=>f?DIAS[new Date(f+'T12:00:00').getDay()]:'';
+  const difDias=f=>f?Math.ceil((new Date(f+'T12:00:00')-new Date(hoy+'T12:00:00'))/86400000):null;
+
+  head(v,'Cobranza','Fechas de pago','Cuándo toca cobrarle a cada cliente, cuánto, y si ya pagó. La fecha sale de los días de cobro configurados en la ficha de cada empresa.');
+
+  const rows=act.map(c=>{
+    const f=fechaPagoCliente(c);
+    const dias=difDias(f);
+    const est=estadoCobroMes(c.id,ym);
+    const ec=estadoCuentaCliente(c);
+    const desdeUltimo=c.ultimaFechaPago?Math.abs(difDias(c.ultimaFechaPago)):null;
+    const ds=diasCobro(c);
+    const config=(!c.tipoContrato||c.tipoContrato==='recurrente')
+      ? (c.frecuencia==='quincenal'?'días '+ds[0]+' y '+ds[1]+' de cada mes':'día '+(Number(c.diaCobro1)||Number(c.diaCobro)||5)+' de cada mes')
+      : 'pago único';
+    let grupo;
+    if(!f)grupo='sinfecha';
+    else if(dias<0)grupo='vencido';
+    else if(dias<=7)grupo='semana';
+    else if(f.slice(0,7)===ym)grupo='mes';
+    else grupo='despues';
+    return{c,f,dias,est,ec,desdeUltimo,config,grupo,monto:montoFacturaCliente(c)};
+  }).sort((a,b)=>(a.dias===null?1:0)-(b.dias===null?1:0)||(a.dias-b.dias));
+
+  const sum=(pred,campo)=>r2(rows.filter(pred).reduce((s,x)=>s+(campo==='saldo'?x.ec.saldo:x.monto),0));
+  const nVenc=rows.filter(x=>x.grupo==='vencido').length;
+  const nSem=rows.filter(x=>x.grupo==='semana').length;
+  const porCobrarMes=sum(x=>x.f&&x.f.slice(0,7)===ym&&x.est!=='pagado','monto');
+  const saldoTotal=sum(()=>true,'saldo');
+
+  v.appendChild(frag('<div class="mets">'+
+    '<div class="met"><div class="mlab">Vencidos</div><div class="mval" style="color:var(--red)">'+nVenc+'</div><div class="msub">'+money(sum(x=>x.grupo==='vencido','monto'))+' sin cobrar</div></div>'+
+    '<div class="met"><div class="mlab">Próximos 7 días</div><div class="mval" style="color:var(--amb)">'+nSem+'</div><div class="msub">'+money(sum(x=>x.grupo==='semana','monto'))+' por entrar</div></div>'+
+    '<div class="met"><div class="mlab">Falta cobrar este mes</div><div class="mval">'+money(porCobrarMes)+'</div><div class="msub">clientes sin cobro completo</div></div>'+
+    '<div class="met"><div class="mlab">Saldo acumulado</div><div class="mval" style="color:'+(saldoTotal>0?'var(--red)':'var(--lime)')+'">'+money(saldoTotal)+'</div><div class="msub">facturado menos cobrado</div></div>'+
+    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+rows.length+'</div><div class="msub">en la agenda</div></div>'+
+    '</div>'));
+
+  const pillEstado=e=>e==='pagado'?'<span class="p p-ok">Cobrado</span>':e==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';
+  const GRUPOS=[
+    ['vencido','Vencidos','Ya pasó la fecha y el cobro del mes no está completo.','var(--red)'],
+    ['semana','Esta semana','Vencen en los próximos 7 días.','var(--amb)'],
+    ['mes','Más adelante este mes','Dentro del mes en curso.',''],
+    ['despues','Meses siguientes','Fuera del mes actual.',''],
+    ['sinfecha','Sin fecha configurada','Revisa el tipo de contrato y los días de cobro en la ficha del cliente.','var(--amb)']
+  ];
+
+  GRUPOS.forEach(([key,titulo,desc,color])=>{
+    const list=rows.filter(x=>x.grupo===key);
+    if(!list.length)return;
+    const card=document.createElement('div');card.className='card';card.style.marginBottom='14px';
+    if(color)card.style.borderLeft='3px solid '+color;
+    card.innerHTML='<div class="ctitle">'+titulo+' <span class="cnt">'+list.length+' · '+money(r2(list.reduce((s,x)=>s+x.monto,0)))+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">'+desc+'</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Próximo cobro</th><th>Cuándo</th><th>Monto</th><th>Cobro del mes</th><th>Último pago</th><th>Saldo</th><th></th></tr></thead><tbody>'+
+      list.map(x=>{
+        const cuando = x.dias===null?'—'
+          : x.dias<0?'<span style="color:var(--red)">vencido hace '+Math.abs(x.dias)+' d</span>'
+          : x.dias===0?'<span style="color:var(--amb);font-weight:700">hoy</span>'
+          : x.dias===1?'<span style="color:var(--amb)">mañana</span>'
+          : '<span'+(x.dias<=7?' style="color:var(--amb)"':'')+'>en '+x.dias+' d</span>';
+        return '<tr data-emp="'+x.c.id+'" style="cursor:pointer">'+
+          '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.c.negocio,'s',0,x.c.foto)+
+            '<div style="min-width:0"><strong>'+esc(x.c.negocio)+'</strong>'+
+            '<div style="font-size:11px;color:var(--tx3)">'+(x.c.frecuencia==='quincenal'?'Quincenal':'Mensual')+' · '+esc(x.config)+'</div></div></div></td>'+
+          '<td class="n">'+(x.f?fdate(x.f)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(x.f)+'</div>':'Sin fecha')+'</td>'+
+          '<td class="n">'+cuando+'</td>'+
+          '<td class="n">'+money(x.monto)+'<div style="font-size:11px;color:var(--tx3)">'+money(x.c.tarifaBruta)+' al mes</div></td>'+
+          '<td>'+pillEstado(x.est)+'</td>'+
+          '<td class="n">'+(x.c.ultimaFechaPago?fdate(x.c.ultimaFechaPago)+'<div style="font-size:11px;color:var(--tx3)">hace '+x.desdeUltimo+' d</div>':'—')+'</td>'+
+          '<td class="n" style="font-weight:700;color:'+(x.ec.saldo>0.01?'var(--red)':'var(--lime)')+'">'+money(x.ec.saldo)+'</td>'+
+          '<td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>';
+      }).join('')+'</tbody></table></div>';
+    v.appendChild(card);
+  });
+
+  if(!rows.length)v.appendChild(frag(mt('ti-calendar-event','No hay clientes activos en la agenda.')));
+
+  v.querySelectorAll('[data-cobro]').forEach(b=>b.onclick=e=>{e.stopPropagation();S.tab='cobros';S.presetCompany=b.dataset.cobro;render()});
+  v.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
 }
 
 function vCobros(v){
@@ -2808,11 +2947,11 @@ function vCobros(v){
   if(co){co.onchange=sync;mo.oninput=()=>{renderAlloc();draw()};me.onchange=draw;fe.onchange=renderAlloc;sync()}
   document.getElementById('k-ex-mo').oninput=draw;document.getElementById('k-ex-me').onchange=draw;
   document.getElementById('k-add').onclick=async()=>{
-    if(mode==='externo'){const b=r2(Number(document.getElementById('k-ex-mo').value)||0),concepto=document.getElementById('k-ex-con').value.trim();if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!concepto){alert('Escribe el concepto u origen del ingreso.');return}S.cobros.push({id:uid(),tipoIngreso:'externo',concepto,montoBruto:b,metodoPagoId:document.getElementById('k-ex-me').value,fecha:document.getElementById('k-ex-fe').value||today(),nota:document.getElementById('k-ex-no').value.trim()});await save('cobros');toast('Ingreso registrado');render();return}
-    const b=r2(Number(mo.value)||0);if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!canSeeCompanyId(co.value)){alert('No tienes acceso a este cliente.');return}const fechaPago=fe.value||today();let aplicaciones=allocationPayload();if(!aplicaciones.length){alert('Selecciona al menos una quincena que cubra este cobro.');return}let suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0));if(suma>0&&Math.abs(suma-b)>0.01){aplicaciones[aplicaciones.length-1].monto=r2(aplicaciones[aplicaciones.length-1].monto+(b-suma));suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0))}if(Math.abs(suma-b)>0.01){alert('El reparto por quincenas no coincide con el monto del cobro.');return}S.cobros.push({id:uid(),tipoIngreso:'cliente',companyId:co.value,montoBruto:b,metodoPagoId:me.value,fecha:fechaPago,aplicaciones});const cc=companyById(co.value);registrarFechaPagoCliente(cc,fechaPago);await save('cobros');await save('companies');toast('Cobro registrado');render();
+    if(mode==='externo'){const b=r2(Number(document.getElementById('k-ex-mo').value)||0),concepto=document.getElementById('k-ex-con').value.trim();if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!concepto){alert('Escribe el concepto u origen del ingreso.');return}S.cobros.push({id:uid(),tipoIngreso:'externo',concepto,montoBruto:b,metodoPagoId:document.getElementById('k-ex-me').value,fecha:document.getElementById('k-ex-fe').value||today(),nota:document.getElementById('k-ex-no').value.trim()});await saveUI('cobros');toast('Ingreso registrado');render();return}
+    const b=r2(Number(mo.value)||0);if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!canSeeCompanyId(co.value)){alert('No tienes acceso a este cliente.');return}const fechaPago=fe.value||today();let aplicaciones=allocationPayload();if(!aplicaciones.length){alert('Selecciona al menos una quincena que cubra este cobro.');return}let suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0));if(suma>0&&Math.abs(suma-b)>0.01){aplicaciones[aplicaciones.length-1].monto=r2(aplicaciones[aplicaciones.length-1].monto+(b-suma));suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0))}if(Math.abs(suma-b)>0.01){alert('El reparto por quincenas no coincide con el monto del cobro.');return}S.cobros.push({id:uid(),tipoIngreso:'cliente',companyId:co.value,montoBruto:b,metodoPagoId:me.value,fecha:fechaPago,aplicaciones});const cc=companyById(co.value);registrarFechaPagoCliente(cc,fechaPago);await saveUI('cobros');await saveUI('companies');toast('Cobro registrado');render();
   };
   hist.querySelectorAll('[data-ek]').forEach(b=>b.onclick=()=>editarCobroModal(b.dataset.ek));
-  hist.querySelectorAll('[data-dk]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar ingreso?'))return;if(!visibleCobros().some(x=>x.id===b.dataset.dk)){alert('No tienes acceso a este ingreso.');return}S.cobros=S.cobros.filter(x=>x.id!==b.dataset.dk);await save('cobros');render()});
+  hist.querySelectorAll('[data-dk]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar ingreso?'))return;if(!visibleCobros().some(x=>x.id===b.dataset.dk)){alert('No tienes acceso a este ingreso.');return}S.cobros=S.cobros.filter(x=>x.id!==b.dataset.dk);await saveUI('cobros');render()});
 }
 
 /* ─────────── LÍNEA DE COBRANZA (matriz) ─────────── */
@@ -2855,7 +2994,7 @@ function vLinea(v){
     md.innerHTML='<div class="mhd"><div><div class="mtitle">Estado de la quincena</div><div class="esub">'+esc(c?c.negocio:'Cliente')+' · '+(q?esc(labelQ(q)+' '+q.year):esc(e.dataset.q))+'</div></div><button class="ib" id="cov-x"><i class="ti ti-x"></i></button></div>'+      '<p class="sub" style="margin:4px 0 14px">Puedes dejar que el sistema lo calcule según los cobros o establecerlo manualmente.</p>'+      '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">'+      '<button class="b '+(cur==='cubierta'?'bp':'bg')+'" id="cov-ok"><i class="ti ti-circle-check"></i>Cubierta</button>'+      '<button class="b '+(cur==='no_cubierta'?'bp':'bg')+'" id="cov-no"><i class="ti ti-clock"></i>No cubierta</button>'+      '<button class="b '+(!cur?'bp':'bg')+'" id="cov-auto"><i class="ti ti-refresh"></i>Automática</button></div>'+      (cur?'<div class="hint" style="margin-top:12px">Estado manual activo. “Automática” vuelve a calcular la quincena según los cobros registrados.</div>':'<div class="hint" style="margin-top:12px">Actualmente se calcula automáticamente con los cobros.</div>');
     ov.appendChild(md);document.body.appendChild(ov);
     const cerrar=()=>ov.remove();document.getElementById('cov-x').onclick=cerrar;
-    async function setOv(v){if(v)S.calendario[k]=v;else delete S.calendario[k];await save('calendario');cerrar();render()}
+    async function setOv(v){if(v)S.calendario[k]=v;else delete S.calendario[k];await saveUI('calendario');cerrar();render()}
     document.getElementById('cov-ok').onclick=()=>setOv('cubierta');
     document.getElementById('cov-no').onclick=()=>setOv('no_cubierta');
     document.getElementById('cov-auto').onclick=()=>setOv(null);
@@ -2975,7 +3114,7 @@ function importarRespaldo(){
       if(!confirm('Esto agregará/restaurará las wallets del respaldo. ¿Continuar?'))return;
       const existentes=new Map(S.metodos.map(w=>[String(w.id),w]));
       d.metodos.forEach(w=>{if(!w||!w.id)return;if(!existentes.has(String(w.id)))S.metodos.push(w);else Object.assign(existentes.get(String(w.id)),w)});
-      await save('metodos');toast('Wallets restauradas');render();
+      await saveUI('metodos');toast('Wallets restauradas');render();
     }catch(e){alert('El archivo de respaldo no es válido.')}
   };fr.readAsText(f)};input.click();
 }
@@ -3079,12 +3218,12 @@ function entregaModal(walletId){
       fecha:document.getElementById('en-f').value||today(),
       destinoId:document.getElementById('en-d').value||null,
       nota:document.getElementById('en-n').value.trim()});
-    await save('entregas');toast('Entrega registrada');ov.remove();render();
+    await saveUI('entregas');toast('Entrega registrada');ov.remove();render();
   };
 }
 function cambistaPagoModal(walletId){
   const w=walletById(walletId);if(!w)return;const s=saldoWallet(w.id),destinos=S.metodos.filter(x=>x.id!==w.id),ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};const m=document.createElement('div');m.className='mdl';
-  m.innerHTML='<div class="mhd"><div><div class="mtitle">Pago del cambista</div><div class="esub">'+esc(walletLabel(w))+'</div></div><button class="ib" id="cx"><i class="ti ti-x"></i></button></div><div class="sim"><div class="simrow"><span>Recibido bruto</span><span class="v">'+money(r2(s.entradas+s.comisiones))+'</span></div><div class="simrow neg"><span>Comisión descontada</span><span class="v">−'+money(s.comisiones)+'</span></div><div class="simrow tot"><span>Te debe ahora</span><span class="v">'+money(s.saldo)+'</span></div></div><div class="row" style="margin-top:14px"><div class="f"><label>Monto neto que te paga</label><input id="cp-mo" type="number" step="0.01" min="0" max="'+Math.max(0,s.saldo).toFixed(2)+'" value="'+(s.saldo>0?s.saldo:'')+'"></div><div class="f"><label>Fecha</label><input id="cp-fe" type="date" value="'+today()+'"></div></div><div class="f"><label>La nueva cantidad entra a</label><select id="cp-d"><option value="">Selecciona una wallet…</option>'+destinos.map(x=>'<option value="'+x.id+'">'+esc(walletLabel(x))+'</option>').join('')+'</select></div><div class="f"><label>Nota</label><input id="cp-no" placeholder="Liquidación del cambista"></div><div class="brow"><button class="b bp" id="cp-ok">Registrar pago y mover dinero</button><button class="b bg" id="cp-c">Cancelar</button></div>';ov.appendChild(m);document.body.appendChild(ov);document.getElementById('cx').onclick=()=>ov.remove();document.getElementById('cp-c').onclick=()=>ov.remove();document.getElementById('cp-ok').onclick=async()=>{const mo=r2(Number(document.getElementById('cp-mo').value)||0),dest=document.getElementById('cp-d').value;if(mo<=0||mo>s.saldo+0.005){alert('El monto debe estar entre 0 y '+money(s.saldo)+'.');return}if(!dest){alert('Selecciona la wallet donde entra el dinero.');return}S.entregas=S.entregas||[];S.entregas.push({id:uid(),walletId:w.id,monto:mo,fecha:document.getElementById('cp-fe').value||today(),destinoId:dest,nota:document.getElementById('cp-no').value.trim()||'Pago del cambista',tipo:'pago-cambista'});await save('entregas');toast('Pago del cambista registrado');ov.remove();render()};
+  m.innerHTML='<div class="mhd"><div><div class="mtitle">Pago del cambista</div><div class="esub">'+esc(walletLabel(w))+'</div></div><button class="ib" id="cx"><i class="ti ti-x"></i></button></div><div class="sim"><div class="simrow"><span>Recibido bruto</span><span class="v">'+money(r2(s.entradas+s.comisiones))+'</span></div><div class="simrow neg"><span>Comisión descontada</span><span class="v">−'+money(s.comisiones)+'</span></div><div class="simrow tot"><span>Te debe ahora</span><span class="v">'+money(s.saldo)+'</span></div></div><div class="row" style="margin-top:14px"><div class="f"><label>Monto neto que te paga</label><input id="cp-mo" type="number" step="0.01" min="0" max="'+Math.max(0,s.saldo).toFixed(2)+'" value="'+(s.saldo>0?s.saldo:'')+'"></div><div class="f"><label>Fecha</label><input id="cp-fe" type="date" value="'+today()+'"></div></div><div class="f"><label>La nueva cantidad entra a</label><select id="cp-d"><option value="">Selecciona una wallet…</option>'+destinos.map(x=>'<option value="'+x.id+'">'+esc(walletLabel(x))+'</option>').join('')+'</select></div><div class="f"><label>Nota</label><input id="cp-no" placeholder="Liquidación del cambista"></div><div class="brow"><button class="b bp" id="cp-ok">Registrar pago y mover dinero</button><button class="b bg" id="cp-c">Cancelar</button></div>';ov.appendChild(m);document.body.appendChild(ov);document.getElementById('cx').onclick=()=>ov.remove();document.getElementById('cp-c').onclick=()=>ov.remove();document.getElementById('cp-ok').onclick=async()=>{const mo=r2(Number(document.getElementById('cp-mo').value)||0),dest=document.getElementById('cp-d').value;if(mo<=0||mo>s.saldo+0.005){alert('El monto debe estar entre 0 y '+money(s.saldo)+'.');return}if(!dest){alert('Selecciona la wallet donde entra el dinero.');return}S.entregas=S.entregas||[];S.entregas.push({id:uid(),walletId:w.id,monto:mo,fecha:document.getElementById('cp-fe').value||today(),destinoId:dest,nota:document.getElementById('cp-no').value.trim()||'Pago del cambista',tipo:'pago-cambista'});await saveUI('entregas');toast('Pago del cambista registrado');ov.remove();render()};
 }
 
 function mWalletModal(){
@@ -3149,7 +3288,7 @@ function mWalletModal(){
         saldoInicial:Number(document.getElementById('w-s').value)||0,color:col};
       if(isNew){const nw={id:uid(),...patch};S.metodos.push(nw);S.mWallet=nw.id;toast('Wallet creada')}
       else{Object.assign(w,patch);toast('Guardado')}
-      S.eWallet=null;await save('metodos');render()};
+      S.eWallet=null;await saveUI('metodos');render()};
     document.getElementById('w-cancel').onclick=()=>{if(isNew)S.mWallet=null;S.eWallet=null;render()};
     return;
   }
@@ -3158,13 +3297,13 @@ function mWalletModal(){
   m.querySelectorAll('[data-enx]').forEach(b=>b.onclick=async()=>{
     if(!confirm('¿Eliminar esta entrega?'))return;
     S.entregas=(S.entregas||[]).filter(x=>x.id!==b.dataset.enx);
-    await save('entregas');toast('Entrega eliminada');render();
+    await saveUI('entregas');toast('Entrega eliminada');render();
   });
   document.getElementById('w-edit').onclick=()=>{S.eWallet=w.id;render()};
   document.getElementById('w-del').onclick=async()=>{
     if(S.companies.some(c=>c.metodoPagoId===w.id)){alert('Hay clientes usando esta wallet.');return}
     if(!confirm('¿Eliminar '+w.nombre+'?'))return;
-    S.metodos=S.metodos.filter(x=>x.id!==w.id);S.mWallet=null;await save('metodos');toast('Eliminada');render()};
+    S.metodos=S.metodos.filter(x=>x.id!==w.id);S.mWallet=null;await saveUI('metodos');toast('Eliminada');render()};
 }
 
 /* ─────────── EQUIPO ─────────── */
@@ -3247,7 +3386,7 @@ function mMemberModal(){
         foto:getFotoMiembro()};
       if(isNew){const nm={id:uid(),...patch,payouts:[]};S.members.push(nm);S.mMember=nm.id;toast('Miembro creado')}
       else{Object.assign(m,patch);toast('Guardado')}
-      S.eMember=null;await save('members');render()};
+      S.eMember=null;await saveUI('members');render()};
     document.getElementById('m-cancel').onclick=()=>{if(isNew)S.mMember=null;S.eMember=null;render()};
     return;
   }
@@ -3255,10 +3394,10 @@ function mMemberModal(){
   document.getElementById('m-del').onclick=async()=>{if(!confirm('¿Eliminar a '+m.nombre+'?'))return;
     S.companies.forEach(c=>{c.equipoIds=(c.equipoIds||[]).filter(x=>x!==m.id);if(c.pesos)delete c.pesos[m.id]});
     S.members=S.members.filter(x=>x.id!==m.id);S.mMember=null;
-    await save('members');await save('companies');toast('Eliminado');render()};
+    await saveUI('members');await saveUI('companies');toast('Eliminado');render()};
   md.querySelectorAll('[data-co]').forEach(e=>e.onclick=()=>{S.mMember=null;S.mCompany=e.dataset.co;render()});
   md.querySelectorAll('[data-dp]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar pago?'))return;
-    S.payouts=S.payouts.filter(x=>x.id!==b.dataset.dp);await save('payouts');render()});
+    S.payouts=S.payouts.filter(x=>x.id!==b.dataset.dp);await saveUI('payouts');render()});
   md.querySelectorAll('[data-cmp]').forEach(b=>b.onclick=()=>{
     const p=S.payouts.find(x=>x.id===b.dataset.cmp);if(p)comprobantePDF(p)});
 }
@@ -3275,6 +3414,26 @@ function vNomina(v){
     '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><button class="b bg bs" id="reset-control"><i class="ti ti-refresh"></i>Reiniciar control</button><button class="b bg bs" id="y-"><i class="ti ti-chevron-left"></i></button><span class="mono" style="font-weight:600;font-size:15px">'+yr+'</span><button class="b bg bs" id="y+"><i class="ti ti-chevron-right"></i></button></div>');
 
   const inicioNote=document.createElement('div');inicioNote.className='nomina-start-note';inicioNote.innerHTML='<strong>Control activo desde '+esc(fechaInicioControl()||qActualGlobal().inicio)+'</strong> · Los movimientos anteriores se conservan como histórico, pero quedan fuera de los cálculos actuales. Usa <strong>Reiniciar control</strong> para comenzar un nuevo ciclo.';v.appendChild(inicioNote);
+
+  /* Ventana de registro: ±2 quincenas alrededor de la actual. */
+  const qAct=qActualGlobal();
+  const ventanaKeys=[];
+  for(let d=-VENTANA_QUINCENAS;d<=VENTANA_QUINCENAS;d++){
+    const idx=qIndexGlobal(qAct.key)+d, yy=Math.floor(idx/24), rest=idx-yy*24;
+    ventanaKeys.push(yy+'-'+String(Math.floor(rest/2)+1).padStart(2,'0')+'-Q'+((rest%2)+1));
+  }
+  const venNote=document.createElement('div');venNote.className='card';venNote.style.cssText='margin-bottom:14px;border-left:3px solid var(--lime)';
+  venNote.innerHTML='<div class="ctitle">Ventana de registro <span class="cnt">'+VENTANA_QUINCENAS+' atrás · actual · '+VENTANA_QUINCENAS+' adelante</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Puedes registrar y editar pagos en estas 5 quincenas. Si un cliente paga tarde, entras a la quincena que corresponde y lo registras ahí — el pago se imputa al período correcto, no al de hoy.</div>'+
+    '<div class="chips">'+ventanaKeys.map(k=>{
+      const parts=k.split('-'),yy=Number(parts[0]),mm=Number(parts[1]);
+      const qq=quincenasAnio(yy).find(x=>x.key===k);
+      const on=k===q.key, off=qOffsetActual(k);
+      return '<button type="button" class="chip'+(on?' on':'')+'" data-vq="'+k+'" title="'+esc(qEtiquetaVentana(k))+'">'+
+        (off===0?'<i class="ti ti-point-filled"></i> ':'')+esc(qq?labelQ(qq)+' '+String(mm).padStart(2,'0')+'/'+yy:k)+'</button>';
+    }).join('')+'</div>';
+  v.appendChild(venNote);
+  venNote.querySelectorAll('[data-vq]').forEach(b=>b.onclick=()=>{S.nomYear=Number(b.dataset.vq.slice(0,4));S.nomQ=b.dataset.vq;render()});
 
   // Selector de quincenas agrupado por mes
   const gc=document.createElement('div');gc.className='card';
@@ -3296,8 +3455,9 @@ function vNomina(v){
       '<div class="accbd">'+par.map(x=>{
         const n=calcularNomina(x);
         const on=x.key===q.key;
-        return '<button class="qopt'+(on?' on':'')+'" data-q="'+x.key+'" type="button">'+
-          '<span>'+(x.mitad===1?'1ª · 1 al 15':'2ª · 16 al '+x.fin.slice(8))+'</span>'+
+        const edit=qPermitida(x.key), ven=qEnVentana(x.key);
+        return '<button class="qopt'+(on?' on':'')+'" data-q="'+x.key+'" type="button" title="'+esc(qEtiquetaVentana(x.key)||'')+'">'+
+          '<span>'+(x.mitad===1?'1ª · 1 al 15':'2ª · 16 al '+x.fin.slice(8))+(ven?' <span class="p p-ok">editable</span>':edit?'':' <span class="p p-g">cerrada</span>')+'</span>'+
           '<span class="mono">'+(n.totales.pagable>0?money(n.totales.pagable):'—')+'</span></button>'}).join('')+'</div>';
     acc.appendChild(it);
   }
@@ -3308,7 +3468,10 @@ function vNomina(v){
   // Quincena seleccionada
   const nom=calcularNomina(q);
   const dc=document.createElement('div');dc.className='card';
-  dc.innerHTML='<div class="ctitle">'+labelQ(q)+' de '+yr+'<span class="cnt">'+q.inicio+' → '+q.fin+'</span></div>'+
+  const offSel=qOffsetActual(q.key), abiertaSel=qPermitida(q.key);
+  dc.innerHTML='<div class="ctitle">'+labelQ(q)+' de '+yr+'<span class="cnt">'+q.inicio+' → '+q.fin+'</span>'+
+    '<span class="p '+(abiertaSel?'p-ok':'p-g')+'" style="float:right">'+(abiertaSel?'Abierta para registro':'Solo lectura')+(offSel!==null?' · '+esc(qEtiquetaVentana(q.key)):'')+'</span></div>'+
+    (abiertaSel?'':'<div class="sub" style="font-size:12.5px;margin-bottom:10px;color:var(--amb)">Esta quincena está fuera de la ventana de ±'+VENTANA_QUINCENAS+'. Se muestra como histórico y no admite registrar pagos.</div>')+
     '<div class="mets" style="margin-bottom:16px">'+
     '<div class="met"><div class="mlab">Devengado</div><div class="mval">'+money(nom.totales.devengado)+'</div></div>'+
     '<div class="met"><div class="mlab">Pagable ahora</div><div class="mval">'+money(nom.totales.pagable)+'</div></div>'+
@@ -3324,7 +3487,7 @@ function vNomina(v){
       (pm.sueldoBase>0?' · sueldo '+money(pm.sueldoBase):'')+(pm.retenido>0?' · <span style="color:var(--amb)">'+money(pm.retenido)+' retenido</span>':'')+'</div></div>'+
       '<div style="text-align:right"><div class="mono" style="font-weight:600;font-size:15px">'+money(pm.porPagar)+'</div>'+
       (pm.yaPagado>0?'<div style="font-size:11px;color:var(--tx3)">pagado '+money(pm.yaPagado)+'</div>':'')+'</div>'+
-      (qPermitida(q.key)&&(pm.porPagar>0.005||pm.sueldoBase>0||pm.detalle.some(d=>r2((Number(d.montoQuincena)||0)-(Number(d.yaPagadoCliente)||0))>0.005))?'<button class="b bp bs" data-pay="'+pm.memberId+'">Pagar</button>':(!qPermitida(q.key)?'<span class="p p-g">Histórico</span>':'<span class="p p-ok">Al día</span>'))+'</div>';
+      (qPermitida(q.key)&&(pm.porPagar>0.005||pm.sueldoBase>0||pm.detalle.some(d=>r2((Number(d.montoQuincena)||0)-(Number(d.yaPagadoCliente)||0))>0.005))?'<button class="b bp bs" data-pay="'+pm.memberId+'">Pagar</button>':(!qPermitida(q.key)?'<span class="p p-g">Fuera de ventana</span>':'<span class="p p-ok">Al día</span>'))+'</div>';
     if(pm.detalle.length){
       const bd=document.createElement('div');bd.className='nbody';
       bd.innerHTML='<table class="t" style="font-size:12.5px"><thead><tr><th>Cliente</th><th>Estado</th><th>Se paga</th><th></th></tr></thead><tbody>'+
@@ -3361,7 +3524,7 @@ function reiniciarControlFinancieroModal(){
   ov.appendChild(md);document.body.appendChild(ov);
   document.getElementById('rc-x').onclick=()=>{ov.remove();render()};
   document.getElementById('rc-cancel').onclick=()=>{ov.remove();render()};
-  document.getElementById('rc-ok').onclick=async()=>{S.controlInicioFecha=fecha;S.nominaInicioKey=q.key;S.nominaSaldosIniciales={};await save('controlInicioFecha');await save('nominaInicioKey');await save('nominaSaldosIniciales');toast('Nuevo ciclo iniciado desde hoy');ov.remove();render()};
+  document.getElementById('rc-ok').onclick=async()=>{S.controlInicioFecha=fecha;S.nominaInicioKey=q.key;S.nominaSaldosIniciales={};await saveUI('controlInicioFecha');await saveUI('nominaInicioKey');await saveUI('nominaSaldosIniciales');toast('Nuevo ciclo iniciado desde hoy');ov.remove();render()};
 }
 function configurarInicioNominaModal(){
   const q0=qActualGlobal();
@@ -3384,11 +3547,11 @@ function configurarInicioNominaModal(){
     '<div class="brow" style="margin-top:14px"><button class="b bp" id="start-save">Guardar saldo inicial</button><button class="b bg" id="start-clear">Limpiar saldos iniciales</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);
   document.getElementById('start-x').onclick=()=>{ov.remove();render()};
-  document.getElementById('start-clear').onclick=async()=>{S.nominaSaldosIniciales={};await save('nominaSaldosIniciales');toast('Saldos iniciales limpiados');ov.remove();render()};
+  document.getElementById('start-clear').onclick=async()=>{S.nominaSaldosIniciales={};await saveUI('nominaSaldosIniciales');toast('Saldos iniciales limpiados');ov.remove();render()};
   document.getElementById('start-save').onclick=async()=>{
     const qk=q0.key;S.nominaInicioKey=qk;const next={...S.nominaSaldosIniciales};
     md.querySelectorAll('.start-cover').forEach(inp=>{const cid=inp.dataset.cid;const c=companyById(cid);const max=Number(c?.tarifaBruta||0)*0.5;const val=Math.max(0,Math.min(max,Number(inp.value)||0));const key=cid+'|'+qk;if(val>0)next[key]=r2(val);else delete next[key]});
-    S.nominaSaldosIniciales=next;await save('nominaInicioKey');await save('nominaSaldosIniciales');toast('Inicio de nómina guardado');ov.remove();render();
+    S.nominaSaldosIniciales=next;await saveUI('nominaInicioKey');await saveUI('nominaSaldosIniciales');toast('Inicio de nómina guardado');ov.remove();render();
   };
 }
 function editClientPayModal(key,q){
@@ -3414,7 +3577,7 @@ function editClientPayModal(key,q){
     if(ix<0){if(on&&monto>0)c.asignaciones.push({memberId,monto,activo:true})}
     else{c.asignaciones[ix].monto=monto;c.asignaciones[ix].activo=on&&monto>0}
     c.equipoIds=(c.asignaciones||[]).filter(x=>x.memberId&&x.activo!==false&&Number(x.monto)>0).map(x=>x.memberId);
-    await save('companies');ov.remove();toast('Pago por cliente actualizado');render();
+    await saveUI('companies');ov.remove();toast('Pago por cliente actualizado');render();
   };
 }
 function payModal(memberId,q){
@@ -3507,7 +3670,7 @@ function payModal(memberId,q){
     if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}
     for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}
     const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:pm.sueldoPendiente};
-    S.payouts.push(p);await save('payouts');ov.remove();toast('Pago registrado');if(gen)comprobantePDF(p);render();
+    S.payouts.push(p);await saveUI('payouts');ov.remove();toast('Pago registrado');if(gen)comprobantePDF(p);render();
   }
   document.getElementById('p-ok').onclick=()=>doPay(true);document.getElementById('p-only').onclick=()=>doPay(false);
 }
@@ -3563,7 +3726,7 @@ function vPagosEquipo(v){
   v.appendChild(c);
   c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
   c.querySelectorAll('[data-pdfpay]').forEach(b=>b.onclick=()=>{const p=S.payouts.find(x=>x.id===b.dataset.pdfpay);if(p&&visiblePayouts().some(x=>x.id===p.id))comprobantePDF(p)});
-  c.querySelectorAll('[data-delpay]').forEach(b=>b.onclick=async()=>{if(!visiblePayouts().some(x=>x.id===b.dataset.delpay)){alert('No tienes acceso a este pago.');return}if(!confirm('¿Eliminar este pago?'))return;S.payouts=S.payouts.filter(x=>x.id!==b.dataset.delpay);await save('payouts');toast('Pago eliminado');render()});
+  c.querySelectorAll('[data-delpay]').forEach(b=>b.onclick=async()=>{if(!visiblePayouts().some(x=>x.id===b.dataset.delpay)){alert('No tienes acceso a este pago.');return}if(!confirm('¿Eliminar este pago?'))return;S.payouts=S.payouts.filter(x=>x.id!==b.dataset.delpay);await saveUI('payouts');toast('Pago eliminado');render()});
   const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();
 }
 
@@ -3573,7 +3736,7 @@ function adelantoGeneralModal(){
  const md=document.createElement('div');md.className='mdl';const ms=S.members.filter(m=>m.activo);
  md.innerHTML='<div class="mhd"><div><div class="mtitle">Nuevo adelanto al equipo</div><div class="esub">No depende de que el cliente haya pagado. El dinero sale de una wallet.</div></div><button class="ib" id="ag-x"><i class="ti ti-x"></i></button></div>'+ '<div class="row"><div class="f"><label>Empleado</label><select id="ag-m">'+ms.map(m=>'<option value="'+m.id+'">'+esc(m.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="ag-mo" type="number" min="0" step="0.01"></div></div>'+ '<div class="row"><div class="f"><label>Sale de la wallet</label><select id="ag-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ag-fe" type="date" value="'+today()+'"></div></div>'+ '<div class="f"><label>Nota</label><input id="ag-no" placeholder="Motivo o referencia"></div>'+ '<div class="brow"><button class="b bp" id="ag-ok">Registrar adelanto</button></div>';
  ov.appendChild(md);document.body.appendChild(ov);document.getElementById('ag-x').onclick=()=>ov.remove();
- document.getElementById('ag-ok').onclick=async()=>{const memberId=document.getElementById('ag-m').value,monto=r2(Number(document.getElementById('ag-mo').value)||0),walletId=document.getElementById('ag-wa').value;if(!memberId||monto<=0){alert('Selecciona un empleado y un monto válido.');return}if(!walletId){alert('Selecciona la wallet de salida.');return}const sw=saldoWallet(walletId);if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}const fecha=document.getElementById('ag-fe').value||today();const y=Number(fecha.slice(0,4));const q=quincenasAnio(y).find(x=>x.inicio<=fecha&&x.fin>=fecha);S.payouts.push({id:uid(),memberId,fecha,quincenaKey:q?q.key:'',tipo:'adelanto',monto,nota:document.getElementById('ag-no').value.trim(),walletId,general:true,detalle:[]});await save('payouts');ov.remove();toast('Adelanto registrado y descontado de la wallet');render()};
+ document.getElementById('ag-ok').onclick=async()=>{const memberId=document.getElementById('ag-m').value,monto=r2(Number(document.getElementById('ag-mo').value)||0),walletId=document.getElementById('ag-wa').value;if(!memberId||monto<=0){alert('Selecciona un empleado y un monto válido.');return}if(!walletId){alert('Selecciona la wallet de salida.');return}const sw=saldoWallet(walletId);if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}const fecha=document.getElementById('ag-fe').value||today();const y=Number(fecha.slice(0,4));const q=quincenasAnio(y).find(x=>x.inicio<=fecha&&x.fin>=fecha);S.payouts.push({id:uid(),memberId,fecha,quincenaKey:q?q.key:'',tipo:'adelanto',monto,nota:document.getElementById('ag-no').value.trim(),walletId,general:true,detalle:[]});await saveUI('payouts');ov.remove();toast('Adelanto registrado y descontado de la wallet');render()};
 }
 
 /* Restauración segura desde un respaldo JSON de la propia app. */
@@ -3655,10 +3818,10 @@ function vAjustes(v){
   c2.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=async()=>{
     if(S.members.some(m=>m.roleId===b.dataset.rdel)||S.users.some(u=>u.roleId===b.dataset.rdel)){alert('Hay miembros o usuarios con este rol.');return}
     if(!confirm('¿Eliminar este rol?'))return;
-    S.roles=S.roles.filter(x=>x.id!==b.dataset.rdel);await save('roles');render()});
+    S.roles=S.roles.filter(x=>x.id!==b.dataset.rdel);await saveUI('roles');render()});
   document.getElementById('nr-add').onclick=async()=>{
     const n=document.getElementById('nr-n').value.trim();if(!n)return;
-    const r={id:uid(),nombre:n,permisos:defaultRolePerms(n)};S.roles.push(r);await save('roles');toast('Rol agregado');roleModal(r.id)};
+    const r={id:uid(),nombre:n,permisos:defaultRolePerms(n)};S.roles.push(r);await saveUI('roles');toast('Rol agregado');roleModal(r.id)};
   document.getElementById('new-user').onclick=()=>userModal('new');
   users.querySelectorAll('[data-uedit]').forEach(b=>b.onclick=()=>userModal(b.dataset.uedit));
   users.querySelectorAll('[data-udel]').forEach(b=>b.onclick=async()=>{
@@ -3666,7 +3829,7 @@ function vAjustes(v){
     if(target&&String(target.usuario||'').trim().toLowerCase()==='admin'){alert('El administrador principal no se puede eliminar.');return}
     if(b.dataset.udel===S.sessionUserId){alert('No puedes eliminar el usuario con el que estás conectado.');return}
     if(!confirm('¿Eliminar este usuario?'))return;
-    S.users=S.users.filter(x=>x.id!==b.dataset.udel);await save('users');render()});
+    S.users=S.users.filter(x=>x.id!==b.dataset.udel);await saveUI('users');render()});
 
   document.getElementById('imp-full').onclick=()=>importarRespaldoCompleto();
   document.getElementById('dl-json').onclick=()=>{
@@ -3693,7 +3856,7 @@ function roleModal(roleId){
   document.getElementById('rx').onclick=()=>ov.remove();document.getElementById('rc').onclick=()=>ov.remove();
   document.getElementById('rs').onclick=async()=>{
     r.permisos={};m.querySelectorAll('[data-perm]').forEach(x=>r.permisos[x.dataset.perm]=x.checked);
-    await save('roles');toast('Permisos actualizados');ov.remove();render();
+    await saveUI('roles');toast('Permisos actualizados');ov.remove();render();
   };
 }
 
@@ -3728,7 +3891,7 @@ function userModal(userId){
     if(usuario==='admin'&&!isAdminRole){alert('El usuario "admin" está reservado para el administrador principal.');return}
     const patch={nombre,usuario,email,roleId,memberId,activo:document.getElementById('u-a').value==='1'};
     if(isNew)S.users.push({id:uid(),...patch});else{delete u.password;Object.assign(u,patch)}
-    await save('users');toast(isNew?'Usuario creado':'Usuario actualizado');ov.remove();render();
+    await saveUI('users');toast(isNew?'Usuario creado':'Usuario actualizado');ov.remove();render();
   };
 }
 /* ─────────── PDF ─────────── */
@@ -3858,22 +4021,33 @@ async function boot(){
   let session=null;
   try{const{data}=await sb.auth.getSession();session=data.session}catch(e){}
   if(!session){S.loading=false;S.sessionUserId=null;render();return}
-  try{await bootData(session.user)}catch(err){console.error(err);S.loading=false;S.sessionUserId=null;render();setTimeout(()=>alert('🛡️ La app detectó un problema y bloqueó cualquier sobrescritura de datos.\n\n'+(err.message||err)+'\n\nTus datos no se han reemplazado.'),50)}
+  try{await bootData(session.user)}catch(err){console.error(err);DATA_READY=false;S.loading=false;S.sessionUserId=null;render();setTimeout(()=>alert('🛡️ La app detectó un problema al cargar y bloqueó cualquier escritura.\n\n'+(err.message||err)+'\n\nTus datos en el servidor NO se han tocado.\nRevisa tu conexión y vuelve a entrar. Si el problema sigue, avisa antes de registrar nada.'),50)}
 }
 async function bootData(authUser){
   /* Las 16 claves se piden a la vez, no una detrás de otra. Antes cada
      una esperaba a que terminara la anterior, así que la carga tardaba
      16 viajes de ida y vuelta al servidor en lugar de uno. */
   let seeded=false;
+  /* CAMBIO CRÍTICO: antes cada lectura tenía un catch vacío. Si Supabase
+     fallaba en una sola clave, esa colección se quedaba en [] y el primer
+     guardado posterior borraba los datos reales del servidor.
+     Ahora se registra el fallo y se aborta el arranque: mejor no entrar
+     que entrar con datos incompletos. */
+  const fallos=[], crudo={};
   await Promise.all([
     ...KEYS.map(async k=>{
-      try{const r=await DB.get('pc2_'+k);if(r)S[k]=JSON.parse(r.value)}catch(e){}
+      try{const r=await DB.get('pc2_'+k);crudo[k]=r?r.value:null;if(r)S[k]=JSON.parse(r.value)}
+      catch(e){fallos.push(k);console.error('Fallo leyendo '+k,e)}
     }),
     (async()=>{try{const r=await DB.get('pc2_seed');if(r)seeded=JSON.parse(r.value)}catch(e){}})()
   ]);
-  /* Captura una línea base inmutable. Ningún save podrá sobrescribir cambios
-     hechos por otra pestaña/usuario después de esta carga sin detectar conflicto. */
-  for(const k of KEYS){try{const r=await DB.get('pc2_'+k);DB_BASELINE[k]=r?r.value:null}catch(e){DB_BASELINE[k]=null}}
+  if(fallos.length)throw new Error('No se pudieron leer estas colecciones del servidor: '+fallos.join(', ')+'.\nNo se cargó nada para evitar sobrescribirlas con datos vacíos. Revisa tu conexión y vuelve a entrar.');
+  /* La línea base sale de la MISMA respuesta que acabamos de leer.
+     Antes se hacía una segunda ronda de 21 lecturas, lo que además abría una
+     ventana en la que otra pestaña podía guardar entre ambas rondas y el
+     control de conflictos quedaba ciego. */
+  KEYS.forEach(k=>{DB_BASELINE[k]=crudo[k]===undefined?null:crudo[k]});
+  DATA_READY=true;
   try{await DB.set('pc2_data_version',JSON.stringify(DATA_VERSION))}catch(e){}
   try{await snapshotAutoBackup('antes de cualquier migración o recuperación')}catch(e){console.warn('No se pudo crear respaldo automático',e)}
   /* SEGURIDAD DE DATOS: nunca borres transacciones al iniciar/actualizar la app.
@@ -3913,6 +4087,12 @@ async function bootData(authUser){
   }
   if(ensureUsers()){await save('roles');await save('users');}
   if(!Array.isArray(S.gastosFijos))S.gastosFijos=[];
+  /* Bandera de migración: la recuperación del catálogo es de UNA SOLA VEZ.
+     Antes corría en cada arranque, así que los clientes que borrabas volvían
+     al recargar y los que renombrabas se duplicaban. */
+  let RECOVERY_YA_HECHA=false;
+  try{const r=await DB.get('pc2_recovery_catalogo_v1');RECOVERY_YA_HECHA=!!r}catch(e){RECOVERY_YA_HECHA=true}
+  if(!RECOVERY_YA_HECHA){
   /* ─────────── RECUPERACIÓN SEGURA DEL CATÁLOGO ───────────
      Este catálogo se deriva del último respaldo disponible (03-09-2026).
      La regla es: NUNCA reemplazar clientes existentes. Solo crear los que
@@ -3990,8 +4170,12 @@ async function bootData(authUser){
   if(recoveryWallet)S.companies.forEach(c=>{if(!c.metodoPagoId)c.metodoPagoId=recoveryWallet.id});
   referencedIds.forEach(id=>{if(!companyById(id))orphanCompanyRefs.add(id)});
   if(orphanCompanyRefs.size)console.warn('Hay movimientos con companyId sin catálogo restaurado:',[...orphanCompanyRefs]);
-  if(recovered||S.companies.length)await save('companies');
+  /* Solo se escribe si la recuperación cambió algo. Antes se guardaba en cada
+     arranque aunque no hubiera ni un cambio. */
+  if(recovered)await save('companies');
   if(recovered)toast('Clientes recuperados y vínculos históricos conservados');
+  try{await DB.set('pc2_recovery_catalogo_v1',JSON.stringify({hecho:true,fecha:new Date().toISOString(),recuperados:recovered}))}catch(e){}
+  }
   /* ─────────── CARGA INICIAL DEL EQUIPO ───────────
      Basado en la hoja PDF adjunta. Solo se cargan nombres/asignaciones
      que se pueden leer claramente; no se inventan filas que el PDF no
@@ -4032,7 +4216,13 @@ async function bootData(authUser){
       ['BMG',80],['Diamond Blue',24],['La Seguridad',45.60],['Fabiola',40],['Pressure Washing',32]
     ]}
   ];
-  if(!S.members.length){
+  /* La bandera pc2_pdf_team_seeded se escribía pero NUNCA se leía. Sin ella,
+     bastaba con que members llegara vacío (borrado intencional o fallo de red)
+     para recrear 8 miembros ficticios y reescribir las asignaciones de todas
+     las empresas con los montos del PDF. */
+  let TEAM_YA_SEMBRADO=true;
+  try{const r=await DB.get('pc2_pdf_team_seeded');TEAM_YA_SEMBRADO=!!r}catch(e){TEAM_YA_SEMBRADO=true}
+  if(!S.members.length&&!TEAM_YA_SEMBRADO){
     const roleId='';
     const byName=n=>S.companies.find(c=>String(c.negocio||'').trim().toLowerCase()===String(n).trim().toLowerCase());
     /* Clientes que aparecen en la hoja pero no estaban en el catálogo base. */
