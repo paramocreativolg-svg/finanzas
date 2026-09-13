@@ -17,142 +17,53 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-:root{
-  --ink:#12121A; --ink2:#1D1D28;
-  --paper:#FAF8F4; --card:#FFFFFF; --card2:#F4F1EB;
-  --tx:#1A1A18; --tx2:#5B5A5F; --tx3:#918F96;
-  --txi:#EFEDE8; --txi2:rgba(239,237,232,.55);
-  --ln:rgba(18,18,26,.09); --ln2:rgba(18,18,26,.16); --lnd:rgba(255,255,255,.09);
-  --pink:#E8467A; --pink2:#FFF0F5;
-  --lav:#7B6BE0; --lav2:#F1EFFD;
-  --sky:#3BAFD4; --sky2:#E9F6FB;
-  --lime:#6FAF3A; --lime2:#F0F7E7;
-  --amb:#E0952A; --amb2:#FDF3E3;
-  --red:#DC4B4B; --red2:#FDEDED;
-  --sh1:0 1px 2px rgba(18,18,26,.04),0 2px 8px rgba(18,18,26,.04);
-  --sh2:0 6px 24px rgba(18,18,26,.10);
-  --sh3:0 16px 48px rgba(18,18,26,.16);
-  --r:12px; --r2:16px;
-}
-*{box-sizing:border-box}
-html,body{margin:0;padding:0}
-body{background:var(--paper);color:var(--tx);font-family:Inter,sans-serif;font-size:14px;min-height:100vh}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
 .mono{font-family:'JetBrains Mono',monospace}
 .serif{font-family:Fraunces,serif;letter-spacing:-.02em}
-
 .shell{display:flex;min-height:100vh}
-
-/* SIDEBAR */
-.side{width:236px;flex-shrink:0;background:var(--ink);color:var(--txi);display:flex;flex-direction:column;padding:20px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;overflow-x:hidden}
-.brand{display:flex;align-items:center;gap:10px;padding:0 6px;margin-bottom:18px}
-.brand-mk{width:34px;height:34px;border-radius:10px;background:var(--pink);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
 .brand-mk img{width:100%;height:100%;object-fit:contain;padding:5px;filter:brightness(0) invert(1)}
-.brand-t1{font-family:Fraunces,serif;font-weight:600;font-size:16px;line-height:1}
-.brand-t2{font-size:9.5px;color:var(--txi2);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
-.srch{position:relative;margin-bottom:14px}
-.srch input{width:100%;height:34px;border-radius:9px;border:1px solid var(--lnd);background:rgba(255,255,255,.05);color:var(--txi);padding:0 10px 0 30px;font-size:12.5px;outline:none;font-family:Inter,sans-serif}
 .srch input::placeholder{color:var(--txi2)}
-.srch input:focus{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.24)}
-.srch i{position:absolute;left:9px;top:9px;font-size:15px;color:var(--txi2);pointer-events:none}
-.sres{position:absolute;top:40px;left:0;right:0;background:var(--ink2);border:1px solid var(--lnd);border-radius:10px;box-shadow:var(--sh3);z-index:60;max-height:270px;overflow-y:auto;padding:4px}
-.sres div{display:flex;align-items:center;gap:8px;padding:7px 9px;cursor:pointer;font-size:12.5px;border-radius:7px}
 .sres div:hover{background:rgba(255,255,255,.07)}
 .sres .tg{margin-left:auto;font-size:9.5px;color:var(--txi2);text-transform:uppercase;letter-spacing:.05em}
-.nsec{font-size:9.5px;color:var(--txi2);text-transform:uppercase;letter-spacing:.13em;padding:13px 10px 5px}
-.nav{display:flex;flex-direction:column;gap:1px}
-.nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:500;color:var(--txi2);transition:.14s;min-width:0}
-.nav button i{font-size:16px;flex:0 0 auto}
-.nav button:hover{background:rgba(255,255,255,.05);color:var(--txi)}
-.nav button.on{background:rgba(255,255,255,.09);color:var(--txi)}
-.nav .ct{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7;flex:0 0 auto}
-.sfoot{margin-top:auto;padding:12px 10px 0;border-top:1px solid var(--lnd);font-size:10px;color:var(--txi2)}
-
-/* MAIN */
-.main{flex:1;padding:32px 36px 60px;max-width:1280px;min-width:0}
-.hd{margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap}
 .hd>div:first-child{flex:1;min-width:0}
-.eyeb{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;color:var(--pink);margin-bottom:6px}
-h1.t{font-family:Fraunces,serif;font-weight:600;font-size:32px;margin:0 0 4px;letter-spacing:-.025em;line-height:1.1}
-.sub{color:var(--tx2);font-size:14px;margin:0;max-width:560px}
 .view{animation:fade .25s ease both}
 @keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-
-.card{background:var(--card);border:1px solid var(--ln);border-radius:var(--r2);padding:20px 22px;box-shadow:var(--sh1)}
 .card+.card{margin-top:16px}
-.ctitle{font-family:Fraunces,serif;font-weight:600;font-size:17px;margin:0 0 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;letter-spacing:-.01em}
 .cnt{font-family:'JetBrains Mono',monospace;font-weight:400;font-size:12px;color:var(--tx3);margin-left:5px}
-
-.f{margin-bottom:12px}
-.f label{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3);margin-bottom:5px;font-weight:600}
 .f .hint{font-size:11px;color:var(--tx3);margin-top:4px}
 .row{display:flex;gap:10px}
 .row>.f{flex:1;min-width:0}
-input,select,textarea{width:100%;padding:0 11px;border-radius:9px;border:1px solid var(--ln2);background:var(--card);color:var(--tx);font-family:Inter,sans-serif;font-size:13.5px;outline:none;transition:.14s}
-input,select{height:38px}
-textarea{padding:9px 11px;resize:vertical;min-height:60px;font-size:13px;line-height:1.5}
-input:focus,select:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
 select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0 L5 6 L10 0' fill='none' stroke='%235B5A5F' stroke-width='1.4'/></svg>");background-repeat:no-repeat;background-position:right 11px center;padding-right:28px}
 input[type=range]{padding:0;height:auto;border:none;box-shadow:none;accent-color:var(--pink)}
 input[type=range]:focus{box-shadow:none}
-
-.b{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 16px;border-radius:10px;font-size:13.5px;font-weight:600;transition:.14s;white-space:nowrap}
 .b:active{transform:scale(.98)}
-.bp{background:var(--pink);color:#fff}
-.bp:hover{background:#D13A6C}
-.bg{background:var(--card);color:var(--tx);border:1px solid var(--ln2)}
-.bg:hover{background:var(--card2)}
 .bd{color:var(--red)}
 .bs{height:31px;padding:0 12px;font-size:12.5px}
 .brow{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-.ib{all:unset;cursor:pointer;width:31px;height:31px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--tx3);border:1px solid var(--ln2);background:var(--card);transition:.14s;flex-shrink:0}
-.ib:hover{background:var(--card2);color:var(--tx)}
 .ib.dg:hover{background:var(--red2);color:var(--red)}
-
 .empty{text-align:center;padding:40px 16px;color:var(--tx3);font-size:13.5px}
 .empty i{font-size:34px;color:var(--ln2);display:block;margin:0 auto 10px}
-
-/* avatar */
 .av{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:Fraunces,serif;font-weight:600;font-size:13.5px;flex-shrink:0;color:#fff;letter-spacing:-.02em}
 .av.s{width:27px;height:27px;border-radius:8px;font-size:11px}
 .av.l{width:52px;height:52px;border-radius:15px;font-size:20px}
 .av.c,.av.c.s,.av.c.l{border-radius:50%}
-.a0{background:var(--pink)}.a1{background:var(--lav)}.a2{background:var(--sky)}
-.a3{background:var(--lime)}.a4{background:var(--amb)}.a5{background:#5B8DEF}
-
-/* pill */
-.p{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap;gap:4px}
+.a0{background:var(--pink)}
+.a1{background:var(--lav)}
+.a2{background:var(--sky)}
+.a3{background:var(--lime)}
+.a4{background:var(--amb)}
+.a5{background:#5B8DEF}
 .p-ok{background:var(--lime2);color:#3D6B18}
 .p-w{background:var(--amb2);color:#8A5A0F}
 .p-d{background:var(--red2);color:#9B2C2C}
 .p-i{background:var(--sky2);color:#1C6A85}
 .p-n{background:var(--lav2);color:#453BA0}
 .p-g{background:var(--card2);color:var(--tx2)}
-
-.chips{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
-.chip{padding:7px 13px;border-radius:9px;font-size:12.5px;font-weight:500;cursor:pointer;background:var(--card);border:1px solid var(--ln2);color:var(--tx2);transition:.14s}
-.chip:hover{background:var(--card2)}
-.chip.on{background:var(--ink);color:var(--txi);border-color:var(--ink)}
-
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
-.ecard{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:15px 16px;box-shadow:var(--sh1);transition:.16s;cursor:pointer}
-.ecard:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
-.etop{display:flex;align-items:center;gap:10px;margin-bottom:11px;min-width:0}
-.ename{font-family:Fraunces,serif;font-weight:600;font-size:15.5px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .esub{font-size:12px;color:var(--tx3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.emeta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:11px;padding-top:11px;border-top:1px solid var(--ln)}
 .eamt{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px}
 .enote{font-size:10.5px;color:var(--tx3);margin-top:2px}
-
-/* metrics */
-.mets{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin-bottom:18px}
-.met{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:15px 17px;box-shadow:var(--sh1)}
-.mico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:9px;color:#fff}
 .mlab{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);font-weight:600;margin-bottom:5px}
-.mval{font-family:Fraunces,serif;font-weight:600;font-size:24px;letter-spacing:-.02em;line-height:1}
 .msub{font-size:11px;color:var(--tx3);margin-top:4px}
-
-/* table */
 table.t{width:100%;border-collapse:collapse;font-size:13px}
 table.t th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3);font-weight:600;padding:0 10px 10px;border-bottom:1px solid var(--ln)}
 table.t td{padding:11px 10px;border-bottom:1px solid var(--ln);vertical-align:middle}
@@ -160,13 +71,10 @@ table.t tr:last-child td{border-bottom:none}
 table.t tbody tr:hover{background:var(--card2)}
 table.t td.n{font-family:'JetBrains Mono',monospace}
 table.t .ta{display:flex;gap:5px;justify-content:flex-end}
-
 .lrow{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--ln);gap:10px}
 .lrow:last-child{border-bottom:none}
 .lname{font-size:13.5px;font-weight:500}
 .lsub{font-size:11.5px;color:var(--tx3);margin-top:2px}
-
-/* modal */
 .ov{position:fixed;inset:0;background:rgba(18,18,26,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:16px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .mdl{background:var(--card);border-radius:20px;max-width:720px;width:100%;padding:24px 26px 28px;box-shadow:var(--sh3);overflow-y:auto;overflow-x:hidden;max-height:calc(100dvh - 32px);min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;margin:0 auto;touch-action:pan-y}
 .mdl.wide{max-width:920px;max-height:calc(100dvh - 32px)}
@@ -176,23 +84,17 @@ table.t .ta{display:flex;gap:5px;justify-content:flex-end}
 .mtitle{font-family:Fraunces,serif;font-weight:600;font-size:21px;letter-spacing:-.02em}
 .msec{margin-top:18px;padding-top:16px;border-top:1px solid var(--ln)}
 .mstitle{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--tx3);font-weight:600;margin-bottom:10px}
-
-/* assoc */
 .assoc{display:flex;align-items:center;gap:9px;padding:9px 11px;background:var(--card2);border:1px solid var(--ln);border-radius:10px;margin-bottom:6px;cursor:pointer;transition:.14s}
 .assoc:hover{background:var(--card);border-color:var(--ln2)}
 .assoc .ai{flex:1;min-width:0}
 .assoc .an{font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .assoc .as{font-size:11px;color:var(--tx3)}
-
-/* simulator */
 .sim{background:var(--card2);border:1px solid var(--ln);border-radius:14px;padding:16px 18px}
 .simrow{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px}
 .simrow.tot{border-top:1px solid var(--ln2);margin-top:6px;padding-top:11px;font-weight:600;font-size:14.5px}
 .simrow .v{font-family:'JetBrains Mono',monospace;font-weight:600}
 .simrow.neg .v{color:var(--red)}
 .simrow.pos .v{color:#3D6B18}
-
-/* quincena grid */
 .qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
 .qc{border:1px solid var(--ln2);border-radius:10px;padding:9px 10px;cursor:pointer;transition:.14s;background:var(--card)}
 .qc:hover{border-color:var(--pink);box-shadow:var(--sh1)}
@@ -203,8 +105,6 @@ table.t .ta{display:flex;gap:5px;justify-content:flex-end}
 .qcl{font-size:11.5px;font-weight:600}
 .qcs{font-size:10px;color:var(--tx3);margin-top:3px;font-family:'JetBrains Mono',monospace}
 .qc.on .qcs{color:var(--txi2)}
-
-/* acordeon de quincenas */
 .acc{display:flex;flex-direction:column;gap:6px}
 .accit{border:1px solid var(--ln);border-radius:11px;overflow:hidden;background:var(--card)}
 .acchd{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:11px 14px;width:100%;box-sizing:border-box;transition:.12s}
@@ -216,29 +116,24 @@ table.t .ta{display:flex;gap:5px;justify-content:flex-end}
 .accv{font-size:13px;font-weight:600;color:var(--tx2)}
 .accbd{display:none;padding:8px}
 .accit.open .accbd{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-@media(max-width:560px){.accit.open .accbd{grid-template-columns:1fr}}
-.qopt{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;
-  padding:10px 12px;border:1px solid var(--ln2);border-radius:9px;font-size:12.5px;transition:.12s}
+@media(max-width:560px){
+  .accit.open .accbd{grid-template-columns:1fr}
+}
+.qopt{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--ln2);border-radius:9px;font-size:12.5px;transition:.12s}
 .qopt:hover{border-color:var(--pink);background:var(--pink2)}
 .qopt.on{background:var(--ink);color:var(--txi);border-color:var(--ink)}
 .qopt .mono{font-weight:600}
-
-/* nomina detail */
 .ndet{border:1px solid var(--ln);border-radius:12px;overflow:hidden;margin-bottom:10px}
 .nhd{display:flex;align-items:center;gap:11px;padding:12px 14px;background:var(--card2);cursor:pointer}
 .nhd .chev2{font-size:15px;color:var(--tx3);transition:transform .18s;flex-shrink:0}
 .ndet.open .nhd .chev2{transform:rotate(90deg)}
-.nbody{display:none}
 .ndet.open .nbody{display:block}
-.nbody{padding:4px 14px 12px;font-size:12.5px}
+.nbody{display:none;padding:4px 14px 12px;font-size:12.5px}
 .nline{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--ln)}
 .nline:last-child{border-bottom:none}
-
-/* matriz de cobranza */
 .mtxwrap{overflow-x:auto;border:1px solid var(--ln);border-radius:10px}
 table.mtx{border-collapse:separate;border-spacing:0;font-size:11.5px;white-space:nowrap}
-table.mtx th{background:var(--card2);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
-  color:var(--tx2);padding:7px 8px;border-bottom:1px solid var(--ln2);border-right:1px solid var(--ln);position:sticky;top:0;z-index:3}
+table.mtx th{background:var(--card2);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--tx2);padding:7px 8px;border-bottom:1px solid var(--ln2);border-right:1px solid var(--ln);position:sticky;top:0;z-index:3}
 table.mtx th.hmes{text-align:center;background:var(--ink);color:var(--txi);border-right:1px solid rgba(255,255,255,.15)}
 table.mtx th.hq{text-align:center;font-size:9.5px;min-width:74px}
 table.mtx th.hcli{min-width:170px;text-align:left}
@@ -246,13 +141,10 @@ table.mtx th.hfreq{min-width:66px}
 table.mtx th.hmonto{min-width:76px;text-align:right}
 table.mtx td{padding:6px 8px;border-bottom:1px solid var(--ln);border-right:1px solid var(--ln)}
 table.mtx tbody tr:hover td{background:rgba(232,70,122,.04)}
-table.mtx td.cli{position:sticky;left:0;background:var(--card);z-index:2;display:flex;align-items:center;gap:7px;
-  font-weight:600;font-size:12.5px;cursor:pointer;min-width:170px}
+table.mtx td.cli{position:sticky;left:0;background:var(--card);z-index:2;display:flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;cursor:pointer;min-width:170px}
 table.mtx td.cli:hover{color:var(--pink)}
 table.mtx td.freq{position:sticky;left:170px;background:var(--card);z-index:2;color:var(--tx3);font-size:11px}
-table.mtx td.monto{text-align:right;font-weight:600}
 table.mtx th.sticky-l{position:sticky;left:0;z-index:5}
-table.mtx th.sticky-l2{position:sticky;left:170px;z-index:5}
 table.mtx td.cel{text-align:center;font-size:10.5px;font-weight:600;cursor:pointer;user-select:none;transition:.1s}
 table.mtx td.cel:hover{outline:2px solid var(--pink);outline-offset:-2px}
 table.mtx td.cel.pagada{background:#DFF0D0;color:#3D6B18}
@@ -261,14 +153,8 @@ table.mtx td.cel.pendiente{background:var(--card);color:var(--tx3)}
 table.mtx td.cel.fut{opacity:.5}
 table.mtx td.cel.na{background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(18,18,26,.03) 4px,rgba(18,18,26,.03) 8px);color:var(--ln2);cursor:default}
 table.mtx td.cel.na:hover{outline:none}
-
-/* toast */
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--txi);padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:var(--sh3);z-index:200;animation:tin .18s ease}
 @keyframes tin{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
-
-/* invoice preview */
 .pvwrap{position:sticky;top:32px}
-.pv{position:relative;overflow:hidden;background:#F6F4F0;border:1px solid var(--ln);border-radius:14px;box-shadow:var(--sh2);aspect-ratio:8.5/11;width:100%;padding:42px 36px;font-family:Inter,sans-serif}
 .pvwm{position:absolute;left:-8%;top:26%;width:118%;opacity:.05;pointer-events:none;transform:rotate(-6deg)}
 .pvlogo{width:70px;position:relative;z-index:1}
 .pvinfo{position:relative;z-index:1;margin-top:16px;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;line-height:1.6}
@@ -283,266 +169,101 @@ table.mtx td.cel.na:hover{outline:none}
 .pvtb .tt{display:flex;justify-content:space-between;padding-top:14px;font-weight:700;font-size:14px}
 .pvtb .tt .a{font-family:'JetBrains Mono',monospace}
 .pvnote{position:absolute;left:36px;bottom:36px;font-size:10px;color:var(--tx3);z-index:1;font-style:italic}
-
 .g2{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:20px;align-items:start}
 .g2b{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
-@media(max-width:1000px){.g2,.g2b{grid-template-columns:1fr}}
+@media(max-width:1000px){
+  .g2,.g2b{grid-template-columns:1fr}
+}
 @media(max-width:880px){
-  .ov{align-items:flex-start;padding:14px 12px;}
-  .shell{flex-direction:column}
-  .side{width:100%;height:auto;position:relative;padding:14px 16px}
-  .nav{flex-direction:row;overflow-x:auto;gap:5px}
   .nsec,.sfoot{display:none}
-  .main{padding:20px 16px 40px}
-  h1.t{font-size:26px}
   .pvwrap{position:static}
 }
-
-/* ================================================================
-   PÁRAMO CREATIVO — MODERN UI OVERRIDES
-   Visual refresh only: preserves existing HTML + JavaScript behavior.
-   ================================================================ */
-:root{
-  --ink:#17151c;
-  --ink2:#211d27;
-  --paper:#f7f5f8;
-  --card:#ffffff;
-  --card2:#f5f2f6;
-  --tx:#211e26;
-  --tx2:#6f6874;
-  --tx3:#9b94a0;
-  --txi:#f8f5f8;
-  --txi2:rgba(248,245,248,.58);
-  --ln:rgba(33,30,38,.075);
-  --ln2:rgba(33,30,38,.13);
-  --lnd:rgba(255,255,255,.105);
-  --pink:#e63f76;
-  --pink2:#fff0f5;
-  --lav:#7666df;
-  --lav2:#f1effd;
-  --sky:#3aa8cf;
-  --sky2:#eaf7fb;
-  --lime:#71ad43;
-  --lime2:#eff8e9;
-  --amb:#df922b;
-  --amb2:#fff5e5;
-  --red:#d94b58;
-  --red2:#fdeef0;
-  --sh1:0 1px 2px rgba(22,18,28,.03),0 7px 22px rgba(22,18,28,.045);
-  --sh2:0 14px 38px rgba(22,18,28,.09);
-  --sh3:0 24px 70px rgba(22,18,28,.18);
-  --r:14px;
-  --r2:20px;
-}
-
+:root{--ink:#17151c;--ink2:#211d27;--paper:#f7f5f8;--card:#ffffff;--card2:#f5f2f6;--tx:#211e26;--tx2:#6f6874;--tx3:#9b94a0;--txi:#f8f5f8;--txi2:rgba(248,245,248,.58);--ln:rgba(33,30,38,.075);--ln2:rgba(33,30,38,.13);--lnd:rgba(255,255,255,.105);--pink:#e63f76;--pink2:#fff0f5;--lav:#7666df;--lav2:#f1effd;--sky:#3aa8cf;--sky2:#eaf7fb;--lime:#71ad43;--lime2:#eff8e9;--amb:#df922b;--amb2:#fff5e5;--red:#d94b58;--red2:#fdeef0;--sh1:0 1px 2px rgba(22,18,28,.03),0 7px 22px rgba(22,18,28,.045);--sh2:0 14px 38px rgba(22,18,28,.09);--sh3:0 24px 70px rgba(22,18,28,.18);--r:14px;--r2:20px}
 html{scroll-behavior:smooth}
-body{
-  background:
-    radial-gradient(circle at 78% -10%,rgba(230,63,118,.055),transparent 30rem),
-    radial-gradient(circle at 18% 100%,rgba(118,102,223,.045),transparent 26rem),
-    var(--paper);
-  color:var(--tx);
-  letter-spacing:-.005em;
-}
 body::selection{background:rgba(230,63,118,.18)}
-
-/* Sidebar */
-.side{
-  width:248px;
-  padding:18px 13px;
-  overflow-x:hidden;
-  background:linear-gradient(180deg,#17151c 0%,#1b1821 100%);
-  border-right:1px solid rgba(255,255,255,.055);
-  box-shadow:8px 0 30px rgba(18,15,22,.055);
-}
-.brand{
-  padding:4px 7px 15px;
-  margin-bottom:10px;
-  border-bottom:1px solid rgba(255,255,255,.07);
-}
-.brand-mk{
-  width:38px;height:38px;border-radius:12px;
-  background:linear-gradient(145deg,#f15b8b,#d9366c);
-  box-shadow:0 7px 18px rgba(230,63,118,.23);
-}
-.brand-t1{font-size:17px}
-.brand-t2{font-size:9px;letter-spacing:.18em}
-.srch{margin:2px 3px 13px}
-.srch input{
-  height:40px;border-radius:12px;
-  background:rgba(255,255,255,.055);
-  border-color:rgba(255,255,255,.08);
-  padding-left:35px;
-}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 7px 15px;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07)}
+.brand-mk{width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#f15b8b,#d9366c);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;box-shadow:0 7px 18px rgba(230,63,118,.23)}
+.brand-t1{font-family:Fraunces,serif;font-weight:600;font-size:17px;line-height:1}
+.brand-t2{font-size:9px;color:var(--txi2);letter-spacing:.18em;text-transform:uppercase;margin-top:3px}
+.srch{position:relative;margin-bottom:14px;margin:2px 3px 13px}
+.srch input{width:100%;height:40px;border-radius:12px;border:1px solid var(--lnd);background:rgba(255,255,255,.055);color:var(--txi);padding:0 10px 0 30px;font-size:12.5px;outline:none;font-family:Inter,sans-serif;border-color:rgba(255,255,255,.08);padding-left:35px}
 .srch input:hover{background:rgba(255,255,255,.075)}
 .srch input:focus{background:rgba(255,255,255,.09);border-color:rgba(230,63,118,.65);box-shadow:0 0 0 3px rgba(230,63,118,.12)}
-.srch i{left:11px;top:12px}
-.nsec{padding:15px 10px 6px;font-size:9px;letter-spacing:.18em;color:rgba(248,245,248,.38)}
-.nav{gap:3px}
-.nav button{
-  min-height:39px;padding:8px 11px;border-radius:11px;
-  color:rgba(248,245,248,.59);
-}
-.nav button i{font-size:17px;opacity:.9}
+.srch i{position:absolute;left:11px;top:12px;font-size:15px;color:var(--txi2);pointer-events:none}
+.nsec{font-size:9px;color:rgba(248,245,248,.38);text-transform:uppercase;letter-spacing:.18em;padding:15px 10px 6px}
+.nav{display:flex;flex-direction:column;gap:3px}
+.nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:11px;font-size:13px;font-weight:500;color:rgba(248,245,248,.59);transition:.14s;min-width:0;min-height:39px}
+.nav button i{font-size:17px;flex:0 0 auto;opacity:.9}
 .nav button:hover{background:rgba(255,255,255,.055);color:#fff;transform:translateX(1px)}
-.nav button.on{
-  background:linear-gradient(90deg,rgba(230,63,118,.17),rgba(230,63,118,.075));
-  color:#fff;
-  box-shadow:inset 3px 0 0 var(--pink),0 5px 16px rgba(0,0,0,.08);
-}
+.nav button.on{background:linear-gradient(90deg,rgba(230,63,118,.17),rgba(230,63,118,.075));color:#fff;box-shadow:inset 3px 0 0 var(--pink),0 5px 16px rgba(0,0,0,.08)}
 .nav button.on i{color:#ff6b9b}
-.nav .ct{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px}
-.sfoot{padding:14px 10px 2px;border-top-color:rgba(255,255,255,.07)}
-
-/* Main shell */
-.main{
-  max-width:none;
-  padding:34px clamp(22px,4vw,58px) 70px;
-}
-.hd{margin-bottom:26px;align-items:center}
-.eyeb{font-size:9.5px;letter-spacing:.18em;color:var(--pink);font-weight:700}
-h1.t{font-size:36px;line-height:1.02;letter-spacing:-.04em}
-.sub{font-size:13.5px;color:var(--tx2);line-height:1.55}
-
-/* Cards */
-.card{
-  border-color:rgba(33,30,38,.075);
-  border-radius:18px;
-  padding:22px 23px;
-  box-shadow:var(--sh1);
-  transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease;
-}
+.nav .ct{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7;flex:0 0 auto;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px}
+.sfoot{margin-top:auto;padding:14px 10px 2px;border-top:1px solid var(--lnd);font-size:10px;color:var(--txi2);border-top-color:rgba(255,255,255,.07)}
+.main{flex:1;padding:34px clamp(22px,4vw,58px) 70px;max-width:none;min-width:0}
+.hd{margin-bottom:26px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.eyeb{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:var(--pink);margin-bottom:6px}
+h1.t{font-family:Fraunces,serif;font-weight:600;font-size:36px;margin:0 0 4px;letter-spacing:-.04em;line-height:1.02}
+.sub{color:var(--tx2);font-size:13.5px;margin:0;max-width:560px;line-height:1.55}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:18px;padding:22px 23px;box-shadow:var(--sh1);border-color:rgba(33,30,38,.075);transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
 .card:hover{border-color:rgba(33,30,38,.11)}
-.ctitle{font-size:18px;margin-bottom:16px}
-
-/* Form controls */
+.ctitle{font-family:Fraunces,serif;font-weight:600;font-size:18px;margin:0 0 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;letter-spacing:-.01em;margin-bottom:16px}
 .f{margin-bottom:14px}
-.f label{font-size:9.5px;letter-spacing:.09em;color:#817986}
-input,select,textarea{
-  border-color:#e4dfe6;
-  background:#fff;
-  border-radius:11px;
-  box-shadow:0 1px 1px rgba(20,15,25,.02);
-}
+.f label{display:block;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:#817986;margin-bottom:5px;font-weight:600}
+input,select,textarea{width:100%;padding:0 11px;border-radius:11px;border:1px solid var(--ln2);background:#fff;color:var(--tx);font-family:Inter,sans-serif;font-size:13.5px;outline:none;transition:.14s;border-color:#e4dfe6;box-shadow:0 1px 1px rgba(20,15,25,.02)}
 input,select{height:41px}
-textarea{min-height:72px}
+textarea{padding:9px 11px;resize:vertical;min-height:72px;font-size:13px;line-height:1.5}
 input:hover,select:hover,textarea:hover{border-color:#d3ccd6}
-input:focus,select:focus,textarea:focus{
-  border-color:var(--pink);
-  box-shadow:0 0 0 4px rgba(230,63,118,.10),0 2px 5px rgba(20,15,25,.03);
-}
-
-/* Buttons */
-.b{
-  height:40px;border-radius:11px;padding:0 17px;
-  box-shadow:0 1px 1px rgba(20,15,25,.04);
-}
-.bp{
-  background:linear-gradient(135deg,#ec4d82,#dc396e);
-  box-shadow:0 7px 18px rgba(230,63,118,.18);
-}
+input:focus,select:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px rgba(230,63,118,.10),0 2px 5px rgba(20,15,25,.03)}
+.b{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:40px;padding:0 17px;border-radius:11px;font-size:13.5px;font-weight:600;transition:.14s;white-space:nowrap;box-shadow:0 1px 1px rgba(20,15,25,.04)}
+.bp{background:linear-gradient(135deg,#ec4d82,#dc396e);color:#fff;box-shadow:0 7px 18px rgba(230,63,118,.18)}
 .bp:hover{background:linear-gradient(135deg,#e94379,#ce3166);box-shadow:0 9px 22px rgba(230,63,118,.23);transform:translateY(-1px)}
-.bg{border-color:#dfd9e1}
+.bg{background:var(--card);color:var(--tx);border:1px solid var(--ln2);border-color:#dfd9e1}
 .bg:hover{background:#f8f6f8;border-color:#d2cbd5}
-.ib{width:34px;height:34px;border-radius:10px;border-color:#e1dce3}
-.ib:hover{box-shadow:0 5px 14px rgba(20,15,25,.07);transform:translateY(-1px)}
-
-/* Chips / tabs */
-.chips{gap:8px;margin-bottom:16px}
-.chip{border-radius:10px;padding:8px 14px;background:rgba(255,255,255,.7);border-color:#e3dde5}
+.ib{all:unset;cursor:pointer;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--tx3);border:1px solid var(--ln2);background:var(--card);transition:.14s;flex-shrink:0;border-color:#e1dce3}
+.ib:hover{background:var(--card2);color:var(--tx);box-shadow:0 5px 14px rgba(20,15,25,.07);transform:translateY(-1px)}
+.chips{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.chip{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:500;cursor:pointer;background:rgba(255,255,255,.7);border:1px solid var(--ln2);color:var(--tx2);transition:.14s;border-color:#e3dde5}
 .chip:hover{background:#fff;transform:translateY(-1px)}
-.chip.on{background:#211d27;border-color:#211d27;box-shadow:0 6px 16px rgba(33,29,39,.12)}
-
-/* Metrics */
-.mets{gap:14px;margin-bottom:20px}
-.met{
-  position:relative;overflow:hidden;
-  border-radius:17px;padding:18px 19px;
-  box-shadow:var(--sh1);
-}
-.met::after{
-  content:"";position:absolute;right:-25px;bottom:-35px;width:100px;height:100px;
-  border-radius:50%;background:currentColor;opacity:.035;pointer-events:none;
-}
-.mico{width:36px;height:36px;border-radius:11px}
-.mval{font-size:23px!important;letter-spacing:-.04em}
-
-/* Client cards */
-.grid{grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
-.ecard{
-  border-radius:17px;padding:17px 18px;
-  box-shadow:var(--sh1);
-}
+.chip.on{background:#211d27;color:var(--txi);border-color:#211d27;box-shadow:0 6px 16px rgba(33,29,39,.12)}
+.mets{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px;margin-bottom:20px}
+.met{background:var(--card);border:1px solid var(--ln);border-radius:17px;padding:18px 19px;box-shadow:var(--sh1);position:relative;overflow:hidden}
+.met::after{content:"";position:absolute;right:-25px;bottom:-35px;width:100px;height:100px;border-radius:50%;background:currentColor;opacity:.035;pointer-events:none}
+.mico{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:9px;color:#fff}
+.mval{font-family:Fraunces,serif;font-weight:600;font-size:23px!important;letter-spacing:-.04em;line-height:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.ecard{background:var(--card);border:1px solid var(--ln);border-radius:17px;padding:17px 18px;box-shadow:var(--sh1);transition:.16s;cursor:pointer}
 .ecard:hover{transform:translateY(-3px);box-shadow:var(--sh2);border-color:rgba(230,63,118,.16)}
-.etop{margin-bottom:13px}
-.ename{font-size:16px}
-.emeta{margin-top:13px;padding-top:13px}
-
-/* Tables */
+.etop{display:flex;align-items:center;gap:10px;margin-bottom:13px;min-width:0}
+.ename{font-family:Fraunces,serif;font-weight:600;font-size:16px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.emeta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:13px;padding-top:13px;border-top:1px solid var(--ln)}
 table{border-collapse:separate!important;border-spacing:0!important;overflow:hidden}
-table th{
-  background:#f7f4f7!important;
-  color:#766e79!important;
-  font-size:9.5px!important;
-  letter-spacing:.08em!important;
-  text-transform:uppercase;
-}
+table th{background:#f7f4f7!important;color:#766e79!important;font-size:9.5px!important;letter-spacing:.08em!important;text-transform:uppercase}
 table td,table th{border-color:#ece7ed!important}
 table tr:hover td{background:#fcfafc}
-
-/* Pills */
-.p{padding:4px 9px;border-radius:999px;font-size:10px;letter-spacing:.01em}
-
-/* Modals */
-.modal-bg{
-  backdrop-filter:blur(8px)!important;
-  background:rgba(18,15,22,.52)!important;
-}
-.modal{
-  border:1px solid rgba(255,255,255,.55)!important;
-  border-radius:22px!important;
-  box-shadow:0 30px 100px rgba(15,12,18,.28)!important;
-}
-
-/* Search results */
-.sres{border-radius:13px;background:#211d27;box-shadow:0 20px 50px rgba(0,0,0,.25);padding:5px}
-.sres div{padding:9px 10px;border-radius:9px}
-
-/* Toast */
-.toast{bottom:26px;border-radius:12px;padding:12px 17px;box-shadow:0 16px 42px rgba(18,15,22,.22)}
-
-/* Invoice */
-.pv{border-radius:18px;box-shadow:var(--sh2)}
-
-/* Small visual polish across generated content */
+.p{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;gap:4px;letter-spacing:.01em}
+.modal-bg{backdrop-filter:blur(8px)!important;background:rgba(18,15,22,.52)!important}
+.modal{border:1px solid rgba(255,255,255,.55)!important;border-radius:22px!important;box-shadow:0 30px 100px rgba(15,12,18,.28)!important}
+.sres{position:absolute;top:40px;left:0;right:0;background:#211d27;border:1px solid var(--lnd);border-radius:13px;box-shadow:0 20px 50px rgba(0,0,0,.25);z-index:60;max-height:270px;overflow-y:auto;padding:5px}
+.sres div{display:flex;align-items:center;gap:8px;padding:9px 10px;cursor:pointer;font-size:12.5px;border-radius:9px}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--txi);padding:12px 17px;border-radius:12px;font-size:13px;box-shadow:0 16px 42px rgba(18,15,22,.22);z-index:200;animation:tin .18s ease}
+.pv{position:relative;overflow:hidden;background:#F6F4F0;border:1px solid var(--ln);border-radius:18px;box-shadow:var(--sh2);aspect-ratio:8.5/11;width:100%;padding:42px 36px;font-family:Inter,sans-serif}
 hr{border:0;border-top:1px solid var(--ln)}
 button{font-family:inherit}
 ::placeholder{color:#aaa3ad!important}
 :focus-visible{outline:3px solid rgba(230,63,118,.18);outline-offset:2px}
-
-/* Scrollbars */
-*{scrollbar-width:thin;scrollbar-color:#cfc8d2 transparent}
-.side{scrollbar-color:rgba(255,255,255,.18) transparent}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#cfc8d2 transparent}
+.side{width:248px;flex-shrink:0;background:linear-gradient(180deg,#17151c 0%,#1b1821 100%);color:var(--txi);display:flex;flex-direction:column;padding:18px 13px;position:sticky;top:0;height:100vh;overflow-y:auto;overflow-x:hidden;border-right:1px solid rgba(255,255,255,.055);box-shadow:8px 0 30px rgba(18,15,22,.055);scrollbar-color:rgba(255,255,255,.18) transparent}
 *::-webkit-scrollbar{width:8px;height:8px}
 *::-webkit-scrollbar-track{background:transparent}
 *::-webkit-scrollbar-thumb{background:#d0c9d3;border-radius:99px}
 .side::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18)}
-
-/* Mobile */
 @media(max-width:880px){
-  .side{
-    position:sticky;top:0;z-index:80;
-    padding:12px 12px 10px;
-    box-shadow:0 10px 28px rgba(18,15,22,.13);
-  }
+  .side{width:100%;height:auto;position:sticky;padding:12px 12px 10px;top:0;z-index:80;box-shadow:0 10px 28px rgba(18,15,22,.13)}
   .brand{padding:2px 5px 11px;margin-bottom:8px}
   .brand-mk{width:34px;height:34px;border-radius:10px}
   .srch{margin:0 1px 9px}
   .srch input{height:38px}
-  .nav{padding-bottom:2px}
-  .nav button{min-width:max-content;min-height:36px;padding:7px 11px;background:rgba(255,255,255,.035)}
   .nav button.on{box-shadow:inset 0 -2px 0 var(--pink)}
-  .main{padding:24px 16px 50px}
   h1.t{font-size:29px}
   .mets{grid-template-columns:repeat(2,minmax(0,1fr))}
   .grid{grid-template-columns:1fr}
@@ -559,56 +280,101 @@ button{font-family:inherit}
   .row{flex-direction:column;gap:0}
   .brow .b{flex:1}
 }
-
-
-<style>
-/* Línea de cobranza: columnas de clientes siempre fijas al mover las fechas */
-table.mtx th.hmonto{position:sticky;left:236px;z-index:5;min-width:92px;text-align:right;background:#f7f4f7!important}
-table.mtx td.monto{position:sticky;left:236px;z-index:2;min-width:92px;background:var(--card);text-align:right}
-table.mtx th.sticky-l2{left:170px}
-@media(max-width:880px){table.mtx th.hmonto,table.mtx td.monto{left:236px}}
+<style> /* Línea de cobranza: columnas de clientes siempre fijas al mover las fechas */ table.mtx th.hmonto{position:sticky;left:236px;z-index:5;min-width:92px;text-align:right;background:#f7f4f7!important}
+table.mtx td.monto{text-align:right;font-weight:600;position:sticky;left:236px;z-index:2;min-width:92px;background:var(--card)}
+table.mtx th.sticky-l2{position:sticky;left:170px;z-index:5}
+@media(max-width:880px){
+  table.mtx th.hmonto,table.mtx td.monto{left:236px}
+}
 .pay-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .pay-summary .met{min-height:100px}
-@media(max-width:700px){.pay-summary{grid-template-columns:1fr}}
-
-/* Indicador visual de modo consulta para usuarios no administradores */
-body.readonly-user .b.bp,
-body.readonly-user .b.bd{
-  opacity:.48;
-  cursor:not-allowed!important;
+@media(max-width:700px){
+  .pay-summary{grid-template-columns:1fr}
 }
-body.readonly-user input:not(.srch input),
-body.readonly-user select,
-body.readonly-user textarea{
-  background:#f7f5f8!important;
-  cursor:not-allowed!important;
-}
-
-/* Compatibilidad móvil Android + iOS */
-html,body{overflow-x:hidden;-webkit-text-size-adjust:100%;}
-body{min-height:100dvh;padding-bottom:env(safe-area-inset-bottom);}
-button,input,select,textarea{-webkit-tap-highlight-color:transparent;}
+body.readonly-user .b.bp,body.readonly-user .b.bd{opacity:.48;cursor:not-allowed!important}
+body.readonly-user input:not(.srch input),body.readonly-user select,body.readonly-user textarea{background:#f7f5f8!important;cursor:not-allowed!important}
+html,body{margin:0;padding:0;overflow-x:hidden;-webkit-text-size-adjust:100%}
+body{background:radial-gradient(circle at 78% -10%,rgba(230,63,118,.055),transparent 30rem),
+    radial-gradient(circle at 18% 100%,rgba(118,102,223,.045),transparent 26rem),
+    var(--paper);color:var(--tx);font-family:Inter,sans-serif;font-size:14px;min-height:100dvh;letter-spacing:-.005em;padding-bottom:env(safe-area-inset-bottom)}
+button,input,select,textarea{-webkit-tap-highlight-color:transparent}
 @media(max-width:880px){
-  .shell{min-height:100dvh;}
-  .nav{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
-  .nav::-webkit-scrollbar{display:none;}
-  .nav button{min-height:44px;padding:9px 13px;}
-  .b,.ib,.chip{min-height:42px;}
-  .ib{min-width:42px;width:42px;height:42px;}
-  .main{width:100%;max-width:100%;overflow:hidden;}
-  .ov{padding:calc(14px + env(safe-area-inset-top)) 12px calc(18px + env(safe-area-inset-bottom));}
-  .mdl{max-height:calc(100dvh - 32px);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 18px 24px;}
+  .shell{flex-direction:column;min-height:100dvh}
+  .nav{flex-direction:row;overflow-x:auto;gap:5px;padding-bottom:2px;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav button{min-width:max-content;min-height:44px;padding:9px 13px;background:rgba(255,255,255,.035)}
+  .b,.ib,.chip{min-height:42px}
+  .ib{min-width:42px;width:42px;height:42px}
+  .main{padding:24px 16px 50px;width:100%;max-width:100%;overflow:hidden}
+  .ov{align-items:flex-start;padding:calc(14px + env(safe-area-inset-top)) 12px calc(18px + env(safe-area-inset-bottom))}
+  .mdl{max-height:calc(100dvh - 32px);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 18px 24px}
 }
 @media(max-width:560px){
-  input,select,textarea{font-size:16px!important;}
-  .login-layer .mdl{width:100%;max-width:430px;}
-  table.t{min-width:620px;}
-  .mtxwrap{max-width:100%;-webkit-overflow-scrolling:touch;}
+  input,select,textarea{font-size:16px!important}
+  .login-layer .mdl{width:100%;max-width:430px}
+  table.t{min-width:620px}
+  .mtxwrap{max-width:100%;-webkit-overflow-scrolling:touch}
+}
+.line-card{padding:12px 14px}
+.line-table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:14px;background:var(--card)}
+.line-mtx{min-width:980px}
+.line-mtx th.hmes{padding:10px 8px}
+.line-mtx td.cel{height:48px;min-width:82px}
+.line-mtx td.cel.pagada{background:var(--lime2)}
+.line-mtx td.cel.pendiente{background:var(--amb2)}
+.line-mtx td.cel.vencida{background:var(--red2)}
+.cell-status{display:inline-flex;align-items:center;justify-content:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:700}
+.cell-status.pagada{background:#DFF0D0;color:#3D6B18}
+.cell-status.pendiente{background:#FDF3E3;color:#8A5A0F}
+.cell-status.vencida{background:#FDEDED;color:#9B2C2C}
+.line-legend{padding:10px 14px;margin:12px 0}
+.line-legend span{font-size:11.5px;color:var(--tx2);display:inline-flex;gap:5px;align-items:center}
+.view-month{font-size:13px;min-width:150px;text-align:center}
+.ec-card{min-height:250px}
+.inv-item{align-items:flex-end;margin-bottom:8px}
+.inv-item .f{margin-bottom:0}
+.inv-item .ib{margin-bottom:2px}
+
+/* ══════════════════════════════════════════════════════════════
+   JERARQUÍA DE MÉTRICAS — tres niveles
+   Antes toda .mval era Fraunces 24px, así que "Monto vencido" y
+   "Clientes activos" pesaban igual. Ahora:
+     .met-crit  → exige acción hoy (vencidos, ganancia, faltante)
+     .met       → dato principal, tamaño de siempre
+     .met-ctx   → contexto de apoyo, se lee después
+   ══════════════════════════════════════════════════════════════ */
+.met-crit{position:relative;padding-left:20px;background:var(--card);border-color:var(--ln2);box-shadow:var(--sh2)}
+.met-crit::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:4px;border-radius:0 3px 3px 0;background:var(--tx3)}
+.met-crit .mlab{color:var(--tx2)}
+.met-crit .mval{font-size:31px;letter-spacing:-.03em}
+.met-crit .msub{font-size:11.5px;color:var(--tx2)}
+.met-crit.tone-red::before{background:var(--red)}
+.met-crit.tone-red{background:linear-gradient(180deg,var(--red2) 0%,var(--card) 62%)}
+.met-crit.tone-lime::before{background:var(--lime)}
+.met-crit.tone-lime{background:linear-gradient(180deg,var(--lime2) 0%,var(--card) 62%)}
+.met-crit.tone-amb::before{background:var(--amb)}
+.met-crit.tone-amb{background:linear-gradient(180deg,var(--amb2) 0%,var(--card) 62%)}
+.met-crit.tone-ink::before{background:var(--ink)}
+
+.met-ctx{background:var(--card2);border-color:transparent;box-shadow:none}
+.met-ctx .mval{font-size:17px;color:var(--tx2);letter-spacing:-.01em}
+.met-ctx .mlab{font-size:10px}
+.met-ctx .msub{font-size:10.5px}
+
+/* Los grupos con una métrica crítica le dan más ancho en pantallas amplias */
+@media(min-width:1000px){
+  .mets-h{grid-template-columns:1.35fr repeat(auto-fit,minmax(150px,1fr))}
 }
 
-.line-card{padding:12px 14px}.line-table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:14px;background:var(--card)}.line-mtx{min-width:980px}.line-mtx th.hmes{padding:10px 8px}.line-mtx td.cel{height:48px;min-width:82px}.line-mtx td.cel.pagada{background:var(--lime2)}.line-mtx td.cel.pendiente{background:var(--amb2)}.line-mtx td.cel.vencida{background:var(--red2)}.cell-status{display:inline-flex;align-items:center;justify-content:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:700}.cell-status.pagada{background:#DFF0D0;color:#3D6B18}.cell-status.pendiente{background:#FDF3E3;color:#8A5A0F}.cell-status.vencida{background:#FDEDED;color:#9B2C2C}.line-legend{padding:10px 14px;margin:12px 0}.line-legend span{font-size:11.5px;color:var(--tx2);display:inline-flex;gap:5px;align-items:center}.view-month{font-size:13px;min-width:150px;text-align:center}.ec-card{min-height:250px}
+/* ══════════════════════════════════════════════════════════════
+   MOVIMIENTO REDUCIDO — respeta la preferencia del sistema
+   ══════════════════════════════════════════════════════════════ */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+  .view{animation:none}
+  .ecard:hover,.card:hover{transform:none}
+}
 
-.inv-item{align-items:flex-end;margin-bottom:8px}.inv-item .f{margin-bottom:0}.inv-item .ib{margin-bottom:2px}
 </style>
 
 <style>
@@ -1136,6 +902,89 @@ function walletDeCobro(p){
   const equipo=r2(costoEquipoDe(c)*fr);
   return{neto,equipo,agencia:r2(neto-equipo),comision:com,fraccion:fr};
 }
+/* ═══════════ RENTABILIDAD REAL POR CLIENTE ═══════════
+   A diferencia de rentabilidad(), que proyecta desde la tarifa, esto parte de
+   los cobros REALMENTE registrados y descuenta lo que cuesta el equipo que
+   lleva a ese cliente. Distingue dos cosas que suelen confundirse:
+     · equipoDevengado → lo que ese cobro le genera al equipo (comprometido)
+     · equipoPagado    → lo que ya salió de caja hacia el equipo por ese cliente
+   "Queda para la agencia" usa el devengado, porque un pago pendiente al equipo
+   sigue siendo dinero comprometido aunque todavía esté en la wallet. */
+function pagadoEquipoPorCliente(companyId,desde,hasta){
+  let total=0;
+  (S.payouts||[]).forEach(p=>{
+    if(p.tipo==='adelanto'&&p.general)return;            // adelanto suelto, no imputable
+    if(desde&&p.fecha<desde)return;
+    if(hasta&&p.fecha>hasta)return;
+    (p.detalle||[]).forEach(d=>{
+      const mismo=d.companyId?d.companyId===companyId:(()=>{const c=companyById(companyId);return c&&d.negocio===c.negocio})();
+      if(mismo)total+=Number(d.pagable)||0;
+    });
+  });
+  return r2(total);
+}
+function rentabilidadRealCliente(c,desde,hasta){
+  const cobros=(S.cobros||[]).filter(p=>p.companyId===c.id&&p.tipoIngreso!=='externo'
+    &&(!desde||p.fecha>=desde)&&(!hasta||p.fecha<=hasta));
+  let bruto=0,comision=0,neto=0,equipoDev=0;
+  cobros.forEach(p=>{const w=walletDeCobro(p);
+    bruto+=Number(p.montoBruto)||0;comision+=w.comision;neto+=w.neto;equipoDev+=w.equipo});
+  bruto=r2(bruto);comision=r2(comision);neto=r2(neto);equipoDev=r2(equipoDev);
+  const equipoPag=pagadoEquipoPorCliente(c.id,desde,hasta);
+  const agencia=r2(neto-equipoDev);
+  return{c,cobros:cobros.length,bruto,comision,neto,equipoDevengado:equipoDev,equipoPagado:equipoPag,
+    equipoPendiente:r2(Math.max(0,equipoDev-equipoPag)),agencia,
+    enCaja:r2(neto-equipoPag),
+    margenPct:neto>0?r2(agencia/neto*100):0,
+    margenSobreBruto:bruto>0?r2(agencia/bruto*100):0,
+    ultimoCobro:cobros.reduce((a,p)=>p.fecha>a?p.fecha:a,'')};
+}
+function rentabilidadRealTotal(desde,hasta){
+  const filas=(visibleCompanies()||[]).map(c=>rentabilidadRealCliente(c,desde,hasta))
+    .filter(x=>x.cobros>0).sort((a,b)=>b.agencia-a.agencia);
+  const t=(k)=>r2(filas.reduce((s,x)=>s+x[k],0));
+  const bruto=t('bruto'),neto=t('neto'),agencia=t('agencia');
+  return{filas,bruto,comision:t('comision'),neto,equipoDevengado:t('equipoDevengado'),
+    equipoPagado:t('equipoPagado'),equipoPendiente:t('equipoPendiente'),agencia,enCaja:t('enCaja'),
+    margenPct:neto>0?r2(agencia/neto*100):0,clientes:filas.length,
+    cobros:filas.reduce((s,x)=>s+x.cobros,0)};
+}
+/* Serie mensual de lo que quedó para la agencia. */
+function serieMensualAgencia(meses){
+  const hoy=today(),out=[];
+  let y=Number(hoy.slice(0,4)),m=Number(hoy.slice(5,7));
+  for(let i=0;i<meses;i++){
+    const ym=y+'-'+String(m).padStart(2,'0');
+    const ud=new Date(y,m,0).getDate();
+    const t=rentabilidadRealTotal(ym+'-01',ym+'-'+ud);
+    out.unshift({ym,label:['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]+' '+String(y).slice(2),
+      bruto:t.bruto,equipo:t.equipoDevengado,agencia:t.agencia,margenPct:t.margenPct});
+    m--;if(m<1){m=12;y--}
+  }
+  return out;
+}
+function rentabilidadPorMiembro(desde,hasta){
+  const mapa=new Map();
+  (visibleCompanies()||[]).forEach(c=>{
+    const r=rentabilidadRealCliente(c,desde,hasta);
+    if(!r.cobros)return;
+    const asigs=asigsDe(c);
+    const totalAsig=asigs.reduce((s,a)=>s+asigDeMiembro(c,a.memberId),0);
+    asigs.forEach(a=>{
+      const m=memberById(a.memberId);if(!m)return;
+      const peso=totalAsig>0?asigDeMiembro(c,a.memberId)/totalAsig:1/asigs.length;
+      const e=mapa.get(a.memberId)||{memberId:a.memberId,nombre:m.nombre,clientes:new Set(),genera:0,cuesta:0,pagado:0};
+      e.clientes.add(c.id);
+      e.genera=r2(e.genera+r.neto*peso);
+      e.cuesta=r2(e.cuesta+r.equipoDevengado*peso);
+      e.pagado=r2(e.pagado+r.equipoPagado*peso);
+      mapa.set(a.memberId,e);
+    });
+  });
+  return [...mapa.values()].map(e=>({...e,numClientes:e.clientes.size,
+    dejaAgencia:r2(e.genera-e.cuesta),
+    ratio:e.cuesta>0?r2(e.genera/e.cuesta):0})).sort((a,b)=>b.dejaAgencia-a.dejaAgencia);
+}
 function walletCliente(companyId,desde,hasta){
   let neto=0,equipo=0,agencia=0,comision=0,bruto=0;
   S.cobros.filter(p=>p.companyId===companyId&&(!desde||p.fecha>=desde)&&(!hasta||p.fecha<=hasta)).forEach(p=>{
@@ -1190,6 +1039,63 @@ function proximaFechaConfigurada(c){
 function registrarFechaPagoCliente(c,fecha){
   if(!c)return;const f=fecha||today();c.ultimaFechaPago=f;c.proximaFechaPago=siguienteFechaPago(c,f);
   if(c.frecuencia==='quincenal'){const ds=diasCobro(c);c.diaCobro1=ds[0];c.diaCobro2=ds[1];c.diaCobro=c.diaCobro1;}else c.diaCobro=Number(c.diaCobro1)||Number(c.diaCobro)||5;
+}
+/* ─────────── VENCIMIENTOS REALES ───────────
+   proximaFechaConfigurada() solo avanza UN mes desde el último pago, así que
+   un cliente con 3 meses de atraso mostraba como "próximo pago" una fecha ya
+   pasada, y uno que nunca pagó nunca aparecía vencido (la base era hoy).
+   Estas funciones comparan el último pago contra TODAS las fechas de cobro
+   configuradas que ya pasaron. */
+function diasCobroDe(c){
+  if(!c)return[5];
+  if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal')return diasCobro(c);
+  return [Number(c.diaCobro1)||Number(c.diaCobro)||5];
+}
+function mesesAtrasISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(1);d.setMonth(d.getMonth()-n);return d.toISOString().slice(0,10)}
+function difDiasISO(a,b){return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000)}
+/* Todas las fechas de cobro configuradas dentro de (desde, hasta]. */
+function fechasCobroEnRango(c,desde,hasta){
+  if(!c||c.tipoContrato==='unico'||!desde||!hasta||desde>=hasta)return[];
+  const ds=diasCobroDe(c),out=[];
+  let y=Number(desde.slice(0,4)),m=Number(desde.slice(5,7));
+  const lim=Number(hasta.slice(0,4))*12+Number(hasta.slice(5,7));
+  let guard=0;
+  while(y*12+m<=lim&&guard++<400){
+    ds.forEach(d=>{const f=fechaConDia(y,m,d);if(f>desde&&f<=hasta)out.push(f)});
+    m++;if(m>12){m=1;y++}
+  }
+  return out.sort();
+}
+/* Último pago real: el cobro más reciente registrado manda sobre el campo
+   ultimaFechaPago, que puede haber quedado desactualizado. */
+function ultimoPagoCliente(c){
+  if(!c)return'';
+  let ult='';
+  (S.cobros||[]).forEach(p=>{if(p.companyId===c.id&&p.fecha&&p.fecha>ult)ult=p.fecha});
+  if(c.ultimaFechaPago&&c.ultimaFechaPago>ult)ult=c.ultimaFechaPago;
+  return ult;
+}
+function vencimientoCliente(c){
+  const vacio={vencido:false,pendientes:[],dias:0,desde:null,ultimo:'',monto:0};
+  if(!c||c.tipoContrato==='unico')return vacio;
+  const hoy=today(), ultimo=ultimoPagoCliente(c);
+  /* Sin historial, se mira desde que es cliente; si tampoco hay, 6 meses atrás. */
+  const base=ultimo||c.fechaInicio||mesesAtrasISO(hoy,6);
+  const pend=fechasCobroEnRango(c,base,hoy);
+  if(!pend.length)return{...vacio,ultimo};
+  return{vencido:true,pendientes:pend,dias:difDiasISO(pend[0],hoy),desde:pend[0],ultimo,
+    monto:r2(pend.length*montoFacturaCliente(c)),nuncaPago:!ultimo};
+}
+/* Siguiente fecha de cobro estrictamente futura (nunca devuelve una pasada). */
+function proximoCobroCliente(c){
+  if(!c||c.tipoContrato==='unico')return null;
+  const hoy=today(),ds=diasCobroDe(c);
+  let y=Number(hoy.slice(0,4)),m=Number(hoy.slice(5,7));
+  for(let i=0;i<26;i++){
+    for(const d of ds){const f=fechaConDia(y,m,d);if(f>hoy)return f}
+    m++;if(m>12){m=1;y++}
+  }
+  return null;
 }
 function fechaPagoCliente(c){
   if(!c||c.tipoContrato==='unico')return null;
@@ -1472,7 +1378,7 @@ let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],rol
   mCompany:null,mContact:null,mProspect:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',
-  nomYear:new Date().getFullYear(),nomQ:null,cobranzaMes:today().slice(0,7),presetCompany:null,viewEmpresas:'cards',viewEstado:'cards',loading:true,sessionUserId:null};
+  nomYear:new Date().getFullYear(),nomQ:null,cobranzaMes:today().slice(0,7),rentPeriodo:'mes',presetCompany:null,viewEmpresas:'cards',viewEstado:'cards',loading:true,sessionUserId:null};
 
 /* ═══════════ HELPERS DE MODELO ═══════════ */
 const fullName=c=>[c.nombre,c.apellido].filter(Boolean).join(' ')||c.email||'(sin nombre)';
@@ -1541,7 +1447,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -1736,7 +1642,8 @@ function renderNav(){
     ['n2',[['empresas','ti-building','Empresas',visibleCompanies().filter(c=>c.estado==='activo').length],
            ['contactos','ti-address-book','Contactos',visibleContacts().length],
            ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length]]],
-    ['n3',[['wallets','ti-wallet','Wallets',S.metodos.length],
+    ['n3',[['rentabilidad','ti-coin','Rentabilidad real',null],
+           ['wallets','ti-wallet','Wallets',S.metodos.length],
            ['fechas-pago','ti-calendar-event','Fechas de pago',null],
            ['estado-cuenta','ti-file-description','Estado de cuenta',null],
            ['linea','ti-table','Línea de cobranza',null],
@@ -1782,7 +1689,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -2238,7 +2145,7 @@ function vEstadisticasClientes(v){
   const freq={Mensual:0,Quincenal:0};act.forEach(c=>{c.frecuencia==='quincenal'?freq.Quincenal++:freq.Mensual++});
   const topCountries=Object.entries(country).sort((a,b)=>b[1]-a[1]);
   v.appendChild(frag('<div class="mets">'+
-    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+total+'</div><div class="msub">Cartera actual</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Clientes activos</div><div class="mval">'+total+'</div><div class="msub">Cartera actual</div></div>'+
     '<div class="met"><div class="mlab">Ticket promedio</div><div class="mval">'+money(ticket)+'</div><div class="msub">Facturación mensual promedio</div></div>'+
     '<div class="met"><div class="mlab">Ingresos mensuales</div><div class="mval">'+money(ingresos)+'</div><div class="msub">Tarifas de clientes activos</div></div>'+
     '<div class="met"><div class="mlab">Quincenales</div><div class="mval">'+freq.Quincenal+'</div><div class="msub">'+(total?Math.round(freq.Quincenal/total*1000)/10:0)+'% de la cartera</div></div>'+
@@ -2290,13 +2197,13 @@ function vProyeccion(v){
   const ratioEquipo=b.ingresos>0?b.equipoVariable/b.ingresos:0, ratioCobro=b.ingresos>0?b.comisionesCobro/b.ingresos:0;
   head(v,'Análisis','Proyección financiera','Calcula cuánto puede dejar la agencia al mes sin usar cobros ni movimientos reales. Usa la cartera y los costos configurados.','<button class="b bp" id="pf-add"><i class="ti ti-plus"></i>Gasto fijo</button>');
   v.appendChild(frag('<div class="mets">'+
-    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+b.clientes+'</div><div class="msub">Cartera actual</div></div>'+ 
+    '<div class="met met-ctx"><div class="mlab">Clientes activos</div><div class="mval">'+b.clientes+'</div><div class="msub">Cartera actual</div></div>'+ 
     '<div class="met"><div class="mlab">Ingresos proyectados</div><div class="mval">'+money(b.ingresos)+'</div><div class="msub">Tarifas mensuales actuales</div></div>'+ 
-    '<div class="met"><div class="mlab">Neto después de comisión</div><div class="mval">'+money(b.netoClientes)+'</div><div class="msub">Lo que teóricamente queda del cliente</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Neto después de comisión</div><div class="mval">'+money(b.netoClientes)+'</div><div class="msub">Lo que teóricamente queda del cliente</div></div>'+
     '<div class="met"><div class="mlab">Costo variable equipo</div><div class="mval">'+money(b.equipoVariable)+'</div><div class="msub">Pagos ligados a clientes</div></div>'+ 
-    '<div class="met"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">Nómina fija mensual</div></div>'+ 
+    '<div class="met met-ctx"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">Nómina fija mensual</div></div>'+ 
     '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Recurrentes + extras de proyección</div></div>'+ 
-    '<div class="met"><div class="mlab">Ganancia mensual proyectada</div><div class="mval">'+money(b.utilidad)+'</div><div class="msub">Sin usar movimientos reales</div></div>'+ 
+    '<div class="met met-crit tone-lime"><div class="mlab">Ganancia mensual proyectada</div><div class="mval">'+money(b.utilidad)+'</div><div class="msub">Sin usar movimientos reales</div></div>'+ 
     '</div>'));
   const ticketPromedio=b.clientes?b.ingresos/b.clientes:0;
   v.appendChild(frag('<div class="card" style="margin-bottom:16px">'+
@@ -2381,12 +2288,12 @@ function vPanel(v){
   head(v,'Panel','Dashboard','Cobros, pagos y cuánto va quedando para la agencia, cliente por cliente.');
 
   v.appendChild(frag('<div class="mets">'+
-    '<div class="met"><div class="mico" style="background:var(--sky)"><i class="ti ti-users"></i></div><div class="mlab">Clientes activos</div><div class="mval">'+act.length+'</div><div class="msub">'+visibleCompanies().length+' clientes registrados</div></div>'+
+    '<div class="met met-ctx"><div class="mico" style="background:var(--sky)"><i class="ti ti-users"></i></div><div class="mlab">Clientes activos</div><div class="mval">'+act.length+'</div><div class="msub">'+visibleCompanies().length+' clientes registrados</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--lime)"><i class="ti ti-cash"></i></div><div class="mlab">Cobrado este mes</div><div class="mval">'+money(cobradoMes)+'</div><div class="msub">'+(act.length-sinCobrar.length)+' de '+act.length+' clientes</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--pink)"><i class="ti ti-building-bank"></i></div><div class="mlab">Margen bruto agencia</div><div class="mval">'+money(agenciaMes)+'</div><div class="msub">Después de comisiones/costos variables</div></div>'+
-    '<div class="met"><div class="mico" style="background:var(--lav)"><i class="ti ti-report-money"></i></div><div class="mlab">Sueldos fijos</div><div class="mval">'+money(sueldosFijosMes)+'</div><div class="msub">Costo mensual de nómina fija</div></div>'+
-    '<div class="met"><div class="mico" style="background:var(--lime)"><i class="ti ti-chart-line"></i></div><div class="mlab">Utilidad estimada</div><div class="mval">'+money(utilidadNetaMes)+'</div><div class="msub">Margen bruto − sueldos − egresos</div></div>'+
-    '<div class="met"><div class="mico" style="background:var(--amb)"><i class="ti ti-clock-hour-4"></i></div><div class="mlab">Falta cobrar</div><div class="mval">'+money(porCobrarTotal)+'</div><div class="msub">Saldo bruto pendiente</div></div>'+
+    '<div class="met met-ctx"><div class="mico" style="background:var(--lav)"><i class="ti ti-report-money"></i></div><div class="mlab">Sueldos fijos</div><div class="mval">'+money(sueldosFijosMes)+'</div><div class="msub">Costo mensual de nómina fija</div></div>'+
+    '<div class="met met-crit tone-lime"><div class="mico" style="background:var(--lime)"><i class="ti ti-chart-line"></i></div><div class="mlab">Utilidad estimada</div><div class="mval">'+money(utilidadNetaMes)+'</div><div class="msub">Margen bruto − sueldos − egresos</div></div>'+
+    '<div class="met met-crit tone-red"><div class="mico" style="background:var(--amb)"><i class="ti ti-clock-hour-4"></i></div><div class="mlab">Falta cobrar</div><div class="mval">'+money(porCobrarTotal)+'</div><div class="msub">Saldo bruto pendiente</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--lav)"><i class="ti ti-calendar-dollar"></i></div><div class="mlab">Nómina quincena</div><div class="mval">'+money(nom.totales.porPagar)+'</div><div class="msub">'+labelQ(qActual)+'</div></div>'+
   '</div>'));
 
@@ -2446,7 +2353,7 @@ function vEmpresas(v){
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
   const ch=document.createElement('div');ch.className='chips';[['todos','Todas'],['activo','Activas'],['pausado','Pausadas'],['perdido','Perdidas']].forEach(([k,l])=>{const b=document.createElement('button');b.className='chip'+(S.fCompany===k?' on':'');b.textContent=l;b.onclick=()=>{S.fCompany=k;render()};ch.appendChild(b)});v.appendChild(ch);const list=visibleCompanies().filter(c=>S.fCompany==='todos'||c.estado===S.fCompany);
   if(!list.length)v.appendChild(frag(mt('ti-building','No hay empresas con ese filtro.')));
-  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(fechaPagoCliente(c)?fdate(fechaPagoCliente(c)):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
+  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(()=>{const vv=vencimientoCliente(c),pp=proximoCobroCliente(c);return vv.vencido?'<span class="p p-d">Vencido '+vv.dias+' d</span><div style="font-size:11px;color:var(--tx3)">próximo '+(pp?fdate(pp):'—')+'</div>':(pp?fdate(pp):'—')})()+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
   else{const g=document.createElement('div');g.className='grid';list.forEach(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>',card=document.createElement('div');card.className='ecard';card.innerHTML='<div class="etop">'+av(c.negocio,'',0,c.foto)+'<div style="min-width:0;flex:1"><div class="ename">'+esc(c.negocio)+'</div><div class="esub">'+(rn.numMiembros||0)+' en el equipo · margen '+money(rn.margenAgencia)+'</div></div></div><div style="display:flex;gap:6px;flex-wrap:wrap">'+pill+'<span class="p '+(c.estado==='activo'?'p-ok':c.estado==='pausado'?'p-w':'p-g')+'">'+(c.estado==='activo'?'Activo':c.estado==='pausado'?'Pausado':'Perdido')+'</span></div><div class="emeta"><div><div class="eamt">'+money(c.tarifaBruta)+'</div><div class="enote">bruto al mes</div></div><div style="text-align:right"><div class="eamt" style="font-size:13px;color:var(--tx2)">'+money(rn.porMiembroMes)+'</div><div class="enote">equipo variable</div></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};g.appendChild(card)});v.appendChild(g)}
   const newCo=document.getElementById('new-co');if(newCo)newCo.onclick=()=>{S.mCompany='new';S.eCompany='new';render()};document.getElementById('emp-cards').onclick=()=>{S.viewEmpresas='cards';render()};document.getElementById('emp-list').onclick=()=>{S.viewEmpresas='list';render()};
 }
@@ -2514,7 +2421,7 @@ function mCompanyModal(){
       '<div class="msec"><div class="mstitle">Wallet acumulado de este cliente</div>'+(function(){
         const w=walletCliente(c.id);
         return '<div class="mets" style="margin:0"><div class="met"><div class="mlab">Cobrado</div><div class="mval">'+money(w.bruto)+'</div></div>'+
-        '<div class="met"><div class="mlab">Comisiones</div><div class="mval" style="color:var(--red)">'+money(w.comision)+'</div></div>'+
+        '<div class="met met-ctx"><div class="mlab">Comisiones</div><div class="mval" style="color:var(--red)">'+money(w.comision)+'</div></div>'+
         '<div class="met"><div class="mlab">Al equipo</div><div class="mval">'+money(w.equipo)+'</div></div>'+
         '<div class="met"><div class="mlab">A la agencia</div><div class="mval" style="color:var(--lime)">'+money(w.agencia)+'</div></div></div>'})()+
       '</div>'+
@@ -2824,13 +2731,13 @@ function estadoCuentaCliente(c){
   const totalCobrado=r2(cobros.reduce((s,p)=>s+(Number(p.montoBruto)||0),0));
   const saldo=r2(Math.max(0,totalFacturado-totalCobrado));
   const w=walletCliente(c.id,inicio,hoy);
-  return{c,cobros,totalFacturado,totalCobrado,saldo,neto:w.neto,equipo:w.equipo,agencia:w.agencia,proxima:fechaPagoCliente(c),ultima:c.ultimaFechaPago||''};
+  return{c,cobros,totalFacturado,totalCobrado,saldo,neto:w.neto,equipo:w.equipo,agencia:w.agencia,proxima:proximoCobroCliente(c),ultima:(vencimientoCliente(c).ultimo||c.ultimaFechaPago||''),ven:vencimientoCliente(c)};
 }
 function vEstadoCuenta(v){
   const act=visibleCompanies().filter(c=>c.estado!=='perdido'),vista=S.viewEstado||'cards';head(v,'Dinero','Estado de cuenta','Ve cuánto ha facturado, cobrado, qué falta y cuándo vuelve a cobrar.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="ec-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="ec-list"><i class="ti ti-list"></i> Lista</button></div>');
   if(!act.length){v.appendChild(frag(mt('ti-file-text','No hay clientes activos.')));return}
-  if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+act.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Tarifa / período</th><th>Facturado</th><th>Cobrado</th><th>Saldo</th><th>Próximo pago</th><th>Último pago</th></tr></thead><tbody>'+act.map(c=>{const x=estadoCuentaCliente(c);return '<tr data-ec="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s')+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(montoFacturaCliente(c))+'</td><td class="n">'+money(x.totalFacturado)+'</td><td class="n">'+money(x.totalCobrado)+'</td><td class="n" style="font-weight:700;color:'+(x.saldo>0?'var(--red)':'var(--lime)')+'">'+money(x.saldo)+'</td><td class="n">'+(x.proxima?fdate(x.proxima):'—')+'</td><td class="n">'+(x.ultima?fdate(x.ultima):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-ec]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.ec;render()})}
-  else{const cards=document.createElement('div');cards.className='grid';act.forEach(c=>{const x=estadoCuentaCliente(c),monto=montoFacturaCliente(c),estado=x.saldo>0?'Pendiente':'Al día',card=document.createElement('div');card.className='card ec-card';card.style.cursor='pointer';card.innerHTML='<div class="ctitle">'+av(c.negocio,'s')+'<span style="margin-left:8px">'+esc(c.negocio)+'</span><span class="p '+(estado==='Al día'?'p-ok':'p-w')+'" style="float:right">'+estado+'</span></div><div class="mets" style="margin:8px 0"><div class="met"><div class="mlab">Tarifa / período</div><div class="mval">'+money(monto)+'</div></div><div class="met"><div class="mlab">Facturado</div><div class="mval">'+money(x.totalFacturado)+'</div></div><div class="met"><div class="mlab">Cobrado</div><div class="mval">'+money(x.totalCobrado)+'</div></div><div class="met"><div class="mlab">Saldo</div><div class="mval" style="color:'+(x.saldo>0?'var(--red)':'var(--lime)')+'">'+money(x.saldo)+'</div></div></div><div class="sim"><div class="simrow"><span>Último pago</span><span class="v">'+(x.ultima?fdate(x.ultima):'—')+'</span></div><div class="simrow"><span>Próximo pago</span><span class="v">'+(x.proxima?fdate(x.proxima):'—')+'</span></div><div class="simrow"><span>Frecuencia</span><span class="v">'+(c.frecuencia==='quincenal'?'Cada 15 días':'Mensual')+'</span></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};cards.appendChild(card)});v.appendChild(cards)}
+  if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+act.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Tarifa / período</th><th>Facturado</th><th>Cobrado</th><th>Saldo</th><th>Estado</th><th>Próximo pago</th><th>Último pago</th></tr></thead><tbody>'+act.map(c=>{const x=estadoCuentaCliente(c);return '<tr data-ec="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s')+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(montoFacturaCliente(c))+'</td><td class="n">'+money(x.totalFacturado)+'</td><td class="n">'+money(x.totalCobrado)+'</td><td class="n" style="font-weight:700;color:'+(x.saldo>0?'var(--red)':'var(--lime)')+'">'+money(x.saldo)+'</td><td>'+(x.ven.vencido?'<span class="p p-d">Vencido '+x.ven.dias+' d</span>':'<span class="p p-ok">Al día</span>')+'</td><td class="n">'+(x.proxima?fdate(x.proxima):'—')+'</td><td class="n">'+(x.ultima?fdate(x.ultima):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-ec]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.ec;render()})}
+  else{const cards=document.createElement('div');cards.className='grid';act.forEach(c=>{const x=estadoCuentaCliente(c),monto=montoFacturaCliente(c),estado=x.ven.vencido?'Vencido':x.saldo>0?'Pendiente':'Al día',card=document.createElement('div');card.className='card ec-card';card.style.cursor='pointer';card.innerHTML='<div class="ctitle">'+av(c.negocio,'s')+'<span style="margin-left:8px">'+esc(c.negocio)+'</span><span class="p '+(estado==='Al día'?'p-ok':estado==='Vencido'?'p-d':'p-w')+'" style="float:right">'+estado+(estado==='Vencido'?' · '+x.ven.dias+' d':'')+'</span></div><div class="mets" style="margin:8px 0"><div class="met"><div class="mlab">Tarifa / período</div><div class="mval">'+money(monto)+'</div></div><div class="met"><div class="mlab">Facturado</div><div class="mval">'+money(x.totalFacturado)+'</div></div><div class="met"><div class="mlab">Cobrado</div><div class="mval">'+money(x.totalCobrado)+'</div></div><div class="met"><div class="mlab">Saldo</div><div class="mval" style="color:'+(x.saldo>0?'var(--red)':'var(--lime)')+'">'+money(x.saldo)+'</div></div></div><div class="sim">'+(x.ven.vencido?'<div class="simrow"><span style="color:var(--red);font-weight:700">Vencido</span><span class="v" style="color:var(--red)">'+x.ven.dias+' d · '+x.ven.pendientes.length+' cobro'+(x.ven.pendientes.length===1?'':'s')+' pendiente'+(x.ven.pendientes.length===1?'':'s')+'</span></div>':'')+'<div class="simrow"><span>Último pago</span><span class="v">'+(x.ultima?fdate(x.ultima):'—')+'</span></div><div class="simrow"><span>Próximo pago</span><span class="v">'+(x.proxima?fdate(x.proxima):'—')+'</span></div><div class="simrow"><span>Frecuencia</span><span class="v">'+(c.frecuencia==='quincenal'?'Cada 15 días':'Mensual')+'</span></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};cards.appendChild(card)});v.appendChild(cards)}
   const hist=document.createElement('div');hist.className='card';hist.style.marginTop='16px';hist.innerHTML='<div class="ctitle">Historial consolidado de pagos</div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Cliente</th><th>Frecuencia</th><th>Monto</th><th>Próximo pago</th></tr></thead><tbody>'+act.flatMap(c=>estadoCuentaCliente(c).cobros.map(p=>'<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(c.negocio)+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(p.montoBruto)+'</td><td class="n">'+(fechaPagoCliente(c)?fdate(fechaPagoCliente(c)):'—')+'</td></tr>')).sort((a,b)=>b.localeCompare(a)).slice(0,100).join('')+'</tbody></table></div>';v.appendChild(hist);document.getElementById('ec-cards').onclick=()=>{S.viewEstado='cards';render()};document.getElementById('ec-list').onclick=()=>{S.viewEstado='list';render()};
 }
 function vFechasPago(v){
@@ -2838,52 +2745,81 @@ function vFechasPago(v){
   const hoy=today(), ym=hoy.slice(0,7);
   const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
   const diaSem=f=>f?DIAS[new Date(f+'T12:00:00').getDay()]:'';
-  const difDias=f=>f?Math.ceil((new Date(f+'T12:00:00')-new Date(hoy+'T12:00:00'))/86400000):null;
 
-  head(v,'Cobranza','Fechas de pago','Cuándo toca cobrarle a cada cliente, cuánto, y si ya pagó. La fecha sale de los días de cobro configurados en la ficha de cada empresa.');
+  head(v,'Cobranza','Fechas de pago','Un cliente está vencido cuando ya pasó una fecha de cobro y no hay ningún pago registrado después de ella. Las fechas salen de los días configurados en la ficha de cada empresa.');
 
   const rows=act.map(c=>{
-    const f=fechaPagoCliente(c);
-    const dias=difDias(f);
-    const est=estadoCobroMes(c.id,ym);
+    const ven=vencimientoCliente(c);
+    const prox=proximoCobroCliente(c);
     const ec=estadoCuentaCliente(c);
-    const desdeUltimo=c.ultimaFechaPago?Math.abs(difDias(c.ultimaFechaPago)):null;
-    const ds=diasCobro(c);
+    const est=estadoCobroMes(c.id,ym);
+    const dias=prox?difDiasISO(hoy,prox):null;
+    const ds=diasCobroDe(c);
     const config=(!c.tipoContrato||c.tipoContrato==='recurrente')
-      ? (c.frecuencia==='quincenal'?'días '+ds[0]+' y '+ds[1]+' de cada mes':'día '+(Number(c.diaCobro1)||Number(c.diaCobro)||5)+' de cada mes')
+      ? (c.frecuencia==='quincenal'?'días '+ds[0]+' y '+ds[1]+' de cada mes':'día '+ds[0]+' de cada mes')
       : 'pago único';
     let grupo;
-    if(!f)grupo='sinfecha';
-    else if(dias<0)grupo='vencido';
+    if(ven.vencido)grupo='vencido';
+    else if(!prox)grupo='sinfecha';
     else if(dias<=7)grupo='semana';
-    else if(f.slice(0,7)===ym)grupo='mes';
+    else if(prox.slice(0,7)===ym)grupo='mes';
     else grupo='despues';
-    return{c,f,dias,est,ec,desdeUltimo,config,grupo,monto:montoFacturaCliente(c)};
-  }).sort((a,b)=>(a.dias===null?1:0)-(b.dias===null?1:0)||(a.dias-b.dias));
+    return{c,ven,prox,dias,ec,est,config,grupo,monto:montoFacturaCliente(c)};
+  }).sort((a,b)=>{
+    if(a.grupo==='vencido'&&b.grupo==='vencido')return b.ven.dias-a.ven.dias; // más atrasado primero
+    return (a.dias===null?99999:a.dias)-(b.dias===null?99999:b.dias);
+  });
 
-  const sum=(pred,campo)=>r2(rows.filter(pred).reduce((s,x)=>s+(campo==='saldo'?x.ec.saldo:x.monto),0));
-  const nVenc=rows.filter(x=>x.grupo==='vencido').length;
-  const nSem=rows.filter(x=>x.grupo==='semana').length;
-  const porCobrarMes=sum(x=>x.f&&x.f.slice(0,7)===ym&&x.est!=='pagado','monto');
-  const saldoTotal=sum(()=>true,'saldo');
+  const venc=rows.filter(x=>x.grupo==='vencido');
+  const sem=rows.filter(x=>x.grupo==='semana');
+  const totalVencido=r2(venc.reduce((s,x)=>s+x.ven.monto,0));
+  const cuotasVencidas=venc.reduce((s,x)=>s+x.ven.pendientes.length,0);
+  const peor=venc.length?venc[0]:null;
+  const saldoTotal=r2(rows.reduce((s,x)=>s+x.ec.saldo,0));
 
   v.appendChild(frag('<div class="mets">'+
-    '<div class="met"><div class="mlab">Vencidos</div><div class="mval" style="color:var(--red)">'+nVenc+'</div><div class="msub">'+money(sum(x=>x.grupo==='vencido','monto'))+' sin cobrar</div></div>'+
-    '<div class="met"><div class="mlab">Próximos 7 días</div><div class="mval" style="color:var(--amb)">'+nSem+'</div><div class="msub">'+money(sum(x=>x.grupo==='semana','monto'))+' por entrar</div></div>'+
-    '<div class="met"><div class="mlab">Falta cobrar este mes</div><div class="mval">'+money(porCobrarMes)+'</div><div class="msub">clientes sin cobro completo</div></div>'+
-    '<div class="met"><div class="mlab">Saldo acumulado</div><div class="mval" style="color:'+(saldoTotal>0?'var(--red)':'var(--lime)')+'">'+money(saldoTotal)+'</div><div class="msub">facturado menos cobrado</div></div>'+
-    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+rows.length+'</div><div class="msub">en la agenda</div></div>'+
+    '<div class="met"><div class="mlab">Clientes vencidos</div><div class="mval" style="color:var(--red)">'+venc.length+'</div><div class="msub">'+cuotasVencidas+' cobro'+(cuotasVencidas===1?'':'s')+' sin registrar</div></div>'+
+    '<div class="met met-crit tone-red"><div class="mlab">Monto vencido</div><div class="mval" style="color:var(--red)">'+money(totalVencido)+'</div><div class="msub">suma de cuotas no cobradas</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Mayor atraso</div><div class="mval" style="color:var(--red)">'+(peor?peor.ven.dias+' d':'—')+'</div><div class="msub">'+(peor?esc(peor.c.negocio):'ningún cliente atrasado')+'</div></div>'+
+    '<div class="met"><div class="mlab">Próximos 7 días</div><div class="mval" style="color:var(--amb)">'+sem.length+'</div><div class="msub">'+money(r2(sem.reduce((s,x)=>s+x.monto,0)))+' por entrar</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Saldo acumulado</div><div class="mval" style="color:'+(saldoTotal>0.01?'var(--red)':'var(--lime)')+'">'+money(saldoTotal)+'</div><div class="msub">facturado menos cobrado</div></div>'+
     '</div>'));
 
   const pillEstado=e=>e==='pagado'?'<span class="p p-ok">Cobrado</span>':e==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';
+
+  /* ── Bloque de vencidos: tabla propia, porque la info relevante es distinta ── */
+  if(venc.length){
+    const card=document.createElement('div');card.className='card';card.style.cssText='margin-bottom:14px;border-left:3px solid var(--red)';
+    card.innerHTML='<div class="ctitle">Vencidos <span class="cnt">'+venc.length+' · '+money(totalVencido)+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Ya pasó la fecha de cobro y no hay ningún pago registrado después de ella.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Atraso</th><th>Venció el</th><th>Último pago</th><th>Cobros pendientes</th><th>Monto vencido</th><th>Saldo</th><th></th></tr></thead><tbody>'+
+      venc.map(x=>{
+        const v0=x.ven;
+        const listaPend=v0.pendientes.slice(-3).map(f=>fdate(f)).join(' · ')+(v0.pendientes.length>3?' (+'+(v0.pendientes.length-3)+')':'');
+        const sev=v0.dias>=30?'var(--red)':'var(--amb)';
+        return '<tr data-emp="'+x.c.id+'" style="cursor:pointer">'+
+          '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.c.negocio,'s',0,x.c.foto)+
+            '<div style="min-width:0"><strong>'+esc(x.c.negocio)+'</strong>'+
+            '<div style="font-size:11px;color:var(--tx3)">'+(x.c.frecuencia==='quincenal'?'Quincenal':'Mensual')+' · '+esc(x.config)+'</div></div></div></td>'+
+          '<td class="n" style="font-weight:700;color:'+sev+'">'+v0.dias+' d'+
+            (v0.dias>=30?'<div style="font-size:11px;font-weight:400">'+Math.floor(v0.dias/30)+' mes'+(Math.floor(v0.dias/30)===1?'':'es')+'</div>':'')+'</td>'+
+          '<td class="n">'+fdate(v0.desde)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(v0.desde)+'</div></td>'+
+          '<td class="n">'+(v0.ultimo?fdate(v0.ultimo)+'<div style="font-size:11px;color:var(--tx3)">hace '+difDiasISO(v0.ultimo,hoy)+' d</div>':'<span style="color:var(--red)">nunca</span>')+'</td>'+
+          '<td><span class="p p-w">'+v0.pendientes.length+'</span><div style="font-size:11px;color:var(--tx3);margin-top:2px">'+listaPend+'</div></td>'+
+          '<td class="n" style="font-weight:700">'+money(v0.monto)+'</td>'+
+          '<td class="n" style="color:'+(x.ec.saldo>0.01?'var(--red)':'var(--lime)')+'">'+money(x.ec.saldo)+'</td>'+
+          '<td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>';
+      }).join('')+'</tbody></table></div>';
+    v.appendChild(card);
+  }
+
+  /* ── Agenda al día ── */
   const GRUPOS=[
-    ['vencido','Vencidos','Ya pasó la fecha y el cobro del mes no está completo.','var(--red)'],
     ['semana','Esta semana','Vencen en los próximos 7 días.','var(--amb)'],
     ['mes','Más adelante este mes','Dentro del mes en curso.',''],
     ['despues','Meses siguientes','Fuera del mes actual.',''],
     ['sinfecha','Sin fecha configurada','Revisa el tipo de contrato y los días de cobro en la ficha del cliente.','var(--amb)']
   ];
-
   GRUPOS.forEach(([key,titulo,desc,color])=>{
     const list=rows.filter(x=>x.grupo===key);
     if(!list.length)return;
@@ -2894,19 +2830,19 @@ function vFechasPago(v){
       '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Próximo cobro</th><th>Cuándo</th><th>Monto</th><th>Cobro del mes</th><th>Último pago</th><th>Saldo</th><th></th></tr></thead><tbody>'+
       list.map(x=>{
         const cuando = x.dias===null?'—'
-          : x.dias<0?'<span style="color:var(--red)">vencido hace '+Math.abs(x.dias)+' d</span>'
           : x.dias===0?'<span style="color:var(--amb);font-weight:700">hoy</span>'
           : x.dias===1?'<span style="color:var(--amb)">mañana</span>'
           : '<span'+(x.dias<=7?' style="color:var(--amb)"':'')+'>en '+x.dias+' d</span>';
+        const ult=x.ven.ultimo;
         return '<tr data-emp="'+x.c.id+'" style="cursor:pointer">'+
           '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.c.negocio,'s',0,x.c.foto)+
             '<div style="min-width:0"><strong>'+esc(x.c.negocio)+'</strong>'+
             '<div style="font-size:11px;color:var(--tx3)">'+(x.c.frecuencia==='quincenal'?'Quincenal':'Mensual')+' · '+esc(x.config)+'</div></div></div></td>'+
-          '<td class="n">'+(x.f?fdate(x.f)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(x.f)+'</div>':'Sin fecha')+'</td>'+
+          '<td class="n">'+(x.prox?fdate(x.prox)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(x.prox)+'</div>':'Sin fecha')+'</td>'+
           '<td class="n">'+cuando+'</td>'+
           '<td class="n">'+money(x.monto)+'<div style="font-size:11px;color:var(--tx3)">'+money(x.c.tarifaBruta)+' al mes</div></td>'+
           '<td>'+pillEstado(x.est)+'</td>'+
-          '<td class="n">'+(x.c.ultimaFechaPago?fdate(x.c.ultimaFechaPago)+'<div style="font-size:11px;color:var(--tx3)">hace '+x.desdeUltimo+' d</div>':'—')+'</td>'+
+          '<td class="n">'+(ult?fdate(ult)+'<div style="font-size:11px;color:var(--tx3)">hace '+difDiasISO(ult,hoy)+' d</div>':'—')+'</td>'+
           '<td class="n" style="font-weight:700;color:'+(x.ec.saldo>0.01?'var(--red)':'var(--lime)')+'">'+money(x.ec.saldo)+'</td>'+
           '<td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>';
       }).join('')+'</tbody></table></div>';
@@ -3002,6 +2938,123 @@ function vLinea(v){
 }
 
 /* ─────────── FLUJO DE CAJA ─────────── */
+/* ═══════════ RENTABILIDAD REAL ═══════════ */
+function vRentabilidad(v){
+  const hoy=today(), ym=hoy.slice(0,7), yr=hoy.slice(0,4);
+  if(!S.rentPeriodo)S.rentPeriodo='mes';
+  const P=S.rentPeriodo;
+  let desde=null,hasta=null,etiqueta='';
+  if(P==='mes'){const ud=new Date(Number(yr),Number(ym.slice(5,7)),0).getDate();desde=ym+'-01';hasta=ym+'-'+ud;etiqueta='Este mes';}
+  else if(P==='trim'){const d=new Date(hoy+'T12:00:00');d.setMonth(d.getMonth()-2);d.setDate(1);desde=d.toISOString().slice(0,10);hasta=hoy;etiqueta='Últimos 3 meses';}
+  else if(P==='anio'){desde=yr+'-01-01';hasta=yr+'-12-31';etiqueta='Año '+yr;}
+  else {etiqueta='Histórico completo';}
+
+  head(v,'Dinero','Rentabilidad real',
+    'Cuánto queda para la agencia después de pagar al equipo que lleva cada cliente. Parte de los cobros ya registrados, no de las tarifas teóricas.',
+    '<div class="chips" style="margin:0">'+
+      [['mes','Este mes'],['trim','3 meses'],['anio','Este año'],['todo','Histórico']]
+      .map(([k,l])=>'<button type="button" class="chip'+(P===k?' on':'')+'" data-per="'+k+'">'+l+'</button>').join('')+'</div>');
+
+  const t=rentabilidadRealTotal(desde,hasta);
+
+  if(!t.clientes){
+    v.appendChild(frag(mt('ti-coin','No hay cobros registrados en este período.')));
+    v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
+    return;
+  }
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit tone-lime"><div class="mlab">Queda para la agencia</div><div class="mval">'+money(t.agencia)+'</div><div class="msub">'+etiqueta.toLowerCase()+' · margen '+pct(t.margenPct)+' sobre el neto</div></div>'+
+    '<div class="met"><div class="mlab">Cobrado bruto</div><div class="mval">'+money(t.bruto)+'</div><div class="msub">'+t.cobros+' cobro'+(t.cobros===1?'':'s')+' de '+t.clientes+' cliente'+(t.clientes===1?'':'s')+'</div></div>'+
+    '<div class="met"><div class="mlab">Costo del equipo</div><div class="mval">'+money(t.equipoDevengado)+'</div><div class="msub">'+(t.equipoPendiente>0.01?money(t.equipoPendiente)+' aún sin pagar':'todo pagado')+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Comisiones de cobro</div><div class="mval">'+money(t.comision)+'</div><div class="msub">se las lleva la wallet</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Queda en caja hoy</div><div class="mval">'+money(t.enCaja)+'</div><div class="msub">descontando solo lo ya pagado</div></div>'+
+    '</div>'));
+
+  /* ── Cascada del período ── */
+  const casc=document.createElement('div');casc.className='card';
+  const paso=(lab,val,sub,color)=>'<div class="simrow"><span>'+lab+(sub?' <span style="color:var(--tx3);font-size:11.5px">'+sub+'</span>':'')+'</span><span class="v"'+(color?' style="color:'+color+'"':'')+'>'+val+'</span></div>';
+  casc.innerHTML='<div class="ctitle">De lo cobrado a lo que queda <span class="cnt">'+etiqueta+'</span></div>'+
+    '<div class="sim">'+
+    paso('Cobrado bruto',money(t.bruto),'')+
+    paso('− Comisiones de cobro',money(t.comision),'wallets','var(--tx2)')+
+    paso('= Neto recibido',money(t.neto),'')+
+    paso('− Equipo asignado',money(t.equipoDevengado),'devengado','var(--tx2)')+
+    '<div class="simrow tot"><span>Queda para la agencia</span><span class="v" style="color:var(--lime)">'+money(t.agencia)+'</span></div>'+
+    '</div>';
+  v.appendChild(casc);
+
+  /* ── Evolución mensual ── */
+  const serie=serieMensualAgencia(6).filter(x=>x.bruto>0);
+  if(serie.length>1){
+    const max=Math.max(...serie.map(x=>x.bruto));
+    const ev=document.createElement('div');ev.className='card';ev.style.marginTop='16px';
+    ev.innerHTML='<div class="ctitle">Evolución <span class="cnt">últimos '+serie.length+' meses con cobros</span></div>'+
+      '<div style="display:flex;gap:10px;align-items:flex-end;height:150px;padding:6px 0 0">'+
+      serie.map(x=>{
+        const hA=max>0?Math.max(3,Math.round(x.agencia/max*118)):3;
+        const hE=max>0?Math.max(2,Math.round(x.equipo/max*118)):2;
+        return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0">'+
+          '<div class="mono" style="font-size:10.5px;color:var(--tx2);font-weight:600">'+money(x.agencia)+'</div>'+
+          '<div style="width:100%;max-width:54px;display:flex;flex-direction:column;justify-content:flex-end;height:118px">'+
+            '<div title="Agencia" style="background:var(--lime);height:'+hA+'px;border-radius:5px 5px 0 0"></div>'+
+            '<div title="Equipo" style="background:var(--lav);opacity:.45;height:'+hE+'px;border-radius:0 0 5px 5px"></div>'+
+          '</div>'+
+          '<div style="font-size:10.5px;color:var(--tx3);white-space:nowrap">'+x.label+'</div></div>';
+      }).join('')+'</div>'+
+      '<div style="display:flex;gap:14px;margin-top:12px;font-size:11.5px;color:var(--tx3)">'+
+      '<span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--lime);margin-right:5px"></span>Agencia</span>'+
+      '<span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--lav);opacity:.45;margin-right:5px"></span>Equipo</span></div>';
+    v.appendChild(ev);
+  }
+
+  /* ── Aporte por cliente ── */
+  const maxAg=Math.max(...t.filas.map(x=>Math.abs(x.agencia)),1);
+  const tabla=document.createElement('div');tabla.className='card';tabla.style.marginTop='16px';
+  tabla.innerHTML='<div class="ctitle">Aporte por cliente <span class="cnt">'+t.filas.length+' · ordenado por lo que deja</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">El equipo se prorratea según la fracción de la tarifa que se cobró en el período.</div>'+
+    '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobros</th><th>Bruto</th><th>Comisión</th><th>Equipo</th><th>Deja a la agencia</th><th>Margen</th><th>Aporte</th></tr></thead><tbody>'+
+    t.filas.map(x=>{
+      const w=Math.round(Math.abs(x.agencia)/maxAg*100);
+      const neg=x.agencia<0;
+      return '<tr data-emp="'+x.c.id+'" style="cursor:pointer">'+
+        '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.c.negocio,'s',0,x.c.foto)+
+          '<div style="min-width:0"><strong>'+esc(x.c.negocio)+'</strong>'+
+          '<div style="font-size:11px;color:var(--tx3)">'+(x.ultimoCobro?'último cobro '+fdate(x.ultimoCobro):'—')+
+          (x.equipoPendiente>0.01?' · <span style="color:var(--amb)">'+money(x.equipoPendiente)+' por pagar</span>':'')+'</div></div></div></td>'+
+        '<td class="n">'+x.cobros+'</td>'+
+        '<td class="n">'+money(x.bruto)+'</td>'+
+        '<td class="n" style="color:var(--tx3)">'+money(x.comision)+'</td>'+
+        '<td class="n" style="color:var(--tx2)">'+money(x.equipoDevengado)+'</td>'+
+        '<td class="n" style="font-weight:700;color:'+(neg?'var(--red)':'var(--lime)')+'">'+money(x.agencia)+'</td>'+
+        '<td class="n">'+(neg?'<span class="p p-d">'+pct(x.margenPct)+'</span>':'<span class="p '+(x.margenPct>=50?'p-ok':x.margenPct>=25?'p-w':'p-g')+'">'+pct(x.margenPct)+'</span>')+'</td>'+
+        '<td style="min-width:110px"><div style="background:var(--card2);border-radius:99px;height:7px;overflow:hidden"><div style="height:100%;width:'+w+'%;background:'+(neg?'var(--red)':'var(--lime)')+';border-radius:99px"></div></div></td></tr>';
+    }).join('')+'</tbody></table></div>';
+  v.appendChild(tabla);
+
+  /* ── Aporte por miembro ── */
+  const pm=rentabilidadPorMiembro(desde,hasta);
+  if(pm.length){
+    const cm=document.createElement('div');cm.className='card';cm.style.marginTop='16px';
+    cm.innerHTML='<div class="ctitle">Aporte por miembro del equipo <span class="cnt">'+pm.length+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Cuánto neto generan los clientes que lleva cada persona, cuánto cuesta, y qué queda. Cuando alguien lleva un cliente junto a otros, se reparte según su peso en la asignación.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Miembro</th><th>Clientes</th><th>Neto que maneja</th><th>Su costo</th><th>Ya cobrado</th><th>Deja a la agencia</th><th>Por cada $1</th></tr></thead><tbody>'+
+      pm.map(m=>'<tr>'+
+        '<td><div style="display:flex;align-items:center;gap:8px">'+av(m.nombre,'s',1)+'<strong>'+esc(m.nombre)+'</strong></div></td>'+
+        '<td class="n">'+m.numClientes+'</td>'+
+        '<td class="n">'+money(m.genera)+'</td>'+
+        '<td class="n" style="color:var(--tx2)">'+money(m.cuesta)+'</td>'+
+        '<td class="n" style="color:var(--tx3)">'+money(m.pagado)+'</td>'+
+        '<td class="n" style="font-weight:700;color:'+(m.dejaAgencia<0?'var(--red)':'var(--lime)')+'">'+money(m.dejaAgencia)+'</td>'+
+        '<td class="n">'+(m.ratio?'<span class="p '+(m.ratio>=2?'p-ok':m.ratio>=1.4?'p-w':'p-g')+'">'+m.ratio.toFixed(2)+'×</span>':'—')+'</td></tr>').join('')+
+      '</tbody></table></div>';
+    v.appendChild(cm);
+  }
+
+  v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
+  v.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
+}
+
 function vCaja(v){
   const yr=S.nomYear;
   head(v,'Dinero','Flujo de caja','Todo lo que entra y todo lo que sale, mes a mes.',
@@ -3020,10 +3073,10 @@ function vCaja(v){
   const tNeto=r2(tI-tC-tE-tG);
   v.appendChild(frag('<div class="mets">'+
     '<div class="met"><div class="mico" style="background:var(--lime)"><i class="ti ti-arrow-down-left"></i></div><div class="mlab">Ingresos</div><div class="mval">'+money(tI)+'</div><div class="msub">cobrado bruto</div></div>'+
-    '<div class="met"><div class="mico" style="background:var(--amb)"><i class="ti ti-percentage"></i></div><div class="mlab">Comisiones</div><div class="mval">'+money(tC)+'</div></div>'+
+    '<div class="met met-ctx"><div class="mico" style="background:var(--amb)"><i class="ti ti-percentage"></i></div><div class="mlab">Comisiones</div><div class="mval">'+money(tC)+'</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--sky)"><i class="ti ti-users"></i></div><div class="mlab">Nómina</div><div class="mval">'+money(tE)+'</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--pink)"><i class="ti ti-receipt-2"></i></div><div class="mlab">Gastos</div><div class="mval">'+money(tG)+'</div></div>'+
-    '<div class="met"><div class="mico" style="background:var(--ink)"><i class="ti ti-wallet"></i></div><div class="mlab">Queda</div><div class="mval" style="color:'+(tNeto>=0?'var(--lime)':'var(--red)')+'">'+money(tNeto)+'</div></div></div>'));
+    '<div class="met met-crit tone-ink"><div class="mico" style="background:var(--ink)"><i class="ti ti-wallet"></i></div><div class="mlab">Queda</div><div class="mval" style="color:'+(tNeto>=0?'var(--lime)':'var(--red)')+'">'+money(tNeto)+'</div></div></div>'));
 
   const mx=Math.max(1,...filas.map(f=>Math.max(f.ing,f.com+f.nom+f.gas)));
   const ch=document.createElement('div');ch.className='card';
@@ -3473,10 +3526,10 @@ function vNomina(v){
     '<span class="p '+(abiertaSel?'p-ok':'p-g')+'" style="float:right">'+(abiertaSel?'Abierta para registro':'Solo lectura')+(offSel!==null?' · '+esc(qEtiquetaVentana(q.key)):'')+'</span></div>'+
     (abiertaSel?'':'<div class="sub" style="font-size:12.5px;margin-bottom:10px;color:var(--amb)">Esta quincena está fuera de la ventana de ±'+VENTANA_QUINCENAS+'. Se muestra como histórico y no admite registrar pagos.</div>')+
     '<div class="mets" style="margin-bottom:16px">'+
-    '<div class="met"><div class="mlab">Devengado</div><div class="mval">'+money(nom.totales.devengado)+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Devengado</div><div class="mval">'+money(nom.totales.devengado)+'</div></div>'+
     '<div class="met"><div class="mlab">Pagable ahora</div><div class="mval">'+money(nom.totales.pagable)+'</div></div>'+
-    '<div class="met"><div class="mlab">Retenido</div><div class="mval" style="color:var(--amb)">'+money(nom.totales.retenido)+'</div></div>'+
-    '<div class="met"><div class="mlab">Falta pagar</div><div class="mval" style="color:var(--pink)">'+money(nom.totales.porPagar)+'</div></div></div>';
+    '<div class="met met-ctx"><div class="mlab">Retenido</div><div class="mval" style="color:var(--amb)">'+money(nom.totales.retenido)+'</div></div>'+
+    '<div class="met met-crit tone-red"><div class="mlab">Falta pagar</div><div class="mval" style="color:var(--pink)">'+money(nom.totales.porPagar)+'</div></div></div>';
   if(!nom.porMiembro.length)dc.innerHTML+=mt('ti-users','Agrega miembros al equipo.');
   nom.porMiembro.forEach(pm=>{
     const box=document.createElement('div');box.className='ndet';
