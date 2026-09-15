@@ -939,13 +939,66 @@ function rentabilidadRealCliente(c,desde,hasta){
     margenSobreBruto:bruto>0?r2(agencia/bruto*100):0,
     ultimoCobro:cobros.reduce((a,p)=>p.fecha>a?p.fecha:a,'')};
 }
+/* Un reajuste es dinero que entra fuera del flujo normal de clientes porque
+   algo se omitió o quedó descuadrado, pero que sí forma parte de los recursos
+   de la agencia. No viene de ningún cliente y no tiene equipo que descontar,
+   así que su neto va completo al margen.
+   Los demás ingresos externos (préstamos, reintegros) siguen fuera. */
+function esReajuste(p){return !!(p&&p.tipoIngreso==='externo'&&p.reajuste)}
+/* Un ingreso externo no tiene cliente, así que walletDeCobro() devolvería ceros.
+   La comisión sale de la wallet donde entró el dinero. */
+function netoDeReajuste(p){
+  const w=walletById(p.metodoPagoId);
+  const cp=p.comisionPct!=null?Number(p.comisionPct):(w?Number(w.comisionPct)||0:0);
+  const bruto=r2(Number(p.montoBruto)||0), comision=r2(bruto*(cp/100));
+  return{bruto,comision,neto:r2(bruto-comision),comisionPct:cp};
+}
+function reajustesDelPeriodo(desde,hasta){
+  const lista=(S.cobros||[]).filter(p=>esReajuste(p)&&(!desde||p.fecha>=desde)&&(!hasta||p.fecha<=hasta))
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+  let bruto=0,comision=0,neto=0;
+  lista.forEach(p=>{const w=netoDeReajuste(p);bruto+=w.bruto;comision+=w.comision;neto+=w.neto});
+  return{lista,num:lista.length,bruto:r2(bruto),comision:r2(comision),neto:r2(neto)};
+}
+/* ─────────── GASTOS DE LA AGENCIA ───────────
+   S.egresos es la única fuente de verdad del dinero gastado: los gastos fijos
+   solo generan un egreso cuando se marcan como pagados (con esGastoFijo:true),
+   así que sumar S.egresos no cuenta nada dos veces.
+   Estos gastos no incluyen pagos al equipo, que ya se descuentan por cliente. */
+function egresosDelPeriodo(desde,hasta){
+  const lista=(S.egresos||[]).filter(e=>(!desde||e.fecha>=desde)&&(!hasta||e.fecha<=hasta))
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+  const porCategoria=new Map();
+  let total=0,fijos=0,variables=0;
+  lista.forEach(e=>{
+    const mo=r2(Number(e.monto)||0);total+=mo;
+    if(e.esGastoFijo)fijos+=mo;else variables+=mo;
+    const k=e.categoria||'General';
+    const c=porCategoria.get(k)||{categoria:k,monto:0,num:0};
+    c.monto=r2(c.monto+mo);c.num++;porCategoria.set(k,c);
+  });
+  return{lista,num:lista.length,total:r2(total),fijos:r2(fijos),variables:r2(variables),
+    categorias:[...porCategoria.values()].sort((a,b)=>b.monto-a.monto)};
+}
 function rentabilidadRealTotal(desde,hasta){
   const filas=(visibleCompanies()||[]).map(c=>rentabilidadRealCliente(c,desde,hasta))
     .filter(x=>x.cobros>0).sort((a,b)=>b.agencia-a.agencia);
   const t=(k)=>r2(filas.reduce((s,x)=>s+x[k],0));
-  const bruto=t('bruto'),neto=t('neto'),agencia=t('agencia');
-  return{filas,bruto,comision:t('comision'),neto,equipoDevengado:t('equipoDevengado'),
-    equipoPagado:t('equipoPagado'),equipoPendiente:t('equipoPendiente'),agencia,enCaja:t('enCaja'),
+  const rea=reajustesDelPeriodo(desde,hasta);
+  const brutoClientes=t('bruto'),netoClientes=t('neto'),agenciaClientes=t('agencia');
+  /* El neto del reajuste entra íntegro al margen: no tiene equipo que descontar. */
+  const bruto=r2(brutoClientes+rea.bruto);
+  const neto=r2(netoClientes+rea.neto);
+  const agencia=r2(agenciaClientes+rea.neto);
+  /* Los gastos que no son nómina salen de lo que le queda a la agencia. */
+  const gas=egresosDelPeriodo(desde,hasta);
+  const saldoReal=r2(agencia-gas.total);
+  return{filas,bruto,comision:r2(t('comision')+rea.comision),neto,equipoDevengado:t('equipoDevengado'),
+    equipoPagado:t('equipoPagado'),equipoPendiente:t('equipoPendiente'),agencia,
+    enCaja:r2(t('enCaja')+rea.neto-gas.total),
+    brutoClientes,netoClientes,agenciaClientes,reajustes:rea,
+    gastos:gas,saldoReal,
+    saldoPct:neto>0?r2(saldoReal/neto*100):0,
     margenPct:neto>0?r2(agencia/neto*100):0,clientes:filas.length,
     cobros:filas.reduce((s,x)=>s+x.cobros,0)};
 }
@@ -958,7 +1011,8 @@ function serieMensualAgencia(meses){
     const ud=new Date(y,m,0).getDate();
     const t=rentabilidadRealTotal(ym+'-01',ym+'-'+ud);
     out.unshift({ym,label:['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]+' '+String(y).slice(2),
-      bruto:t.bruto,equipo:t.equipoDevengado,agencia:t.agencia,margenPct:t.margenPct});
+      bruto:t.bruto,equipo:t.equipoDevengado,agencia:t.agencia,reajustes:t.reajustes.neto,
+      gastos:t.gastos.total,saldoReal:t.saldoReal,margenPct:t.margenPct});
     m--;if(m<1){m=12;y--}
   }
   return out;
@@ -1954,7 +2008,7 @@ function editarCobroModal(id){
     '<div class="row"><div class="f"><label>Cliente</label><select id="ec-co">'+act.map(c=>'<option value="'+c.id+'" '+(c.id===p.companyId?'selected':'')+'>'+esc(c.negocio)+'</option>').join('')+'</select></div><div class="f"><label>Monto bruto</label><input id="ec-mo" type="number" min="0" step="0.01" value="'+Number(p.montoBruto||0)+'"></div></div>'+ 
     '<div class="row"><div class="f"><label>Wallet / método</label><select id="ec-me">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.metodoPagoId?'selected':'')+'>'+esc(walletLabel(w))+' · '+pct(w.comisionPct)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ec-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div>'+ 
     '<div class="msec"><div class="mstitle">Quincenas que cubre</div><div class="hint" style="margin-bottom:8px">Puedes cambiar qué períodos cubre este mismo cobro. El sistema reparte el monto entre las quincenas seleccionadas.</div><div id="ec-alloc" class="qgrid"></div></div></div>'+ 
-    '<div id="ec-ext-box" style="display:none"><div class="row"><div class="f"><label>Concepto / origen</label><input id="ec-con" value="'+esc(p.concepto||'')+'"></div><div class="f"><label>Monto</label><input id="ec-emo" type="number" min="0" step="0.01" value="'+Number(p.montoBruto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet / método</label><select id="ec-eme">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.metodoPagoId?'selected':'')+'>'+esc(walletLabel(w))+' · '+pct(w.comisionPct)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ec-efe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><textarea id="ec-no">'+esc(p.nota||'')+'</textarea></div></div>'+ 
+    '<div id="ec-ext-box" style="display:none"><div class="row"><div class="f"><label>Concepto / origen</label><input id="ec-con" value="'+esc(p.concepto||'')+'"></div><div class="f"><label>Monto</label><input id="ec-emo" type="number" min="0" step="0.01" value="'+Number(p.montoBruto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet / método</label><select id="ec-eme">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.metodoPagoId?'selected':'')+'>'+esc(walletLabel(w))+' · '+pct(w.comisionPct)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ec-efe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><textarea id="ec-no">'+esc(p.nota||'')+'</textarea></div><label style="display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border:1px solid var(--ln2);border-radius:var(--r);background:var(--card2);cursor:pointer"><input type="checkbox" id="ec-erea" '+(p.reajuste?'checked':'')+' style="width:auto;margin:3px 0 0"><span><strong style="font-size:13px">Es un reajuste de la agencia</strong><div style="font-size:12px;color:var(--tx2);margin-top:2px">Dinero fuera del flujo normal que sí cuenta como recurso de la agencia. Suma completo en Rentabilidad real.</div></span></label></div>'+ 
     '<div class="f" id="ec-note-wrap" style="display:'+ (clienteMode?'none':'block') +'"><label>Nota</label><textarea id="ec-cno">'+esc(p.nota||'')+'</textarea></div>'+ 
     '<div id="ec-prev" class="sim"></div><div class="brow"><button class="b bp" id="ec-save">Guardar cambios</button><button class="b bg" id="ec-cancel">Cancelar</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);
@@ -1967,7 +2021,7 @@ function editarCobroModal(id){
   function draw(){if(mode==='externo'){const b=Number(md.querySelector('#ec-emo').value)||0,m2=S.metodos.find(x=>x.id===md.querySelector('#ec-eme').value),cp=m2?m2.comisionPct:0;prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(r2(b*cp/100))+'</span></div><div class="simrow tot"><span>Neto a wallet</span><span class="v">'+money(r2(b-r2(b*cp/100)))+'</span></div>'}else refreshAlloc()}
   md.querySelector('#ec-mo').oninput=refreshAlloc;md.querySelector('#ec-co').onchange=renderAlloc;md.querySelector('#ec-fe').oninput=renderAlloc;md.querySelector('#ec-emo').oninput=draw;md.querySelector('#ec-eme').onchange=draw;
   md.querySelector('#ec-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ec-cancel').onclick=()=>cerrarModalEdicion(ov);if(mode==='cliente')renderAlloc();else draw();
-  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await saveUI('cobros');await saveUI('companies');toast('Cobro actualizado');ov.remove();render()}
+  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.reajuste=!!(md.querySelector('#ec-erea')&&md.querySelector('#ec-erea').checked);p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await saveUI('cobros');await saveUI('companies');toast('Cobro actualizado');ov.remove();render()}
 }
 function editarPagoModal(id){
   const p=S.payouts.find(x=>x.id===id);if(!p||!visiblePayouts().some(x=>x.id===id))return;const m=memberById(p.memberId);if(!m)return;
@@ -1979,14 +2033,14 @@ function editarPagoModal(id){
     const oldParts=payoutWalletParts(p);(oldParts.length?oldParts:[{walletId:p.walletId||'',monto:Number(p.monto)||0}]).forEach(x=>addEditWalletPart(x.walletId,x.monto));document.getElementById('epay-add-wallet').onclick=()=>addEditWalletPart('',0);syncEditWalletTotal();
   }
   if(p.tipo==='adelanto'){
-    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar adelanto</div><div class="esub">El monto del adelanto afecta el saldo pendiente del empleado.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Empleado</label><select id="epay-m">'+S.members.map(x=>'<option value="'+x.id+'" '+(x.id===p.memberId?'selected':'')+'>'+esc(x.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="epay-mo" type="number" min="0" step="0.01" value="'+Number(p.monto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
+    md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar adelanto</div><div class="esub">El monto del adelanto afecta el saldo pendiente del empleado.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="row"><div class="f"><label>Empleado</label><select id="epay-m">'+S.members.map(x=>'<option value="'+x.id+'" '+(x.id===p.memberId?'selected':'')+'>'+esc(x.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="epay-mo" type="number" min="0" step="0.01" value="'+Number(p.monto||0)+'"></div></div><div class="row"><div class="f"><label>Wallet</label><select id="epay-wa">'+S.metodos.map(w=>'<option value="'+w.id+'" '+(w.id===p.walletId?'selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select><label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-weight:400;font-size:12.5px;cursor:pointer"><input type="checkbox" id="epay-sinw" '+(esPayoutSinWallet(p)?'checked':'')+' style="width:auto;margin:0">No sale de ninguna wallet (comodín)</label></div><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
   }else{
     const rows=(p.detalle||[]).map((d,i)=>'<div class="assoc" style="cursor:default"><div class="ai"><div class="an">'+esc(d.negocio||'Cliente')+'</div><div class="as">Se pagó '+money(d.pagable||0)+' · retenido '+money(d.retenido||0)+'</div></div><input class="epay-det" data-i="'+i+'" type="number" min="0" step="0.01" value="'+Number(d.pagable||0)+'" style="width:120px"></div>').join('');
     md.innerHTML='<div class="mhd"><div><div class="mtitle">Editar pago de nómina</div><div class="esub">Puedes corregir lo pagado por cliente, la fecha, distribución entre wallets y nota. El sueldo base de la quincena se conserva.</div></div><button class="ib" id="epay-x"><i class="ti ti-x"></i></button></div><div class="msec"><div class="mstitle">Pagos variables por cliente</div>'+(rows||'<div class="empty">Este pago no tiene detalle por cliente.</div>')+'</div><div class="msec"><div class="mstitle">Distribución entre wallets</div><div id="epay-wallet-parts"></div><button type="button" class="b bg bs" id="epay-add-wallet"><i class="ti ti-plus"></i>Agregar wallet</button></div><div class="row"><div class="f"><label>Fecha</label><input id="epay-fe" type="date" value="'+esc(p.fecha||today())+'"></div></div><div class="sim"><div class="simrow"><span>Sueldo base registrado</span><span class="v">'+money(p.sueldoBase||0)+'</span></div><div class="simrow"><span>Adelantos descontados</span><span class="v">−'+money(p.adelantosDescontados||0)+'</span></div><div class="simrow"><span>Distribuido entre wallets</span><span class="v" id="epay-wallet-total">$0.00</span></div><div class="simrow tot"><span>Nuevo total</span><span class="v" id="epay-total">'+money(p.monto||0)+'</span></div></div><div class="f"><label>Nota</label><input id="epay-no" value="'+esc(p.nota||'')+'"></div><div class="brow"><button class="b bp" id="epay-save">Guardar cambios</button><button class="b bg" id="epay-cancel">Cancelar</button></div>';
   }
   ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#epay-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#epay-cancel').onclick=()=>cerrarModalEdicion(ov);
   if(p.tipo==='adelanto'){
-    md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;if(mo<=0||!wid){alert('Completa monto y wallet.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.walletId=wid;p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await saveUI('payouts');toast('Adelanto actualizado');ov.remove();render()};
+    md.querySelector('#epay-save').onclick=async()=>{const mo=r2(Number(md.querySelector('#epay-mo').value)||0),wid=md.querySelector('#epay-wa').value;const sinW=!!(md.querySelector('#epay-sinw')&&md.querySelector('#epay-sinw').checked);if(mo<=0){alert('Completa el monto.');return}if(!sinW&&!wid){alert('Completa la wallet o marca que no sale de ninguna.');return}p.memberId=md.querySelector('#epay-m').value;p.monto=mo;p.sinWallet=sinW;p.walletId=sinW?null:wid;if(sinW)p.walletParts=[];p.fecha=md.querySelector('#epay-fe').value||today();p.quincenaKey=(quincenasAnio(Number(p.fecha.slice(0,4))).find(q=>p.fecha>=q.inicio&&p.fecha<=q.fin)||{}).key||p.quincenaKey;p.nota=md.querySelector('#epay-no').value.trim();await saveUI('payouts');toast('Adelanto actualizado');ov.remove();render()};
   }else{
     md.querySelectorAll('.epay-det').forEach(inp=>inp.oninput=()=>{let total=r2(Number(p.sueldoBase||0)+[...md.querySelectorAll('.epay-det')].reduce((s,x)=>s+(Number(x.value)||0),0)-Number(p.adelantosDescontados||0));md.querySelector('#epay-total').textContent=money(Math.max(0,total))});
     md.querySelector('#epay-save').onclick=async()=>{const vals=[...md.querySelectorAll('.epay-det')];p.detalle=(p.detalle||[]).map((d,i)=>{const val=r2(Math.max(0,Number(vals[i]?.value)||0));return{...d,pagable:val,coberturaManual:r2(Math.max(0,val-(Number(d.liberado)||0))),retenido:r2(Math.max(0,Number(d.monto||d.montoQuincena||0)-Math.max(Number(d.pagable)||0,val)))};});const total=r2(Math.max(0,Number(p.sueldoBase||0)+p.detalle.reduce((sum,d)=>sum+(Number(d.pagable)||0),0)-Number(p.adelantosDescontados||0)));p.monto=total;const walletParts=[...md.querySelectorAll('.epay-wallet-row')].map(row=>({walletId:row.querySelector('.epay-wallet-id').value,monto:r2(Number(row.querySelector('.epay-wallet-mo').value)||0)})).filter(x=>x.walletId&&x.monto>0);const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}p.walletId=walletParts[0]?.walletId||null;p.walletParts=walletParts;p.fecha=md.querySelector('#epay-fe').value||today();p.nota=md.querySelector('#epay-no').value.trim();await saveUI('payouts');toast('Pago actualizado');ov.remove();render()};
@@ -2913,7 +2967,12 @@ function vCobros(v){
   const pre=S.presetCompany;S.presetCompany=null;
   const act=visibleCompanies().filter(c=>c.estado==='activo');
   const f=document.createElement('div');f.className='card';
-  f.innerHTML='<div class="ctitle">Registrar ingreso</div>'+    '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip on" id="k-client-mode"><i class="ti ti-building-store"></i> Cobro de cliente</button><button type="button" class="chip" id="k-ext-mode"><i class="ti ti-cash-banknote"></i> Ingreso externo</button></div>'+    '<div id="k-client-fields">'+      '<div class="row"><div class="f"><label>Cliente</label><select id="k-co">'+act.map(c=>'<option value="'+c.id+'"'+(pre===c.id?' selected':'')+'>'+esc(c.negocio)+' · '+money(montoFacturaCliente(c))+' / período · '+money(c.tarifaBruta)+' mensual</option>').join('')+'</select></div>'+      '<div class="f"><label>Monto bruto</label><input id="k-mo" type="number" step="0.01"></div>'+      '<div class="f"><label>¿Dónde entró?</label><select id="k-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="msec"><div class="mstitle">¿Qué quincenas cubre este cobro?</div><div class="hint" style="margin-bottom:8px">Puedes elegir varias quincenas dentro de un rango amplio (anteriores, actual y próximas). El sistema repartirá el cobro entre las seleccionadas y nómina usará esa aplicación.</div><div id="k-alloc" class="qgrid"></div></div>'+    '</div>'+    '<div id="k-external-fields" style="display:none">'+      '<div class="row"><div class="f"><label>Concepto / origen</label><input id="k-ex-con" placeholder="Venta de servicio, reintegro, préstamo, otro ingreso…"></div>'+      '<div class="f"><label>Monto</label><input id="k-ex-mo" type="number" step="0.01" min="0" placeholder="0.00"></div></div>'+      '<div class="row"><div class="f"><label>¿Dónde entró?</label><select id="k-ex-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-ex-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="f"><label>Nota</label><textarea id="k-ex-no" placeholder="Detalle opcional"></textarea></div>'+    '</div>'+    '<div id="k-prev" class="sim" style="margin-bottom:12px"></div>'+    '<div class="brow"><button class="b bp" id="k-add"><i class="ti ti-circle-plus"></i>Registrar cobro</button></div>';
+  f.innerHTML='<div class="ctitle">Registrar ingreso</div>'+    '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip on" id="k-client-mode"><i class="ti ti-building-store"></i> Cobro de cliente</button><button type="button" class="chip" id="k-ext-mode"><i class="ti ti-cash-banknote"></i> Ingreso externo</button></div>'+    '<div id="k-client-fields">'+      '<div class="row"><div class="f"><label>Cliente</label><select id="k-co">'+act.map(c=>'<option value="'+c.id+'"'+(pre===c.id?' selected':'')+'>'+esc(c.negocio)+' · '+money(montoFacturaCliente(c))+' / período · '+money(c.tarifaBruta)+' mensual</option>').join('')+'</select></div>'+      '<div class="f"><label>Monto bruto</label><input id="k-mo" type="number" step="0.01"></div>'+      '<div class="f"><label>¿Dónde entró?</label><select id="k-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="msec"><div class="mstitle">¿Qué quincenas cubre este cobro?</div><div class="hint" style="margin-bottom:8px">Puedes elegir varias quincenas dentro de un rango amplio (anteriores, actual y próximas). El sistema repartirá el cobro entre las seleccionadas y nómina usará esa aplicación.</div><div id="k-alloc" class="qgrid"></div></div>'+    '</div>'+    '<div id="k-external-fields" style="display:none">'+      '<div class="row"><div class="f"><label>Concepto / origen</label><input id="k-ex-con" placeholder="Diferencia al cuadrar, saldo omitido, venta, reintegro, préstamo…"></div>'+      '<div class="f"><label>Monto</label><input id="k-ex-mo" type="number" step="0.01" min="0" placeholder="0.00"></div></div>'+      '<div class="row"><div class="f"><label>¿Dónde entró?</label><select id="k-ex-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-ex-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="f"><label>Nota</label><textarea id="k-ex-no" placeholder="Detalle opcional"></textarea></div>'+
+      '<label class="chk-reajuste" style="display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border:1px solid var(--ln2);border-radius:var(--r);background:var(--card2);cursor:pointer;margin-top:4px">'+
+        '<input type="checkbox" id="k-ex-rea" style="width:auto;margin:3px 0 0">'+
+        '<span><strong style="font-size:13px">Es un reajuste de la agencia</strong>'+
+        '<div style="font-size:12px;color:var(--tx2);margin-top:2px">Dinero que termina sobrando por algo que se omitió o no quedó registrado: una diferencia a favor, un saldo que apareció al cuadrar, un movimiento fuera del flujo normal. No viene de ningún cliente, pero sí es parte de los recursos de la agencia, así que se suma completo en Rentabilidad real.</div></span></label>'+
+    '</div>'+    '<div id="k-prev" class="sim" style="margin-bottom:12px"></div>'+    '<div class="brow"><button class="b bp" id="k-add"><i class="ti ti-circle-plus"></i>Registrar cobro</button></div>';
   v.appendChild(f);
   const hist=document.createElement('div');hist.className='card';
   const ord=visibleCobros().slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
@@ -2930,13 +2989,13 @@ function vCobros(v){
   function allocationPayload(){const c=companyById(co.value);if(!c||!allocBox)return[];const out=[];allocBox.querySelectorAll('.qopt.on').forEach(b=>{const qk=b.dataset.aq;const q=quincenasAnio(Number(qk.slice(0,4))).find(x=>x.key===qk);const m=Math.max(0,Number(b.dataset.amount)||0);if(q&&m>0)out.push({quincenaKey:q.key,monto:r2(m)})});return out}
   function sync(){const c=companyById(co.value);if(c){mo.value=montoFacturaCliente(c);me.value=c.metodoPagoId||me.value}renderAlloc();draw()}
   function draw(){
-    if(mode==='externo'){const b=Number(document.getElementById('k-ex-mo').value)||0,m2=S.metodos.find(x=>x.id===document.getElementById('k-ex-me').value),cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow tot"><span>Entra a la wallet</span><span class="v">'+money(neto)+'</span></div>';return}
+    if(mode==='externo'){const b=Number(document.getElementById('k-ex-mo').value)||0,m2=S.metodos.find(x=>x.id===document.getElementById('k-ex-me').value),cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);const esRea=!!(document.getElementById('k-ex-rea')&&document.getElementById('k-ex-rea').checked);prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow tot"><span>Entra a la wallet</span><span class="v">'+money(neto)+'</span></div>'+(esRea?'<div class="simrow"><span style="color:var(--lime)">Suma a los recursos de la agencia</span><span class="v" style="color:var(--lime)">+'+money(neto)+'</span></div>':'<div class="simrow"><span style="color:var(--tx3)">No entra en Rentabilidad real</span><span class="v" style="color:var(--tx3)">—</span></div>');return}
     const c=companyById(co.value),m2=S.metodos.find(x=>x.id===me.value),b=Number(mo.value)||0;if(!c){prev.innerHTML='';return}const cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);prev.innerHTML='<div class="simrow"><span>Período sugerido</span><span class="v">'+money(montoFacturaCliente(c))+'</span></div><div class="simrow"><span>Cobro que registrarás</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow"><span>Neto recibido</span><span class="v">'+money(neto)+'</span></div><div class="simrow tot"><span>Cliente: '+esc(c.negocio)+'</span><span class="v">'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</span></div>';
   }
   if(co){co.onchange=sync;mo.oninput=()=>{renderAlloc();draw()};me.onchange=draw;fe.onchange=renderAlloc;sync()}
-  document.getElementById('k-ex-mo').oninput=draw;document.getElementById('k-ex-me').onchange=draw;
+  document.getElementById('k-ex-mo').oninput=draw;document.getElementById('k-ex-me').onchange=draw;document.getElementById('k-ex-rea').onchange=draw;
   document.getElementById('k-add').onclick=async()=>{
-    if(mode==='externo'){const b=r2(Number(document.getElementById('k-ex-mo').value)||0),concepto=document.getElementById('k-ex-con').value.trim();if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!concepto){alert('Escribe el concepto u origen del ingreso.');return}S.cobros.push({id:uid(),tipoIngreso:'externo',concepto,montoBruto:b,metodoPagoId:document.getElementById('k-ex-me').value,fecha:document.getElementById('k-ex-fe').value||today(),nota:document.getElementById('k-ex-no').value.trim()});await saveUI('cobros');toast('Ingreso registrado');render();return}
+    if(mode==='externo'){const b=r2(Number(document.getElementById('k-ex-mo').value)||0),concepto=document.getElementById('k-ex-con').value.trim();if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!concepto){alert('Escribe el concepto u origen del ingreso.');return}S.cobros.push({id:uid(),tipoIngreso:'externo',concepto,montoBruto:b,metodoPagoId:document.getElementById('k-ex-me').value,fecha:document.getElementById('k-ex-fe').value||today(),nota:document.getElementById('k-ex-no').value.trim(),reajuste:!!document.getElementById('k-ex-rea').checked});await saveUI('cobros');toast('Ingreso registrado');render();return}
     const b=r2(Number(mo.value)||0);if(b<=0){alert('El monto debe ser mayor a 0.');return}if(!canSeeCompanyId(co.value)){alert('No tienes acceso a este cliente.');return}const fechaPago=fe.value||today();let aplicaciones=allocationPayload();if(!aplicaciones.length){alert('Selecciona al menos una quincena que cubra este cobro.');return}let suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0));if(suma>0&&Math.abs(suma-b)>0.01){aplicaciones[aplicaciones.length-1].monto=r2(aplicaciones[aplicaciones.length-1].monto+(b-suma));suma=r2(aplicaciones.reduce((a,x)=>a+x.monto,0))}if(Math.abs(suma-b)>0.01){alert('El reparto por quincenas no coincide con el monto del cobro.');return}S.cobros.push({id:uid(),tipoIngreso:'cliente',companyId:co.value,montoBruto:b,metodoPagoId:me.value,fecha:fechaPago,aplicaciones});const cc=companyById(co.value);registrarFechaPagoCliente(cc,fechaPago);await saveUI('cobros');await saveUI('companies');toast('Cobro registrado');render();
   };
   hist.querySelectorAll('[data-ek]').forEach(b=>b.onclick=()=>editarCobroModal(b.dataset.ek));
@@ -3003,22 +3062,24 @@ function vRentabilidad(v){
   else {etiqueta='Histórico completo';}
 
   head(v,'Dinero','Rentabilidad real',
-    'Cuánto queda para la agencia después de pagar al equipo que lleva cada cliente. Parte de los cobros ya registrados, no de las tarifas teóricas.',
+    'Cuánto queda para la agencia después de pagar al equipo que lleva cada cliente, más los reajustes que entran fuera del flujo normal. Parte de los cobros ya registrados, no de las tarifas teóricas.',
     '<div class="chips" style="margin:0">'+
       [['mes','Este mes'],['trim','3 meses'],['anio','Este año'],['todo','Histórico']]
       .map(([k,l])=>'<button type="button" class="chip'+(P===k?' on':'')+'" data-per="'+k+'">'+l+'</button>').join('')+'</div>');
 
   const t=rentabilidadRealTotal(desde,hasta);
 
-  if(!t.clientes){
+  if(!t.clientes&&!t.reajustes.num&&!t.gastos.num){
     v.appendChild(frag(mt('ti-coin','No hay cobros registrados en este período.')));
     v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
     return;
   }
 
   v.appendChild(frag('<div class="mets mets-h">'+
-    '<div class="met met-crit tone-lime"><div class="mlab">Queda para la agencia</div><div class="mval">'+money(t.agencia)+'</div><div class="msub">'+etiqueta.toLowerCase()+' · margen '+pct(t.margenPct)+' sobre el neto</div></div>'+
-    '<div class="met"><div class="mlab">Cobrado bruto</div><div class="mval">'+money(t.bruto)+'</div><div class="msub">'+t.cobros+' cobro'+(t.cobros===1?'':'s')+' de '+t.clientes+' cliente'+(t.clientes===1?'':'s')+'</div></div>'+
+    '<div class="met met-crit '+(t.saldoReal>=0?'tone-lime':'tone-red')+'"><div class="mlab">Saldo real de la agencia</div><div class="mval">'+money(t.saldoReal)+'</div><div class="msub">después de equipo y gastos · '+pct(t.saldoPct)+' del neto</div></div>'+
+    '<div class="met"><div class="mlab">Antes de gastos</div><div class="mval">'+money(t.agencia)+'</div><div class="msub">'+(t.reajustes.num?money(t.agenciaClientes)+' de clientes + '+money(t.reajustes.neto)+' de reajustes':'margen tras pagar al equipo')+'</div></div>'+
+    '<div class="met"><div class="mlab">Gastos del período</div><div class="mval" style="color:var(--pink)">'+money(t.gastos.total)+'</div><div class="msub">'+t.gastos.num+' egreso'+(t.gastos.num===1?'':'s')+(t.gastos.fijos>0?' · '+money(t.gastos.fijos)+' fijos':'')+'</div></div>'+
+    '<div class="met"><div class="mlab">Ingresos del período</div><div class="mval">'+money(t.bruto)+'</div><div class="msub">'+t.cobros+' cobro'+(t.cobros===1?'':'s')+' de '+t.clientes+' cliente'+(t.clientes===1?'':'s')+(t.reajustes.num?' · '+t.reajustes.num+' reajuste'+(t.reajustes.num===1?'':'s'):'')+'</div></div>'+
     '<div class="met"><div class="mlab">Costo del equipo</div><div class="mval">'+money(t.equipoDevengado)+'</div><div class="msub">'+(t.equipoPendiente>0.01?money(t.equipoPendiente)+' aún sin pagar':'todo pagado')+'</div></div>'+
     '<div class="met met-ctx"><div class="mlab">Comisiones de cobro</div><div class="mval">'+money(t.comision)+'</div><div class="msub">se las lleva la wallet</div></div>'+
     '<div class="met met-ctx"><div class="mlab">Queda en caja hoy</div><div class="mval">'+money(t.enCaja)+'</div><div class="msub">descontando solo lo ya pagado</div></div>'+
@@ -3029,13 +3090,42 @@ function vRentabilidad(v){
   const paso=(lab,val,sub,color)=>'<div class="simrow"><span>'+lab+(sub?' <span style="color:var(--tx3);font-size:11.5px">'+sub+'</span>':'')+'</span><span class="v"'+(color?' style="color:'+color+'"':'')+'>'+val+'</span></div>';
   casc.innerHTML='<div class="ctitle">De lo cobrado a lo que queda <span class="cnt">'+etiqueta+'</span></div>'+
     '<div class="sim">'+
-    paso('Cobrado bruto',money(t.bruto),'')+
-    paso('− Comisiones de cobro',money(t.comision),'wallets','var(--tx2)')+
-    paso('= Neto recibido',money(t.neto),'')+
+    paso('Cobrado a clientes',money(t.brutoClientes),'')+
+    paso('− Comisiones de cobro',money(r2(t.comision-t.reajustes.comision)),'wallets','var(--tx2)')+
+    paso('= Neto de clientes',money(t.netoClientes),'')+
     paso('− Equipo asignado',money(t.equipoDevengado),'devengado','var(--tx2)')+
-    '<div class="simrow tot"><span>Queda para la agencia</span><span class="v" style="color:var(--lime)">'+money(t.agencia)+'</span></div>'+
-    '</div>';
+    paso((t.reajustes.num?'= Margen de clientes':'= Queda para la agencia'),money(t.agenciaClientes),'')+
+    (t.reajustes.num
+      ? paso('+ Reajustes de la agencia',money(t.reajustes.neto),t.reajustes.num+' movimiento'+(t.reajustes.num===1?'':'s')+' fuera del flujo de clientes','var(--lime)')
+        +paso('= Queda para la agencia',money(t.agencia),'')
+      : '')+
+    paso('− Gastos de la agencia',money(t.gastos.total),(t.gastos.fijos>0?money(t.gastos.fijos)+' fijos + '+money(t.gastos.variables)+' variables':'no son pagos al equipo'),'var(--pink)')+
+    '<div class="simrow tot"><span>Saldo real</span><span class="v" style="color:'+(t.saldoReal>=0?'var(--lime)':'var(--red)')+'">'+money(t.saldoReal)+'</span></div>'+
+    '</div>'+
+    '<div class="sub" style="font-size:12px;margin-top:10px">Los gastos ya se descuentan de las wallets y del flujo de caja. Aquí se restan otra vez del margen porque salen justamente de ahí: es lo que realmente te queda, no una doble contabilidad.</div>';
   v.appendChild(casc);
+
+  /* ── Mes a mes con saldo acumulado ── */
+  const serieM=serieMensualAgencia(12).filter(x=>x.bruto>0||x.gastos>0);
+  if(serieM.length){
+    let acum=0;
+    const mm=document.createElement('div');mm.className='card';mm.style.marginTop='16px';
+    mm.innerHTML='<div class="ctitle">Mes a mes <span class="cnt">lo que entra y lo que va quedando</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">El acumulado arrastra el saldo de cada mes, así ves si un mes malo se compensa con los anteriores.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Mes</th><th>Entró</th><th>Equipo</th><th>Margen</th><th>Gastos</th><th>Saldo del mes</th><th>Acumulado</th></tr></thead><tbody>'+
+      serieM.map(x=>{
+        acum=r2(acum+x.saldoReal);
+        return '<tr>'+
+          '<td><strong>'+esc(x.label)+'</strong></td>'+
+          '<td class="n">'+money(x.bruto)+'</td>'+
+          '<td class="n" style="color:var(--tx2)">'+money(x.equipo)+'</td>'+
+          '<td class="n">'+money(x.agencia)+'</td>'+
+          '<td class="n" style="color:var(--pink)">'+money(x.gastos)+'</td>'+
+          '<td class="n" style="font-weight:700;color:'+(x.saldoReal>=0?'var(--lime)':'var(--red)')+'">'+money(x.saldoReal)+'</td>'+
+          '<td class="n" style="font-weight:700;color:'+(acum>=0?'var(--lime)':'var(--red)')+'">'+money(acum)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+    v.appendChild(mm);
+  }
 
   /* ── Evolución mensual ── */
   const serie=serieMensualAgencia(6).filter(x=>x.bruto>0);
@@ -3059,6 +3149,45 @@ function vRentabilidad(v){
       '<span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--lime);margin-right:5px"></span>Agencia</span>'+
       '<span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--lav);opacity:.45;margin-right:5px"></span>Equipo</span></div>';
     v.appendChild(ev);
+  }
+
+  /* ── Reajustes del período ── */
+  if(t.reajustes.num){
+    const rc=document.createElement('div');rc.className='card';rc.style.cssText='margin-top:16px;border-left:3px solid var(--lime)';
+    rc.innerHTML='<div class="ctitle">Reajustes de la agencia <span class="cnt">'+t.reajustes.num+' · '+money(t.reajustes.neto)+' neto</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Dinero que entró fuera del flujo normal de clientes pero que cuenta como recurso de la agencia. Al no venir de un cliente no hay equipo que descontar, así que el neto se suma completo.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Entró en</th><th>Monto</th><th>Comisión</th><th>Neto a la agencia</th></tr></thead><tbody>'+
+      t.reajustes.lista.map(p=>{const wl=netoDeReajuste(p),wa=walletById(p.metodoPagoId);
+        return '<tr><td class="n">'+fdate(p.fecha)+'</td>'+
+          '<td><strong>'+esc(p.concepto||'Reajuste')+'</strong>'+(p.nota?'<div style="font-size:11px;color:var(--tx3)">'+esc(p.nota)+'</div>':'')+'</td>'+
+          '<td style="color:var(--tx2)">'+esc(wa?wa.nombre:'—')+'</td>'+
+          '<td class="n">'+money(p.montoBruto)+'</td>'+
+          '<td class="n" style="color:var(--tx3)">'+money(wl.comision)+'</td>'+
+          '<td class="n" style="font-weight:700;color:var(--lime)">'+money(wl.neto)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+    v.appendChild(rc);
+  }
+
+  /* ── Gastos del período ── */
+  if(t.gastos.num){
+    const maxCat=Math.max(...t.gastos.categorias.map(c=>c.monto),1);
+    const gc=document.createElement('div');gc.className='card';gc.style.cssText='margin-top:16px;border-left:3px solid var(--pink)';
+    gc.innerHTML='<div class="ctitle">Gastos de la agencia <span class="cnt">'+t.gastos.num+' · '+money(t.gastos.total)+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Todo lo que salió que no es pago al equipo. Los gastos fijos aparecen aquí solo cuando los marcas como pagados.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Categoría</th><th>Movimientos</th><th>Monto</th><th>Peso</th></tr></thead><tbody>'+
+      t.gastos.categorias.map(c=>'<tr>'+
+        '<td><strong>'+esc(c.categoria)+'</strong></td>'+
+        '<td class="n">'+c.num+'</td>'+
+        '<td class="n" style="font-weight:700">'+money(c.monto)+'</td>'+
+        '<td style="min-width:110px"><div style="background:var(--card2);border-radius:99px;height:7px;overflow:hidden"><div style="height:100%;width:'+Math.round(c.monto/maxCat*100)+'%;background:var(--pink);border-radius:99px"></div></div>'+
+          '<div style="font-size:11px;color:var(--tx3);margin-top:3px">'+pct(t.gastos.total>0?r2(c.monto/t.gastos.total*100):0)+' del total</div></td></tr>').join('')+
+      '</tbody></table></div>'+
+      '<div class="sim" style="margin-top:12px">'+
+        '<div class="simrow"><span>Gastos fijos ya pagados</span><span class="v">'+money(t.gastos.fijos)+'</span></div>'+
+        '<div class="simrow"><span>Gastos variables</span><span class="v">'+money(t.gastos.variables)+'</span></div>'+
+        '<div class="simrow tot"><span>Total del período</span><span class="v" style="color:var(--pink)">'+money(t.gastos.total)+'</span></div>'+
+      '</div>';
+    v.appendChild(gc);
   }
 
   /* ── Aporte por cliente ── */
@@ -3117,7 +3246,7 @@ function vCaja(v){
   for(let m=0;m<12;m++){
     const ym=yr+'-'+String(m+1).padStart(2,'0');
     const w=walletTotal(ym+'-01',ym+'-31');
-    const nom=r2(S.payouts.filter(p=>(p.fecha||'').slice(0,7)===ym).reduce((s,p)=>s+(Number(p.monto)||0),0));
+    const nom=r2(S.payouts.filter(p=>(p.fecha||'').slice(0,7)===ym&&!esPayoutSinWallet(p)).reduce((s,p)=>s+(Number(p.monto)||0),0));
     const gas=r2(S.egresos.filter(e=>(e.fecha||'').slice(0,7)===ym).reduce((s,e)=>s+(Number(e.monto)||0),0));
     const neto=r2(w.bruto-w.comision-nom-gas);
     filas.push({mes:M[m],ing:w.bruto,com:w.comision,nom,gas,neto});
@@ -3175,6 +3304,10 @@ function payoutWalletParts(p){
   if(p&&Array.isArray(p.walletParts)&&p.walletParts.length)return p.walletParts.map(x=>({walletId:x.walletId,monto:r2(Number(x.monto)||0)})).filter(x=>x.walletId&&x.monto>0);
   return p&&p.walletId&&Number(p.monto||0)>0?[{walletId:p.walletId,monto:r2(Number(p.monto)||0)}]:[];
 }
+/* Un adelanto "comodín" registra una deuda que ya existía sin mover dinero:
+   no sale de ninguna wallet ni cuenta como egreso del mes. Solo alimenta el
+   saldo de adelantos de esa persona para poder descontárselo después. */
+function esPayoutSinWallet(p){return !!(p&&(p.sinWallet||(p.tipo==='adelanto'&&!p.walletId&&!(Array.isArray(p.walletParts)&&p.walletParts.length))))}
 function totalPayoutFromWallet(p,wid){return r2(payoutWalletParts(p).filter(x=>x.walletId===wid).reduce((s,x)=>s+x.monto,0))}
 function payoutWalletsLabel(p){return payoutWalletParts(p).map(x=>{const w=walletById(x.walletId);return (w?w.nombre:'Wallet')+' '+money(x.monto)}).join(' · ')||'—'}
 function saldoWallet(wid,hasta){
@@ -3814,14 +3947,16 @@ function vPagosEquipo(v){
   head(v,'Equipo','Pagos al equipo','Registra pagos, adelantos independientes y controla lo pendiente por cliente.','<button class="b bp" id="new-adv-general"><i class="ti ti-cash"></i>Nuevo adelanto al equipo</button>');
   const year=S.nomYear;
   const pagos=[...visiblePayouts()].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
-  const total=r2(pagos.reduce((s,p)=>s+(Number(p.monto)||0),0));
+  const total=r2(pagos.filter(p=>!esPayoutSinWallet(p)).reduce((s,p)=>s+(Number(p.monto)||0),0));
+  const comodines=pagos.filter(p=>esPayoutSinWallet(p));
+  const totalComodin=r2(comodines.reduce((s,p)=>s+(Number(p.monto)||0),0));
   const quincena=pagos.filter(p=>(p.quincenaKey||'').startsWith(String(year))).length;
   const adel=r2(pagos.filter(p=>p.tipo==='adelanto').reduce((s,p)=>s+(Number(p.monto)||0),0));
   const deudas=deudasEquipo();
   const totalDeuda=r2(deudas.reduce((s,d)=>s+d.monto,0));
   const adelPendTotal=r2(S.members.filter(m=>m.activo).reduce((s,m)=>s+adelantosPendientesMiembro(m.id,today()),0));
   v.appendChild(frag('<div class="pay-summary">'+
-    '<div class="met"><div class="mlab">Pagado total</div><div class="mval">'+money(total)+'</div><div class="msub">Todos los registros</div></div>'+
+    '<div class="met"><div class="mlab">Pagado total</div><div class="mval">'+money(total)+'</div><div class="msub">Dinero que salió de wallets'+(totalComodin>0?' · '+money(totalComodin)+' registrado sin wallet':'')+'</div></div>'+
     '<div class="met"><div class="mlab">Adelantos otorgados</div><div class="mval" style="color:var(--amb)">'+money(adel)+'</div><div class="msub">Total entregado</div></div>'+
     '<div class="met"><div class="mlab">Pendiente al equipo</div><div class="mval" style="color:var(--red)">'+money(totalDeuda)+'</div><div class="msub">'+deudas.length+' registro'+(deudas.length===1?'':'s')+' por clientes pendientes</div></div>'+
     '<div class="met"><div class="mlab">Registros '+year+'</div><div class="mval">'+quincena+'</div><div class="msub">Pagos y adelantos</div></div>'+
@@ -3861,7 +3996,7 @@ function vPagosEquipo(v){
             const aps=a.aplicaciones;
             return '<div style="padding:9px 0;border-bottom:1px solid var(--ln)">'+
               '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">'+
-                '<div><strong class="mono">'+money(a.monto)+'</strong> <span style="color:var(--tx3);font-size:12px">entregado el '+fdate(a.fecha)+'</span>'+
+                '<div><strong class="mono">'+money(a.monto)+'</strong> <span style="color:var(--tx3);font-size:12px">'+(esPayoutSinWallet(a)?'registrado el ':'entregado el ')+fdate(a.fecha)+'</span>'+(esPayoutSinWallet(a)?' <span class="p p-w" style="font-size:9.5px">comodín</span>':'')+
                   (a.nota?'<div style="font-size:11.5px;color:var(--tx3)">'+esc(a.nota)+'</div>':'')+'</div>'+
                 '<div>'+(a.liquidado
                   ? '<span class="p p-ok">Saldado</span>'
@@ -3899,7 +4034,7 @@ function vPagosEquipo(v){
   if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();return}
   c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Wallet(s)</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
     const m=memberById(p.memberId);const clientes=(p.detalle||[]).map(x=>x.negocio).filter(Boolean).join(', ')||'—';
-    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+esc(payoutWalletsLabel(p))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
+    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+(esPayoutSinWallet(p)?'<span style="color:var(--tx3)">Sin wallet</span>':esc(payoutWalletsLabel(p)))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
   }).join('')+'</tbody></table></div>';
   v.appendChild(c);
   c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
@@ -3912,9 +4047,53 @@ function vPagosEquipo(v){
 function adelantoGeneralModal(){
  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
  const md=document.createElement('div');md.className='mdl';const ms=S.members.filter(m=>m.activo);
- md.innerHTML='<div class="mhd"><div><div class="mtitle">Nuevo adelanto al equipo</div><div class="esub">No depende de que el cliente haya pagado. El dinero sale de una wallet.</div></div><button class="ib" id="ag-x"><i class="ti ti-x"></i></button></div>'+ '<div class="row"><div class="f"><label>Empleado</label><select id="ag-m">'+ms.map(m=>'<option value="'+m.id+'">'+esc(m.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="ag-mo" type="number" min="0" step="0.01"></div></div>'+ '<div class="row"><div class="f"><label>Sale de la wallet</label><select id="ag-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ag-fe" type="date" value="'+today()+'"></div></div>'+ '<div class="f"><label>Nota</label><input id="ag-no" placeholder="Motivo o referencia"></div>'+ '<div class="brow"><button class="b bp" id="ag-ok">Registrar adelanto</button></div>';
+ md.innerHTML='<div class="mhd"><div><div class="mtitle">Nuevo adelanto al equipo</div><div class="esub">No depende de que el cliente haya pagado.</div></div><button class="ib" id="ag-x"><i class="ti ti-x"></i></button></div>'+
+  '<div class="msec" style="margin-bottom:14px"><div class="mstitle">Tipo de registro</div>'+
+   '<div class="chips" style="margin:0">'+
+    '<button type="button" class="chip on" data-agtipo="wallet"><i class="ti ti-wallet"></i>Sale de una wallet</button>'+
+    '<button type="button" class="chip" data-agtipo="comodin"><i class="ti ti-adjustments-alt"></i>Solo registrar deuda</button>'+
+   '</div>'+
+   '<div class="hint" id="ag-hint" style="margin-top:8px">Se descuenta el monto de la wallet que elijas, como cualquier salida de dinero.</div>'+
+  '</div>'+
+  '<div class="row"><div class="f"><label>Empleado</label><select id="ag-m">'+ms.map(m=>'<option value="'+m.id+'">'+esc(m.nombre)+'</option>').join('')+'</select></div><div class="f"><label>Monto</label><input id="ag-mo" type="number" min="0" step="0.01"></div></div>'+
+  '<div class="row"><div class="f" id="ag-wa-wrap"><label>Sale de la wallet</label><select id="ag-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · saldo '+money(saldoWallet(w.id).saldo)+'</option>').join('')+'</select></div><div class="f"><label>Fecha</label><input id="ag-fe" type="date" value="'+today()+'"></div></div>'+
+  '<div class="f"><label>Nota</label><input id="ag-no" placeholder="Motivo o referencia"></div>'+
+  '<div class="brow"><button class="b bp" id="ag-ok">Registrar adelanto</button></div>';
  ov.appendChild(md);document.body.appendChild(ov);document.getElementById('ag-x').onclick=()=>ov.remove();
- document.getElementById('ag-ok').onclick=async()=>{const memberId=document.getElementById('ag-m').value,monto=r2(Number(document.getElementById('ag-mo').value)||0),walletId=document.getElementById('ag-wa').value;if(!memberId||monto<=0){alert('Selecciona un empleado y un monto válido.');return}if(!walletId){alert('Selecciona la wallet de salida.');return}const sw=saldoWallet(walletId);if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}const fecha=document.getElementById('ag-fe').value||today();const y=Number(fecha.slice(0,4));const q=quincenasAnio(y).find(x=>x.inicio<=fecha&&x.fin>=fecha);S.payouts.push({id:uid(),memberId,fecha,quincenaKey:q?q.key:'',tipo:'adelanto',monto,nota:document.getElementById('ag-no').value.trim(),walletId,general:true,detalle:[]});await saveUI('payouts');ov.remove();toast('Adelanto registrado y descontado de la wallet');render()};
+
+ let modo='wallet';
+ const hint=md.querySelector('#ag-hint'), waWrap=md.querySelector('#ag-wa-wrap'), btn=md.querySelector('#ag-ok');
+ md.querySelectorAll('[data-agtipo]').forEach(b=>b.onclick=()=>{
+   modo=b.dataset.agtipo;
+   md.querySelectorAll('[data-agtipo]').forEach(x=>x.classList.toggle('on',x===b));
+   waWrap.style.display=modo==='comodin'?'none':'';
+   hint.innerHTML=modo==='comodin'
+     ? '<strong>Comodín para casos excepcionales.</strong> No toca ninguna wallet ni aparece como salida en el flujo de caja. Úsalo para dejar constancia de un adelanto que ya le habías dado a esa persona por fuera, o que viene de antes de empezar a usar la app. El saldo sí se le descuenta en las próximas quincenas, igual que cualquier otro.'
+     : 'Se descuenta el monto de la wallet que elijas, como cualquier salida de dinero.';
+   btn.textContent=modo==='comodin'?'Registrar deuda pendiente':'Registrar adelanto';
+ });
+
+ btn.onclick=async()=>{
+   const memberId=md.querySelector('#ag-m').value, monto=r2(Number(md.querySelector('#ag-mo').value)||0);
+   if(!memberId||monto<=0){alert('Selecciona un empleado y un monto válido.');return}
+   const fecha=md.querySelector('#ag-fe').value||today();
+   const y=Number(fecha.slice(0,4));
+   const q=quincenasAnio(y).find(x=>x.inicio<=fecha&&x.fin>=fecha);
+   const base={id:uid(),memberId,fecha,quincenaKey:q?q.key:'',tipo:'adelanto',monto,
+     nota:md.querySelector('#ag-no').value.trim(),general:true,detalle:[]};
+   if(modo==='comodin'){
+     S.payouts.push({...base,walletId:null,sinWallet:true});
+     if(!await saveUI('payouts'))return;
+     ov.remove();toast('Deuda registrada · no se movió ninguna wallet');render();return;
+   }
+   const walletId=md.querySelector('#ag-wa').value;
+   if(!walletId){alert('Selecciona la wallet de salida.');return}
+   const sw=saldoWallet(walletId);
+   if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}
+   S.payouts.push({...base,walletId});
+   if(!await saveUI('payouts'))return;
+   ov.remove();toast('Adelanto registrado y descontado de la wallet');render();
+ };
 }
 
 /* Restauración segura desde un respaldo JSON de la propia app. */
