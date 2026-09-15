@@ -1160,6 +1160,59 @@ function sueldoYaPagadoEnQ(memberId,q){
   const ps=pagosNominaDeMiembroEnQ(memberId,q.key);
   return r2(Math.min(base,ps.reduce((s,p)=>s+(Number(p.sueldoBase)||0),0)));
 }
+/* ─────────── ESTADO DE ADELANTOS POR PERSONA ───────────
+   Cada adelanto es un payout con tipo:'adelanto' y general:true.
+   Cada pago de nómina guarda en advanceAplicados[] qué adelantos descontó y
+   cuánto de cada uno. Con eso se reconstruye el estado de cuenta completo:
+   cuánto se le adelantó, cuánto se le ha ido descontando y qué queda debiendo. */
+function aplicacionesDeAdelanto(memberId,advanceId,untilDate){
+  const out=[];
+  (S.payouts||[]).forEach(p=>{
+    if(p.memberId!==memberId||p.tipo==='adelanto')return;
+    if(untilDate&&String(p.fecha||'')>untilDate)return;
+    (p.advanceAplicados||[]).forEach(x=>{
+      if(x.advanceId===advanceId&&(Number(x.monto)||0)>0)
+        out.push({payoutId:p.id,fecha:p.fecha,quincenaKey:p.quincenaKey||'',monto:r2(Number(x.monto)||0)});
+    });
+  });
+  return out.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+}
+function estadoAdelantosMiembro(memberId,untilDate){
+  const hasta=untilDate||today();
+  const m=memberById(memberId);
+  const avances=adelantosGeneralesDeMiembro(memberId).filter(a=>String(a.fecha||'')<=hasta);
+  const usados=adelantosAplicadosAntesDe(memberId,hasta);
+  const lista=avances.map(a=>{
+    const monto=r2(Number(a.monto)||0);
+    const descontado=r2(Math.min(monto,usados[a.id]||0));
+    const saldo=r2(Math.max(0,monto-descontado));
+    return{...a,monto,descontado,saldo,
+      liquidado:saldo<=0.005,
+      pct:monto>0?r2(descontado/monto*100):0,
+      aplicaciones:aplicacionesDeAdelanto(memberId,a.id,hasta),
+      diasAbierto:saldo>0.005&&a.fecha?difDiasISO(a.fecha,hasta):0};
+  });
+  const totalAdelantado=r2(lista.reduce((s,a)=>s+a.monto,0));
+  const totalDescontado=r2(lista.reduce((s,a)=>s+a.descontado,0));
+  const pendiente=r2(lista.reduce((s,a)=>s+a.saldo,0));
+  const abiertos=lista.filter(a=>!a.liquidado);
+  return{memberId,nombre:m?m.nombre:'—',foto:m?m.foto:null,activo:m?m.activo!==false:false,
+    adelantos:lista.slice().reverse(),           // más reciente primero
+    totalAdelantado,totalDescontado,pendiente,
+    numAdelantos:lista.length,numAbiertos:abiertos.length,
+    pctDevuelto:totalAdelantado>0?r2(totalDescontado/totalAdelantado*100):0,
+    masAntiguo:abiertos.length?abiertos[0].fecha:null,
+    diasMasAntiguo:abiertos.length&&abiertos[0].fecha?difDiasISO(abiertos[0].fecha,hasta):0,
+    ultimoMovimiento:lista.reduce((a,x)=>{
+      const f=x.aplicaciones.length?x.aplicaciones[x.aplicaciones.length-1].fecha:x.fecha;
+      return f>a?f:a;},'')};
+}
+function estadoAdelantosTodos(untilDate){
+  return (S.members||[])
+    .map(m=>estadoAdelantosMiembro(m.id,untilDate))
+    .filter(e=>e.numAdelantos>0)
+    .sort((a,b)=>b.pendiente-a.pendiente||b.totalAdelantado-a.totalAdelantado);
+}
 function adelantosGeneralesDeMiembro(memberId){
   const ini=fechaInicioControl();
   return S.payouts.filter(p=>p.memberId===memberId&&p.tipo==='adelanto'&&p.general===true&&(!ini||String(p.fecha||'')>=ini)).sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||String(a.id).localeCompare(String(b.id)));
@@ -3421,6 +3474,18 @@ function mMemberModal(){
       '<div class="met"><div class="mlab">Por quincena</div><div class="mval">'+money(r2(mes/2))+'</div></div>'+
       '<div class="met"><div class="mlab">Clientes</div><div class="mval">'+cls.length+'</div></div></div>'+
       '<div class="msec"><div class="mstitle">Sus clientes<span class="cnt">'+cls.length+'</span></div>'+(filas||'<div style="font-size:12.5px;color:var(--tx3)">Sin clientes asignados.</div>')+'</div>'+
+      (()=>{const ea=estadoAdelantosMiembro(m.id,today());
+        if(!ea.numAdelantos)return '';
+        return '<div class="msec"><div class="mstitle">Adelantos<span class="cnt">'+ea.numAdelantos+'</span></div>'+
+          '<div class="sim">'+
+          '<div class="simrow"><span>Total adelantado</span><span class="v">'+money(ea.totalAdelantado)+'</span></div>'+
+          '<div class="simrow"><span>Ya descontado</span><span class="v" style="color:var(--lime)">−'+money(ea.totalDescontado)+'</span></div>'+
+          '<div class="simrow tot"><span>'+(ea.pendiente>0.005?'Debe todavía':'Al día')+'</span><span class="v" style="color:'+(ea.pendiente>0.005?'var(--amb)':'var(--lime)')+'">'+money(ea.pendiente)+'</span></div>'+
+          '</div>'+
+          ea.adelantos.map(a=>'<div class="lrow"><div><div class="lname">'+money(a.monto)+' · '+fdate(a.fecha)+'</div>'+
+            '<div class="lsub">'+(a.nota?esc(a.nota)+' · ':'')+(a.liquidado?'saldado':'descontado '+money(a.descontado)+' de '+money(a.monto))+'</div></div>'+
+            '<span class="p '+(a.liquidado?'p-ok':'p-w')+'">'+(a.liquidado?'Saldado':'Debe '+money(a.saldo))+'</span></div>').join('')+
+          '</div>';})()+
       '<div class="msec"><div class="mstitle">Pagos recibidos<span class="cnt">'+pays.length+'</span></div>'+
       (pays.length?'<table class="t"><thead><tr><th>Fecha</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th></th></tr></thead><tbody>'+
       pays.slice(0,20).map(p=>'<tr><td class="n">'+fdate(p.fecha)+'</td><td class="n">'+esc(p.quincenaKey||'')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-w">Adelanto</span>':'<span class="p p-ok">Pago</span>')+'</td><td class="n">'+money(p.monto)+'</td>'+
@@ -3762,6 +3827,66 @@ function vPagosEquipo(v){
     '<div class="met"><div class="mlab">Registros '+year+'</div><div class="mval">'+quincena+'</div><div class="msub">Pagos y adelantos</div></div>'+
     '<div class="met"><div class="mlab">Adelantos pendientes</div><div class="mval" style="color:var(--amb)">'+money(adelPendTotal)+'</div><div class="msub">Saldo por descontar</div></div>'+
     '</div>'));
+  /* ── Estado de adelantos por persona ── */
+  const ea=estadoAdelantosTodos(today());
+  const ac=document.createElement('div');ac.className='card';
+  if(ea.length){
+    const tAd=r2(ea.reduce((s,e)=>s+e.totalAdelantado,0));
+    const tDe=r2(ea.reduce((s,e)=>s+e.totalDescontado,0));
+    const tPe=r2(ea.reduce((s,e)=>s+e.pendiente,0));
+    const conSaldo=ea.filter(e=>e.pendiente>0.005);
+    ac.innerHTML='<div class="ctitle">Estado de adelantos <span class="cnt">'+ea.length+' persona'+(ea.length===1?'':'s')+' · '+money(tPe)+' por recuperar</span></div>'+
+      '<p class="sub" style="font-size:12.5px;margin:-4px 0 12px">Lo que se le adelantó a cada quien, cuánto se le ha descontado en las quincenas y qué queda debiendo. Toca una fila para ver adelanto por adelanto.</p>'+
+      '<div class="sim" style="margin-bottom:14px">'+
+        '<div class="simrow"><span>Total adelantado</span><span class="v">'+money(tAd)+'</span></div>'+
+        '<div class="simrow"><span>Ya descontado en nómina</span><span class="v" style="color:var(--lime)">−'+money(tDe)+'</span></div>'+
+        '<div class="simrow tot"><span>Pendiente por recuperar</span><span class="v" style="color:'+(tPe>0.005?'var(--amb)':'var(--lime)')+'">'+money(tPe)+'</span></div>'+
+      '</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Persona</th><th>Adelantos</th><th>Total adelantado</th><th>Descontado</th><th>Debe</th><th>Avance</th><th>Antigüedad</th><th></th></tr></thead><tbody>'+
+      ea.map(e=>{
+        const debe=e.pendiente>0.005;
+        return '<tr class="adel-row" data-adel="'+e.memberId+'" style="cursor:pointer">'+
+          '<td><div style="display:flex;align-items:center;gap:8px">'+av(e.nombre,'s',1,e.foto)+
+            '<div><strong>'+esc(e.nombre)+'</strong>'+(e.activo?'':'<div style="font-size:11px;color:var(--tx3)">inactivo</div>')+'</div></div></td>'+
+          '<td class="n">'+e.numAdelantos+(e.numAbiertos?'<div style="font-size:11px;color:var(--amb)">'+e.numAbiertos+' abierto'+(e.numAbiertos===1?'':'s')+'</div>':'')+'</td>'+
+          '<td class="n">'+money(e.totalAdelantado)+'</td>'+
+          '<td class="n" style="color:var(--lime)">'+money(e.totalDescontado)+'</td>'+
+          '<td class="n" style="font-weight:700;color:'+(debe?'var(--amb)':'var(--lime)')+'">'+(debe?money(e.pendiente):'—')+'</td>'+
+          '<td style="min-width:120px"><div style="background:var(--card2);border-radius:99px;height:7px;overflow:hidden"><div style="height:100%;width:'+Math.round(e.pctDevuelto)+'%;background:var(--lime);border-radius:99px"></div></div>'+
+            '<div style="font-size:11px;color:var(--tx3);margin-top:3px">'+pct(e.pctDevuelto)+' devuelto</div></td>'+
+          '<td class="n">'+(debe&&e.diasMasAntiguo?'<span class="p '+(e.diasMasAntiguo>=60?'p-d':e.diasMasAntiguo>=30?'p-w':'p-g')+'">'+e.diasMasAntiguo+' d</span>':'—')+'</td>'+
+          '<td class="ta"><i class="ti ti-chevron-down" style="color:var(--tx3)"></i></td></tr>'+
+        '<tr class="adel-det" data-det="'+e.memberId+'" style="display:none"><td colspan="8" style="background:var(--card2);padding:12px 14px">'+
+          e.adelantos.map(a=>{
+            const aps=a.aplicaciones;
+            return '<div style="padding:9px 0;border-bottom:1px solid var(--ln)">'+
+              '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">'+
+                '<div><strong class="mono">'+money(a.monto)+'</strong> <span style="color:var(--tx3);font-size:12px">entregado el '+fdate(a.fecha)+'</span>'+
+                  (a.nota?'<div style="font-size:11.5px;color:var(--tx3)">'+esc(a.nota)+'</div>':'')+'</div>'+
+                '<div>'+(a.liquidado
+                  ? '<span class="p p-ok">Saldado</span>'
+                  : '<span class="p p-w">Debe '+money(a.saldo)+'</span>'+(a.descontado>0.005?' <span style="font-size:11.5px;color:var(--tx3)">de '+money(a.monto)+' ya devolvió '+money(a.descontado)+'</span>':''))+'</div>'+
+              '</div>'+
+              (aps.length
+                ? '<div style="margin-top:7px;font-size:12px;color:var(--tx2)">'+aps.map(x=>
+                    '<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0"><span style="color:var(--tx3)">Descontado en '+(x.quincenaKey?esc(x.quincenaKey):'pago del '+fdate(x.fecha))+'</span><span class="mono">−'+money(x.monto)+'</span></div>').join('')+'</div>'
+                : '<div style="margin-top:6px;font-size:12px;color:var(--tx3)">Todavía no se le ha descontado nada de este adelanto.</div>')+
+              '</div>';
+          }).join('')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+    if(conSaldo.length)ac.innerHTML+='<div class="sub" style="font-size:12px;margin-top:10px">El descuento se hace al registrar el pago de la quincena en Nómina, donde puedes elegir cuánto descontar. Lo que no descuentes sigue pendiente.</div>';
+  } else {
+    ac.innerHTML='<div class="ctitle">Estado de adelantos</div>'+mt('ti-cash','No hay adelantos registrados. Usa el botón de arriba para entregar uno.');
+  }
+  v.appendChild(ac);
+  ac.querySelectorAll('.adel-row').forEach(r=>r.onclick=()=>{
+    const d=ac.querySelector('[data-det="'+r.dataset.adel+'"]');
+    const ic=r.querySelector('.ti');
+    const abierto=d.style.display!=='none';
+    d.style.display=abierto?'none':'table-row';
+    if(ic)ic.className='ti ti-chevron-'+(abierto?'down':'up');
+  });
+
   const dc=document.createElement('div');dc.className='card';
   dc.innerHTML='<div class="ctitle">Deuda pendiente al equipo <span class="cnt">'+deudas.length+'</span></div>'+
     (deudas.length?'<p class="sub" style="font-size:12px;margin:-4px 0 12px">Aquí queda registrado lo que todavía se le debe a cada persona porque el cliente no ha completado el pago. Los adelantos y pagos ya hechos se descuentan automáticamente.</p>'+
