@@ -1212,9 +1212,31 @@ function pagosNominaDeMiembroEnQ(memberId,qKey){return S.payouts.filter(p=>p.mem
 /* El sueldo puede variar mes a mes. La ficha del miembro guarda el habitual,
    pero al pagar se puede fijar otro solo para esa quincena; queda registrado
    en el pago como sueldoBaseQuincena y manda sobre el de la ficha. */
+/* ─────────── PISO GARANTIZADO ───────────
+   El empleado tiene un ingreso mensual asegurado. Sus comisiones por cliente
+   cubren una parte y la agencia pone el resto. Ese "resto" es lo que la agencia
+   aporta de su bolsillo, así que se comporta igual que un sueldo base: se paga
+   aunque el cliente todavía no haya pagado.
+   La parte de clientes SÍ depende de lo cobrado, así que en un mes flojo ella
+   cobra menos del piso — que es lo acordado.
+   Si sus comisiones llegaran a superar el piso, el complemento es 0 y cobra
+   sus comisiones completas: el piso es un mínimo, nunca un tope. */
+function esPisoGarantizado(m){return !!(m&&m.tipoCompensacion==='garantizado')}
+/* Comisión teórica mensual de un miembro si todos sus clientes pagan completo. */
+function comisionTeoricaMensual(memberId){
+  return r2((S.companies||[]).filter(c=>c.estado==='activo')
+    .reduce((s,c)=>s+asigDeMiembro(c,memberId),0));
+}
+/* Lo que la agencia completa cada mes para llegar al piso. */
+function complementoMensualDe(m){
+  if(!esPisoGarantizado(m))return 0;
+  return r2(Math.max(0,(Number(m.ingresoGarantizado)||0)-comisionTeoricaMensual(m.id)));
+}
 function sueldoBaseDeQuincena(memberId,q){
   const m=memberById(memberId);
-  const porDefecto=r2((Number(m?.sueldoMensual)||0)/2);
+  const porDefecto=esPisoGarantizado(m)
+    ? r2((Number(m.ingresoGarantizado)||0)/2)
+    : r2((Number(m?.sueldoMensual)||0)/2);
   const ps=pagosNominaDeMiembroEnQ(memberId,q.key)
     .filter(p=>p.sueldoBaseQuincena!=null)
     .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
@@ -1312,8 +1334,7 @@ function distribuirDescuentoAdelantos(memberId,untilDate,monto){
 function calcularNomina(q){
   const porMiembro=(isAdminUser()?S.members:S.members.filter(m=>m.id===linkedMemberId())).filter(m=>m.activo).map(m=>{
     const rol=S.roles.find(x=>x.id===m.roleId),det=[],quincenaDisponible=q.inicio<=today();
-    const sueldoBase=(quincenaDisponible&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'))?sueldoBaseDeQuincena(m.id,q):0;
-    const sueldoYaPagado=sueldoYaPagadoEnQ(m.id,q), sueldoPendiente=r2(Math.max(0,sueldoBase-sueldoYaPagado));
+    let sueldoBase=(quincenaDisponible&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'))?sueldoBaseDeQuincena(m.id,q):0;
     S.companies.filter(c=>c.estado==='activo').forEach(c=>{
       const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;const mq=r2(mensual*0.5),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*0.5);
       const pctCobrado=quincenaDisponible&&clientePeriodo>0?Math.max(0,Math.min(1,cb.totalBruto/clientePeriodo)):0,ganado=quincenaDisponible?r2(mq*pctCobrado):0;
@@ -1324,9 +1345,20 @@ function calcularNomina(q){
       det.push({companyId:c.id,negocio:c.negocio,montoMes:mensual,montoQuincena:mq,modo:asign.modo==='comision'?'comision':'monto',comisionPct:asign.modo==='comision'?Number(asign.comisionPct)||0:0,clientePago:cb.pagado,cobrado:cb.totalBruto,cobradoAcumulado:cb.totalMes,porcentajeCobrado:pctCobrado,ganado,pagable,yaPagadoCliente,retenido});
     });
     const dc=r2(det.reduce((x,d)=>x+d.montoQuincena,0)),pc=r2(det.reduce((x,d)=>x+d.pagable,0)),rt=r2(det.reduce((x,d)=>x+d.retenido,0));
+    /* Con piso garantizado el "sueldo base" es el complemento que pone la agencia:
+       piso de la quincena menos lo que teóricamente le dan sus clientes. */
+    let pisoQuincena=0, complementoQuincena=0;
+    if(esPisoGarantizado(m)&&quincenaDisponible){
+      pisoQuincena=sueldoBaseDeQuincena(m.id,q);
+      complementoQuincena=r2(Math.max(0,pisoQuincena-dc));
+      sueldoBase=complementoQuincena;
+    }
+    const sueldoYaPagado=sueldoYaPagadoEnQ(m.id,q), sueldoPendiente=r2(Math.max(0,sueldoBase-sueldoYaPagado));
     const totalAntesAdelantos=r2(sueldoPendiente+pc), adelantosSueltos=adelantosPendientesMiembro(m.id,q.fin);
     const totalPagable=r2(Math.max(0,totalAntesAdelantos));
-    return{memberId:m.id,nombre:m.nombre,rol:rol?rol.nombre:'',tipoCompensacion:m.tipoCompensacion,sueldoBase,sueldoYaPagado,sueldoPendiente,detalle:det,devengadoClientes:dc,pagableClientes:pc,retenido:rt,adelantosClientes:0,adelantosSueltos,totalDevengado:r2(sueldoBase+dc),totalAntesAdelantos,totalPagable,porPagar:totalPagable,numClientes:det.length,quincenaDisponible};
+    return{memberId:m.id,nombre:m.nombre,rol:rol?rol.nombre:'',tipoCompensacion:m.tipoCompensacion,
+      pisoQuincena,complementoQuincena,comisionTeoricaQuincena:dc,
+      sueldoBase,sueldoYaPagado,sueldoPendiente,detalle:det,devengadoClientes:dc,pagableClientes:pc,retenido:rt,adelantosClientes:0,adelantosSueltos,totalDevengado:r2(sueldoBase+dc),totalAntesAdelantos,totalPagable,porPagar:totalPagable,numClientes:det.length,quincenaDisponible};
   });
   return{quincena:q,porMiembro,totales:{devengado:r2(porMiembro.reduce((s,x)=>s+x.totalDevengado,0)),pagable:r2(porMiembro.reduce((s,x)=>s+x.totalAntesAdelantos,0)),retenido:r2(porMiembro.reduce((s,x)=>s+x.retenido,0)),yaPagado:r2(porMiembro.reduce((s,x)=>s+x.sueldoYaPagado,0)),porPagar:r2(porMiembro.reduce((s,x)=>s+x.totalAntesAdelantos,0))}}}
 
@@ -1555,6 +1587,73 @@ function visibleMembers(){
   return mid?S.members.filter(m=>m.id===mid):[];
 }
 function invoiceTotal(i){return i.total!==undefined?i.total:i.monto}
+/* ═══════════ HISTORIAL DE ESTADO DE CLIENTES ═══════════
+   Cada vez que un cliente cambia de estado se guarda un evento en
+   c.historialEstado. Sin esto no había forma de saber CUÁNDO se perdió o
+   se pausó a alguien, solo en qué estado está hoy. */
+const ESTADOS_CLIENTE=['activo','pausado','perdido'];
+function registrarCambioEstado(c,nuevo,motivo,fecha){
+  const previo=c.estado||'activo';
+  if(previo===nuevo)return false;
+  if(!Array.isArray(c.historialEstado))c.historialEstado=[];
+  c.historialEstado.push({fecha:fecha||today(),de:previo,a:nuevo,motivo:(motivo||'').trim()});
+  c.estado=nuevo;
+  return true;
+}
+/* El alta se deduce de fechaInicio para los clientes que ya existían antes
+   de que hubiera historial. */
+function eventosCliente(c){
+  const ev=[];
+  if(c.fechaInicio)ev.push({fecha:c.fechaInicio,tipo:'alta',de:null,a:'activo',motivo:''});
+  (c.historialEstado||[]).forEach(h=>{
+    ev.push({fecha:h.fecha,tipo:h.a==='activo'?'reactivacion':h.a,de:h.de,a:h.a,motivo:h.motivo||''});
+  });
+  return ev.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+}
+/* Movimientos de la cartera en un mes: altas, bajas, pausas y reactivaciones. */
+function movimientosCarteraMes(ym){
+  const nuevos=[],perdidos=[],pausados=[],reactivados=[];
+  (visibleCompanies()||[]).forEach(c=>{
+    eventosCliente(c).forEach(e=>{
+      if(String(e.fecha||'').slice(0,7)!==ym)return;
+      const item={c,fecha:e.fecha,motivo:e.motivo,tarifa:r2(Number(c.tarifaBruta)||0)};
+      if(e.tipo==='alta')nuevos.push(item);
+      else if(e.tipo==='perdido')perdidos.push(item);
+      else if(e.tipo==='pausado')pausados.push(item);
+      else if(e.tipo==='reactivacion')reactivados.push(item);
+    });
+  });
+  const suma=a=>r2(a.reduce((s,x)=>s+x.tarifa,0));
+  return{ym,nuevos,perdidos,pausados,reactivados,
+    mrrGanado:suma(nuevos)+suma(reactivados),
+    mrrPerdido:suma(perdidos)+suma(pausados),
+    neto:r2(suma(nuevos)+suma(reactivados)-suma(perdidos)-suma(pausados))};
+}
+/* Clientes activos al cierre de un mes, reconstruido desde el historial. */
+function activosAlCierre(ym){
+  const fin=ym+'-31';
+  return (visibleCompanies()||[]).filter(c=>{
+    const ev=eventosCliente(c).filter(e=>String(e.fecha||'')<=fin);
+    if(!ev.length)return c.estado==='activo'&&!c.fechaInicio;
+    return ev[ev.length-1].a==='activo';
+  }).length;
+}
+function serieCartera(meses){
+  const hoy=today(),out=[];
+  let y=Number(hoy.slice(0,4)),m=Number(hoy.slice(5,7));
+  for(let i=0;i<meses;i++){
+    const ym=y+'-'+String(m).padStart(2,'0');
+    const mv=movimientosCarteraMes(ym);
+    const activos=activosAlCierre(ym);
+    const base=activos-mv.nuevos.length-mv.reactivados.length+mv.perdidos.length+mv.pausados.length;
+    out.unshift({ym,label:['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]+' '+String(y).slice(2),
+      nuevos:mv.nuevos.length,perdidos:mv.perdidos.length,pausados:mv.pausados.length,reactivados:mv.reactivados.length,
+      activos,mrrGanado:mv.mrrGanado,mrrPerdido:mv.mrrPerdido,neto:mv.neto,
+      churnPct:base>0?r2((mv.perdidos.length+mv.pausados.length)/base*100):0});
+    m--;if(m<1){m=12;y--}
+  }
+  return out;
+}
 function estadoCobroMes(companyId,ym){
   const c=companyById(companyId);if(!c)return'na';
   const ud=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7)),0).getDate();
@@ -2260,6 +2359,87 @@ function vEstadisticasClientes(v){
   const antigBuckets={'Menos de 3 meses':0,'3–6 meses':0,'6–12 meses':0,'1–2 años':0,'Más de 2 años':0,'Sin fecha':0};
   function mesesDesde(fecha){if(!fecha)return null;const d=new Date(String(fecha).slice(0,10)+'T12:00:00');if(Number.isNaN(d.getTime()))return null;return Math.max(0,(hoy.getFullYear()-d.getFullYear())*12+(hoy.getMonth()-d.getMonth())-(hoy.getDate()<d.getDate()?1:0));}
   act.forEach(c=>{const m=mesesDesde(c.fechaInicio);if(m==null)antigBuckets['Sin fecha']++;else if(m<3)antigBuckets['Menos de 3 meses']++;else if(m<6)antigBuckets['3–6 meses']++;else if(m<12)antigBuckets['6–12 meses']++;else if(m<24)antigBuckets['1–2 años']++;else antigBuckets['Más de 2 años']++;});
+  /* ── Movimiento de cartera ── */
+  const ymHoy=today().slice(0,7);
+  const mvMes=movimientosCarteraMes(ymHoy);
+  const serie=serieCartera(12);
+  const conMov=serie.filter(x=>x.nuevos||x.perdidos||x.pausados||x.reactivados);
+  const ult6=serie.slice(-6);
+  const perdidos6=ult6.reduce((s,x)=>s+x.perdidos+x.pausados,0);
+  const nuevos6=ult6.reduce((s,x)=>s+x.nuevos+x.reactivados,0);
+  const churnProm=ult6.length?r2(ult6.reduce((s,x)=>s+x.churnPct,0)/ult6.length):0;
+  const pausadosHoy=(visibleCompanies()||[]).filter(c=>c.estado==='pausado');
+  const perdidosHoy=(visibleCompanies()||[]).filter(c=>c.estado==='perdido');
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit '+(mvMes.neto>=0?'tone-lime':'tone-red')+'"><div class="mlab">Movimiento del mes</div><div class="mval">'+(mvMes.neto>=0?'+':'')+money(mvMes.neto)+'</div><div class="msub">'+mvMes.nuevos.length+' nuevo'+(mvMes.nuevos.length===1?'':'s')+' · '+(mvMes.perdidos.length+mvMes.pausados.length)+' de baja'+(mvMes.reactivados.length?' · '+mvMes.reactivados.length+' reactivado'+(mvMes.reactivados.length===1?'':'s'):'')+'</div></div>'+
+    '<div class="met"><div class="mlab">Nuevos este mes</div><div class="mval" style="color:var(--lime)">'+mvMes.nuevos.length+'</div><div class="msub">'+money(mvMes.mrrGanado)+' de facturación</div></div>'+
+    '<div class="met"><div class="mlab">Perdidos y pausados</div><div class="mval" style="color:var(--red)">'+(mvMes.perdidos.length+mvMes.pausados.length)+'</div><div class="msub">'+money(mvMes.mrrPerdido)+' que dejas de facturar</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Bajas últimos 6 meses</div><div class="mval">'+perdidos6+'</div><div class="msub">frente a '+nuevos6+' altas</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Churn mensual promedio</div><div class="mval">'+pct(churnProm)+'</div><div class="msub">últimos 6 meses</div></div>'+
+    '</div>'));
+
+  if(conMov.length){
+    const maxN=Math.max(...serie.map(x=>Math.max(x.nuevos+x.reactivados,x.perdidos+x.pausados)),1);
+    const ev=document.createElement('div');ev.className='card';ev.style.marginBottom='16px';
+    ev.innerHTML='<div class="ctitle">Altas y bajas por mes <span class="cnt">últimos 12 meses</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Arriba las altas, abajo las bajas. La línea del medio es el punto de equilibrio: si las barras de abajo son más largas, la cartera se está encogiendo.</div>'+
+      '<div style="display:flex;gap:8px;align-items:stretch;height:180px;padding-top:4px">'+
+      serie.map(x=>{
+        const alt=x.nuevos+x.reactivados, baj=x.perdidos+x.pausados;
+        return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;min-width:0">'+
+          '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;width:100%;max-width:40px">'+
+            (alt?'<div style="font-size:10.5px;color:var(--lime);font-weight:700;text-align:center">'+alt+'</div>':'')+
+            '<div style="background:var(--lime);height:'+Math.round(alt/maxN*62)+'px;border-radius:5px 5px 0 0"></div></div>'+
+          '<div style="height:1px;background:var(--ln2);width:100%"></div>'+
+          '<div style="flex:1;display:flex;flex-direction:column;width:100%;max-width:40px">'+
+            '<div style="background:var(--red);height:'+Math.round(baj/maxN*62)+'px;border-radius:0 0 5px 5px"></div>'+
+            (baj?'<div style="font-size:10.5px;color:var(--red);font-weight:700;text-align:center">'+baj+'</div>':'')+'</div>'+
+          '<div style="font-size:10px;color:var(--tx3);margin-top:4px;white-space:nowrap">'+x.label+'</div></div>';
+      }).join('')+'</div>';
+    v.appendChild(ev);
+
+    const tb=document.createElement('div');tb.className='card';tb.style.marginBottom='16px';
+    tb.innerHTML='<div class="ctitle">Detalle mes a mes <span class="cnt">'+conMov.length+' meses con movimiento</span></div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Mes</th><th>Nuevos</th><th>Reactivados</th><th>Pausados</th><th>Perdidos</th><th>Activos al cierre</th><th>Churn</th><th>Efecto en facturación</th></tr></thead><tbody>'+
+      conMov.slice().reverse().map(x=>'<tr>'+
+        '<td><strong>'+esc(x.label)+'</strong></td>'+
+        '<td class="n" style="color:var(--lime)">'+(x.nuevos||'—')+'</td>'+
+        '<td class="n">'+(x.reactivados||'—')+'</td>'+
+        '<td class="n" style="color:var(--amb)">'+(x.pausados||'—')+'</td>'+
+        '<td class="n" style="color:var(--red)">'+(x.perdidos||'—')+'</td>'+
+        '<td class="n">'+x.activos+'</td>'+
+        '<td class="n">'+(x.churnPct?'<span class="p '+(x.churnPct>=10?'p-d':x.churnPct>=5?'p-w':'p-g')+'">'+pct(x.churnPct)+'</span>':'—')+'</td>'+
+        '<td class="n" style="font-weight:700;color:'+(x.neto>=0?'var(--lime)':'var(--red)')+'">'+(x.neto>=0?'+':'')+money(x.neto)+'</td></tr>').join('')+
+      '</tbody></table></div>';
+    v.appendChild(tb);
+  }
+
+  /* ── Quién está pausado o perdido, y por qué ── */
+  if(pausadosHoy.length||perdidosHoy.length){
+    const bajas=[...pausadosHoy,...perdidosHoy].map(c=>{
+      const ev=eventosCliente(c).filter(e=>e.tipo==='pausado'||e.tipo==='perdido');
+      const ult=ev.length?ev[ev.length-1]:null;
+      return{c,fecha:ult?ult.fecha:null,motivo:ult?ult.motivo:'',
+        dias:ult&&ult.fecha?difDiasISO(ult.fecha,today()):null};
+    }).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+    const bc=document.createElement('div');bc.className='card';bc.style.cssText='margin-bottom:16px;border-left:3px solid var(--amb)';
+    bc.innerHTML='<div class="ctitle">Bajas de la cartera <span class="cnt">'+pausadosHoy.length+' pausados · '+perdidosHoy.length+' perdidos</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Cuánto dejaste de facturar y por qué. Los pausados pueden volver; los perdidos son candidatos a recuperar.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Estado</th><th>Desde</th><th>Tiempo</th><th>Motivo</th><th>Facturaba</th></tr></thead><tbody>'+
+      bajas.map(x=>'<tr data-emp="'+x.c.id+'" style="cursor:pointer">'+
+        '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.c.negocio,'s',0,x.c.foto)+'<strong>'+esc(x.c.negocio)+'</strong></div></td>'+
+        '<td>'+(x.c.estado==='pausado'?'<span class="p p-w">Pausado</span>':'<span class="p p-d">Perdido</span>')+'</td>'+
+        '<td class="n">'+(x.fecha?fdate(x.fecha):'<span style="color:var(--tx3)">sin registrar</span>')+'</td>'+
+        '<td class="n">'+(x.dias!=null?(x.dias>=60?Math.floor(x.dias/30)+' meses':x.dias+' d'):'—')+'</td>'+
+        '<td style="max-width:240px">'+(x.motivo?esc(x.motivo):'<span style="color:var(--tx3)">—</span>')+'</td>'+
+        '<td class="n">'+money(x.c.tarifaBruta)+'</td></tr>').join('')+
+      '</tbody></table></div>'+
+      '<div class="sim" style="margin-top:12px"><div class="simrow tot"><span>Facturación mensual perdida</span><span class="v" style="color:var(--red)">'+money(r2(bajas.reduce((s,x)=>s+(Number(x.c.tarifaBruta)||0),0)))+'</span></div></div>';
+    v.appendChild(bc);
+    bc.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
+  }
+
   const country={};act.forEach(c=>{const k=inferirPais(c);country[k]=(country[k]||0)+1});
   const industry={};act.forEach(c=>{const k=String(c.industria||'No especificado').trim()||'No especificado';industry[k]=(industry[k]||0)+1});
   const freq={Mensual:0,Quincenal:0};act.forEach(c=>{c.frecuencia==='quincenal'?freq.Quincenal++:freq.Mensual++});
@@ -2303,7 +2483,7 @@ function proyeccionBase(){
     const bruto=r2(Number(c.tarifaBruta)||0); const cp=comisionDe(c); const cob=r2(bruto*cp/100);
     ingresos=r2(ingresos+bruto); comisionesCobro=r2(comisionesCobro+cob); equipoVariable=r2(equipoVariable+costoEquipoDe(c));
   });
-  const sueldosFijos=r2((S.members||[]).filter(m=>m.activo&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')).reduce((s,m)=>s+(Number(m.sueldoMensual)||0),0));
+  const sueldosFijos=r2((S.members||[]).filter(m=>m.activo).reduce((s,m)=>s+(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'?(Number(m.sueldoMensual)||0):esPisoGarantizado(m)?complementoMensualDe(m):0),0));
   const gastosFijosRecurrentes=totalGastosFijosMensual();
   const gastosFijosProyeccion=r2((S.proyeccionGastosFijos||[]).reduce((s,g)=>s+(Number(g.monto)||0),0));
   const gastosFijos=r2(gastosFijosRecurrentes+gastosFijosProyeccion);
@@ -2399,7 +2579,7 @@ function vPanel(v){
   const cobradoMes=r2(visibleCobros().filter(p=>p.fecha.slice(0,7)===ym).reduce((s,p)=>s+(Number(p.montoBruto)||0),0));
   const ini=ym+'-01',ud=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7)),0).getDate(),fin=ym+'-'+String(ud).padStart(2,'0');
   const agenciaMes=r2(visibleCobros().filter(p=>p.fecha>=ini&&p.fecha<=fin).reduce((sum,p)=>sum+walletDeCobro(p).agencia,0));
-  const sueldosFijosMes=r2((S.members||[]).filter(m=>m.activo&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')).reduce((s,m)=>s+(Number(m.sueldoMensual)||0),0));
+  const sueldosFijosMes=r2((S.members||[]).filter(m=>m.activo).reduce((s,m)=>s+(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'?(Number(m.sueldoMensual)||0):esPisoGarantizado(m)?complementoMensualDe(m):0),0));
   const egresosMes=r2((S.egresos||[]).filter(e=>e.fecha>=ini&&e.fecha<=fin).reduce((s,e)=>s+(Number(e.monto)||0),0));
   const utilidadNetaMes=r2(agenciaMes-sueldosFijosMes-egresosMes);
   const porCobrarTotal=r2(act.reduce((s,c)=>s+Math.max(0,(Number(c.tarifaBruta)||0)-walletCliente(c.id,ini,fin).bruto),0));
@@ -2503,8 +2683,10 @@ function mCompanyModal(){
       '<div class="f"><label>Frecuencia</label><select id="e-fr">'+[['mensual','Mensual'],['quincenal','Quincenal']].map(([k,l])=>'<option value="'+k+'"'+(c.frecuencia===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Fecha de cobro 1</label><input id="e-dia1" type="number" min="1" max="31" value="'+(c.diaCobro1||c.diaCobro||5)+'"><div class="hint">Día del mes. En quincenal es la primera fecha.</div></div>'+
       '<div class="f"><label>Fecha de cobro 2</label><input id="e-dia2" type="number" min="1" max="31" value="'+(c.diaCobro2||20)+'"><div class="hint">Solo para clientes recurrentes quincenales.</div></div>'+
-'<div class="f"><label>Estado</label><select id="e-est">'+['activo','pausado','perdido'].map(x=>'<option value="'+x+'"'+(c.estado===x?' selected':'')+'>'+x[0].toUpperCase()+x.slice(1)+'</option>').join('')+'</select></div>'+
+'<div class="f"><label>Estado</label><select id="e-est">'+ESTADOS_CLIENTE.map(x=>'<option value="'+x+'"'+(c.estado===x?' selected':'')+'>'+x[0].toUpperCase()+x.slice(1)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Cliente desde</label><input id="e-fi" type="date" value="'+(c.fechaInicio||'')+'"></div></div>'+
+      '<div class="row" id="e-cambio-wrap" style="display:none"><div class="f"><label>Fecha del cambio</label><input id="e-est-fe" type="date" value="'+today()+'"></div>'+
+      '<div class="f"><label>Motivo</label><input id="e-est-mo" placeholder="Precio, resultados, cerró el negocio…"><div class="hint" id="e-est-hint"></div></div></div>'+
 
       '<div class="msec"><div class="mstitle">Servicios y entregables</div>'+
       '<div class="f"><label>Servicios contratados</label>'+
@@ -2653,7 +2835,7 @@ function mCompanyModal(){
         diaCobro:Number(document.getElementById('e-dia1').value)||5,
         diaCobro1:Number(document.getElementById('e-dia1').value)||5,
         diaCobro2:Number(document.getElementById('e-dia2').value)||20,
-        estado:document.getElementById('e-est').value,
+        estado:c.estado||'activo',   /* el cambio se registra abajo con su fecha y motivo */
         fechaInicio:document.getElementById('e-fi').value,
         ultimaFechaPago:c.ultimaFechaPago||'',proximaFechaPago:'',
         asignaciones:asigs.filter(a=>{
@@ -2668,18 +2850,41 @@ function mCompanyModal(){
           return x;
         }),
         equipoIds:asigs.filter(a=>{const mm=memberById(a.memberId);return mm&&mm.tipoCompensacion!=='sueldo'&&a.memberId&&montoAsignacionMensual(c,a)>0}).map(a=>a.memberId)};
+      const estadoElegido=document.getElementById('e-est').value;
+      const fechaCambio=document.getElementById('e-est-fe')?.value||today();
+      const motivoCambio=document.getElementById('e-est-mo')?.value||'';
       if(isNew){
-        const nc={id:uid(),...patch,notas:[]};
+        const nc={id:uid(),...patch,estado:estadoElegido,notas:[],historialEstado:[]};
         nc.proximaFechaPago=proximaFechaConfigurada(nc);
         S.companies.push(nc);S.mCompany=nc.id;toast('Empresa creada')
       }
       else{
         Object.assign(c,patch);
+        /* El cambio de estado se registra como evento fechado, no se pisa. */
+        if(registrarCambioEstado(c,estadoElegido,motivoCambio,fechaCambio)){
+          toast(estadoElegido==='perdido'?'Cliente marcado como perdido'
+            :estadoElegido==='pausado'?'Cliente pausado'
+            :'Cliente reactivado');
+        } else toast('Guardado');
         c.proximaFechaPago=proximaFechaConfigurada(c);
-        toast('Guardado')
       }
       S.eCompany=null;await saveUI('companies');render();
     };
+    const selEst=document.getElementById('e-est'), wrapCambio=document.getElementById('e-cambio-wrap');
+    const estadoOriginal=c.estado||'activo';
+    if(selEst&&wrapCambio){
+      const refrescar=()=>{
+        const cambia=!isNew&&selEst.value!==estadoOriginal;
+        wrapCambio.style.display=cambia?'':'none';
+        if(cambia){
+          const h=document.getElementById('e-est-hint');
+          h.textContent=selEst.value==='perdido'?'Quedará registrado en las métricas de clientes perdidos de ese mes.'
+            :selEst.value==='pausado'?'Se registra la pausa con su fecha. Puedes reactivarlo después.'
+            :'Se registra la reactivación en ese mes.';
+        }
+      };
+      selEst.onchange=refrescar;refrescar();
+    }
     document.getElementById('e-cancel').onclick=()=>{if(isNew){S.mCompany=null}S.eCompany=null;render()};
     return;
   }
@@ -3601,9 +3806,10 @@ function mMemberModal(){
       '<div class="row"><div class="f"><label>Email</label><input id="m-e" type="email" value="'+esc(m.email||'')+'"></div>'+
       '<div class="f"><label>Teléfono</label><input id="m-t" value="'+esc(m.telefono||'')+'"></div></div>'+
       '<div class="row"><div class="f"><label>Cómo cobra</label><select id="m-c">'+
-      [['porCliente','Proporcional por cliente'],['sueldo','Sueldo mensual fijo'],['mixto','Sueldo + proporcional']].map(([k,l])=>'<option value="'+k+'"'+(m.tipoCompensacion===k?' selected':'')+'>'+l+'</option>').join('')+
-      '</select><div class="hint">Quien cobra sueldo mensual fijo no entra al reparto de los clientes ni necesita clientes asignados.</div></div>'+
-      '<div class="f"><label>Sueldo mensual</label><input id="m-s" type="number" step="0.01" value="'+(m.sueldoMensual||0)+'"><div class="hint">Se divide en dos quincenas</div></div>'+
+      [['porCliente','Proporcional por cliente'],['sueldo','Sueldo mensual fijo'],['mixto','Sueldo + proporcional'],['garantizado','Ingreso mensual garantizado']].map(([k,l])=>'<option value="'+k+'"'+(m.tipoCompensacion===k?' selected':'')+'>'+l+'</option>').join('')+
+      '</select><div class="hint" id="m-c-hint"></div></div>'+
+      '<div class="f" id="m-s-wrap"><label>Sueldo mensual</label><input id="m-s" type="number" step="0.01" value="'+(m.sueldoMensual||0)+'"><div class="hint">Se divide en dos quincenas</div></div>'+
+      '<div class="f" id="m-g-wrap"><label>Ingreso mensual garantizado</label><input id="m-g" type="number" step="0.01" value="'+(m.ingresoGarantizado||0)+'"><div class="hint" id="m-g-hint">La agencia completa lo que sus clientes no cubran.</div></div>'+
       '<div class="f"><label>Estado</label><select id="m-a"><option value="1"'+(m.activo?' selected':'')+'>Activo</option><option value="0"'+(!m.activo?' selected':'')+'>Inactivo</option></select></div></div>'+
       '<div class="brow"><button class="b bp" id="m-save">'+(isNew?'Crear':'Guardar')+'</button><button class="b bg" id="m-cancel">Cancelar</button></div>';
   }else{
@@ -3642,10 +3848,29 @@ function mMemberModal(){
   document.getElementById('x').onclick=()=>{S.mMember=null;S.eMember=null;render()};
   if(editing){
     const getFotoMiembro=fotoBind('m-foto',m.foto);
+    const selC=document.getElementById('m-c');
+    function ajustarCampos(){
+      const t=selC.value;
+      const esG=t==='garantizado', esS=t==='sueldo'||t==='mixto';
+      document.getElementById('m-s-wrap').style.display=esS?'':'none';
+      document.getElementById('m-g-wrap').style.display=esG?'':'none';
+      document.getElementById('m-c-hint').textContent=
+        esG?'Tiene un ingreso mensual asegurado. Sus comisiones por cliente cubren una parte y la agencia pone el resto.'
+        :t==='sueldo'?'No entra al reparto de los clientes ni necesita clientes asignados.'
+        :t==='mixto'?'Cobra su sueldo Y ADEMÁS lo que le corresponda de cada cliente. Los montos se suman.'
+        :'Solo cobra lo que le corresponda de los clientes que lleva.';
+      if(esG){
+        const teo=comisionTeoricaMensual(m.id), piso=r2(Number(document.getElementById('m-g').value)||0);
+        document.getElementById('m-g-hint').innerHTML=teo>0
+          ? 'Sus clientes le dan '+money(teo)+' al mes. La agencia completaría <strong>'+money(Math.max(0,piso-teo))+'</strong>.'
+          : 'Todavía no tiene clientes asignados, así que la agencia cubriría el piso completo.';
+      }
+    }
+    selC.onchange=ajustarCampos;document.getElementById('m-g').oninput=ajustarCampos;ajustarCampos();
     document.getElementById('m-save').onclick=async()=>{
       const n=document.getElementById('m-n').value.trim();if(!n){alert('Ponle nombre.');return}
       const patch={nombre:n,roleId:document.getElementById('m-r').value,email:document.getElementById('m-e').value.trim(),
-        telefono:document.getElementById('m-t').value.trim(),tipoCompensacion:document.getElementById('m-c').value,
+        telefono:document.getElementById('m-t').value.trim(),tipoCompensacion:document.getElementById('m-c').value,ingresoGarantizado:r2(Number(document.getElementById('m-g')?.value)||0),
         sueldoMensual:Number(document.getElementById('m-s').value)||0,activo:document.getElementById('m-a').value==='1',
         foto:getFotoMiembro()};
       if(isNew){const nm={id:uid(),...patch,payouts:[]};S.members.push(nm);S.mMember=nm.id;toast('Miembro creado')}
@@ -3868,9 +4093,13 @@ function payModal(memberId,q){
   }).join('');
   const adelPend=adelantosPendientesMiembro(m.id,q.fin);
   md.innerHTML='<div class="mhd"><div class="mid">'+av(m.nombre,'l',1,m.foto)+'<div><div class="mtitle">Pagar a '+esc(m.nombre)+'</div><div class="esub">'+labelQ(q)+' de '+q.year+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+ 
-    '<div class="sim">'+(pm.sueldoYaPagado>0.005?'<div class="simrow"><span>Sueldo base ya pagado en esta quincena</span><span class="v" style="color:var(--lime)">'+money(pm.sueldoYaPagado)+'</span></div>':'')+
-    '<div class="simrow"><span>Sueldo base pendiente</span><span class="v">'+money(pm.sueldoPendiente)+'</span></div>'+
-    '<div class="simrow"><span>Sueldo base a pagar ahora</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+ 
+    '<div class="sim">'+(pm.tipoCompensacion==='garantizado'?
+      '<div class="simrow"><span>Piso garantizado de la quincena</span><span class="v">'+money(pm.pisoQuincena)+'</span></div>'+
+      '<div class="simrow"><span>Le corresponde de clientes</span><span class="v">'+money(pm.comisionTeoricaQuincena)+'</span></div>'+
+      '<div class="simrow"><span>Complemento de la agencia</span><span class="v" id="pay-complemento" style="color:var(--lav)">'+money(pm.complementoQuincena)+'</span></div>':'')+
+    (pm.sueldoYaPagado>0.005?'<div class="simrow"><span>Sueldo base ya pagado en esta quincena</span><span class="v" style="color:var(--lime)">'+money(pm.sueldoYaPagado)+'</span></div>':'')+
+    '<div class="simrow"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento pendiente':'Sueldo base pendiente')+'</span><span class="v">'+money(pm.sueldoPendiente)+'</span></div>'+
+    '<div class="simrow"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento a pagar ahora':'Sueldo base a pagar ahora')+'</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+ 
     '<div class="simrow"><span>Pagos liberados por clientes</span><span class="v" id="pay-liberado">'+money(pm.pagableClientes)+'</span></div>'+ 
     '<div class="simrow"><span>Cobertura manual</span><span class="v" id="pay-cubierto">$0.00</span></div>'+
     '<div class="simrow"><span>Bonificaciones y descuentos</span><span class="v" id="pay-extras">$0.00</span></div>'+ 
@@ -3879,7 +4108,8 @@ function payModal(memberId,q){
     '<div class="msec"><div class="mstitle">Qué quieres cubrir de cada cliente</div>'+ 
     '<p class="sub" style="font-size:12px;margin:-4px 0 10px">El porcentaje es el porcentaje total que quieres dejar cubierto para el empleado en esta quincena. Puedes cubrirlo aunque el cliente todavía no haya pagado.</p>'+ 
     (rows||'<div class="empty" style="padding:18px">Este empleado no tiene clientes variables asignados.</div>')+'</div>'+ 
-    ((pm.tipoCompensacion==='sueldo'||pm.tipoCompensacion==='mixto')?'<div class="f" style="margin-top:14px"><label>Sueldo de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo-q" type="number" min="0" step="0.01" value="'+pm.sueldoBase.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.sueldoMensual)||0)/2))+'</span></div><div class="hint">Si este mes acordaste otro monto, cámbialo aquí. Aplica solo a esta quincena; la ficha del empleado no se toca.</div></div>':'')+
+((pm.tipoCompensacion==='sueldo'||pm.tipoCompensacion==='mixto')?'<div class="f" style="margin-top:14px"><label>Sueldo de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo-q" type="number" min="0" step="0.01" value="'+pm.sueldoBase.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.sueldoMensual)||0)/2))+'</span></div><div class="hint">Si este mes acordaste otro monto, cámbialo aquí. Aplica solo a esta quincena; la ficha del empleado no se toca.</div></div>':'')+
+    (pm.tipoCompensacion==='garantizado'?'<div class="f" style="margin-top:14px"><label>Piso garantizado de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-piso-q" type="number" min="0" step="0.01" value="'+pm.pisoQuincena.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.ingresoGarantizado)||0)/2))+'</span></div><div class="hint">El complemento se recalcula solo: piso menos lo que le corresponde de clientes ('+money(pm.comisionTeoricaQuincena)+'). Aplica solo a esta quincena.</div></div>':'')+
     (pm.sueldoPendiente>0.005?'<div class="f" style="margin-top:14px"><label>Sueldo base a pagar ahora</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo" type="number" min="0" max="'+pm.sueldoPendiente.toFixed(2)+'" step="0.01" value="'+pm.sueldoPendiente.toFixed(2)+'"><button type="button" class="b bg bs" id="p-sueldo-todo">Todo</button><button type="button" class="b bg bs" id="p-sueldo-mitad">Mitad</button><button type="button" class="b bg bs" id="p-sueldo-cero">Nada</button></div><div class="hint">Para pagar el sueldo por partes. Lo que no pagues ahora queda pendiente en esta misma quincena y podrás abonarlo después.</div></div>':'')+
     '<div class="f" style="margin-top:14px"><label>Descontar de adelantos pendientes</label><input id="p-desc-adv" type="number" min="0" step="0.01" value="'+Math.min(adelPend,Math.max(0,pm.totalAntesAdelantos)).toFixed(2)+'"><div class="hint">Puedes descontar todo, una parte o $0. El saldo no descontado sigue pendiente para futuras quincenas.</div></div>'+ 
     '<div class="row" style="margin-top:10px"><div class="f"><label>Total a pagar</label><input id="p-mo" type="number" step="0.01" value="'+Math.max(0,pm.totalAntesAdelantos-adelPend).toFixed(2)+'" readonly></div>'+ 
@@ -3899,7 +4129,17 @@ function payModal(memberId,q){
     const adicional=r2(Math.max(0,Math.min(max,objetivoTotal-yaPagado-liberado)));
     amt.value=adicional.toFixed(2);
   }
+  const esGarantizado=pm.tipoCompensacion==='garantizado';
+  /* Con piso garantizado lo que se fija es el PISO; el complemento que pone la
+     agencia se deriva restándole lo que le corresponde de clientes. Si mañana
+     tiene menos clientes, el complemento sube solo hasta cubrir el piso. */
+  function pisoQuincena(){
+    const inp=document.getElementById('p-piso-q');
+    return inp?r2(Math.max(0,Number(inp.value)||0)):r2(pm.pisoQuincena||0);
+  }
+  function complementoAgencia(){return r2(Math.max(0,pisoQuincena()-r2(pm.comisionTeoricaQuincena||0)))}
   function sueldoQuincena(){
+    if(esGarantizado)return complementoAgencia();
     const inp=document.getElementById('p-sueldo-q');
     return inp?r2(Math.max(0,Number(inp.value)||0)):r2(pm.sueldoBase);
   }
@@ -3924,6 +4164,7 @@ function payModal(memberId,q){
     const liberadas=r2(clientRows.reduce((sum,row)=>{const d=pm.detalle[Number(row.dataset.payi)];return sum+Math.min(Number(row.querySelector('.pay-client-mo').value)||0,Number(d.ganado)||0)},0));
     const cubierto=r2(Math.max(0,sumaClientes-liberadas));
     const elSue=document.getElementById('pay-sueldo');if(elSue)elSue.textContent=money(sb);
+    const elComp=document.getElementById('pay-complemento');if(elComp)elComp.textContent=money(complementoAgencia());
     const elEx=document.getElementById('pay-extras');if(elEx)elEx.textContent=(ex<0?'−':'')+money(Math.abs(ex));
     const elExT=document.getElementById('p-extras-total');if(elExT)elExT.textContent=(ex<0?'−':'')+money(Math.abs(ex));
     document.getElementById('pay-liberado').textContent=money(liberadas);
@@ -3973,6 +4214,8 @@ function payModal(memberId,q){
     else if((Number(inpSue.value)||0)>tope)inpSue.value=tope.toFixed(2);
   }
   if(inpSueQ)inpSueQ.oninput=()=>{refrescarTopeSueldo();syncTotal()};
+  const inpPisoQ=document.getElementById('p-piso-q');
+  if(inpPisoQ)inpPisoQ.oninput=()=>{refrescarTopeSueldo();syncTotal()};
   if(inpSue){
     const setSue=v=>{sueldoTocadoAMano=true;inpSue.value=r2(Math.max(0,Math.min(sueldoPendienteAhora(),v))).toFixed(2);syncTotal()};
     inpSue.oninput=()=>{sueldoTocadoAMano=true;syncTotal()};
@@ -3997,7 +4240,10 @@ function payModal(memberId,q){
     if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}
     for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}
     const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:sueldoAhora,
-      sueldoBaseQuincena:sueldoQuincena(),extras,extrasMonto,
+      sueldoBaseQuincena:esGarantizado?pisoQuincena():sueldoQuincena(),
+      pisoGarantizado:esGarantizado?pisoQuincena():null,
+      complementoAgencia:esGarantizado?complementoAgencia():null,
+      extras,extrasMonto,
       sueldoPendienteTrasPago:r2(Math.max(0,sueldoQuincena()-pm.sueldoYaPagado-sueldoAhora)),
       adelantoPendienteTrasPago:r2(Math.max(0,adelPend-plan.descontado))};
     S.payouts.push(p);await saveUI('payouts');ov.remove();toast('Pago registrado');if(gen)comprobantePDF(p);render();
