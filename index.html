@@ -1209,11 +1209,24 @@ function qPermitida(key){
   return String(key)>=String(nominaDesdeKey());   // más atrás: regla antigua de inicio de control
 }
 function pagosNominaDeMiembroEnQ(memberId,qKey){return S.payouts.filter(p=>p.memberId===memberId&&p.quincenaKey===qKey&&p.tipo!=='adelanto')}
+/* El sueldo puede variar mes a mes. La ficha del miembro guarda el habitual,
+   pero al pagar se puede fijar otro solo para esa quincena; queda registrado
+   en el pago como sueldoBaseQuincena y manda sobre el de la ficha. */
+function sueldoBaseDeQuincena(memberId,q){
+  const m=memberById(memberId);
+  const porDefecto=r2((Number(m?.sueldoMensual)||0)/2);
+  const ps=pagosNominaDeMiembroEnQ(memberId,q.key)
+    .filter(p=>p.sueldoBaseQuincena!=null)
+    .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+  return ps.length?r2(Number(ps[ps.length-1].sueldoBaseQuincena)||0):porDefecto;
+}
 function sueldoYaPagadoEnQ(memberId,q){
-  const base=(Number(memberById(memberId)?.sueldoMensual)||0)/2;
+  const base=sueldoBaseDeQuincena(memberId,q);
   const ps=pagosNominaDeMiembroEnQ(memberId,q.key);
   return r2(Math.min(base,ps.reduce((s,p)=>s+(Number(p.sueldoBase)||0),0)));
 }
+/* Bonificaciones y descuentos puntuales de un pago. */
+function totalExtras(p){return r2((p&&Array.isArray(p.extras)?p.extras:[]).reduce((s,x)=>s+(Number(x.monto)||0),0))}
 /* ─────────── ESTADO DE ADELANTOS POR PERSONA ───────────
    Cada adelanto es un payout con tipo:'adelanto' y general:true.
    Cada pago de nómina guarda en advanceAplicados[] qué adelantos descontó y
@@ -1299,7 +1312,7 @@ function distribuirDescuentoAdelantos(memberId,untilDate,monto){
 function calcularNomina(q){
   const porMiembro=(isAdminUser()?S.members:S.members.filter(m=>m.id===linkedMemberId())).filter(m=>m.activo).map(m=>{
     const rol=S.roles.find(x=>x.id===m.roleId),det=[],quincenaDisponible=q.inicio<=today();
-    const sueldoBase=(quincenaDisponible&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'))?r2((Number(m.sueldoMensual)||0)/2):0;
+    const sueldoBase=(quincenaDisponible&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'))?sueldoBaseDeQuincena(m.id,q):0;
     const sueldoYaPagado=sueldoYaPagadoEnQ(m.id,q), sueldoPendiente=r2(Math.max(0,sueldoBase-sueldoYaPagado));
     S.companies.filter(c=>c.estado==='activo').forEach(c=>{
       const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;const mq=r2(mensual*0.5),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*0.5);
@@ -3855,18 +3868,24 @@ function payModal(memberId,q){
   }).join('');
   const adelPend=adelantosPendientesMiembro(m.id,q.fin);
   md.innerHTML='<div class="mhd"><div class="mid">'+av(m.nombre,'l',1,m.foto)+'<div><div class="mtitle">Pagar a '+esc(m.nombre)+'</div><div class="esub">'+labelQ(q)+' de '+q.year+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+ 
-    '<div class="sim"><div class="simrow"><span>Sueldo base pendiente</span><span class="v">'+money(pm.sueldoPendiente)+'</span></div>'+ 
+    '<div class="sim">'+(pm.sueldoYaPagado>0.005?'<div class="simrow"><span>Sueldo base ya pagado en esta quincena</span><span class="v" style="color:var(--lime)">'+money(pm.sueldoYaPagado)+'</span></div>':'')+
+    '<div class="simrow"><span>Sueldo base pendiente</span><span class="v">'+money(pm.sueldoPendiente)+'</span></div>'+
+    '<div class="simrow"><span>Sueldo base a pagar ahora</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+ 
     '<div class="simrow"><span>Pagos liberados por clientes</span><span class="v" id="pay-liberado">'+money(pm.pagableClientes)+'</span></div>'+ 
-    '<div class="simrow"><span>Cobertura manual</span><span class="v" id="pay-cubierto">$0.00</span></div>'+ 
+    '<div class="simrow"><span>Cobertura manual</span><span class="v" id="pay-cubierto">$0.00</span></div>'+
+    '<div class="simrow"><span>Bonificaciones y descuentos</span><span class="v" id="pay-extras">$0.00</span></div>'+ 
     '<div class="simrow neg"><span>Adelantos pendientes</span><span class="v" id="pay-adelantos">−'+money(adelPend)+'</span></div>'+ 
     '<div class="simrow tot"><span>Total en efectivo a pagar</span><span class="v" id="pay-total">'+money(Math.max(0,pm.totalAntesAdelantos-adelPend))+'</span></div></div>'+ 
     '<div class="msec"><div class="mstitle">Qué quieres cubrir de cada cliente</div>'+ 
     '<p class="sub" style="font-size:12px;margin:-4px 0 10px">El porcentaje es el porcentaje total que quieres dejar cubierto para el empleado en esta quincena. Puedes cubrirlo aunque el cliente todavía no haya pagado.</p>'+ 
     (rows||'<div class="empty" style="padding:18px">Este empleado no tiene clientes variables asignados.</div>')+'</div>'+ 
+    ((pm.tipoCompensacion==='sueldo'||pm.tipoCompensacion==='mixto')?'<div class="f" style="margin-top:14px"><label>Sueldo de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo-q" type="number" min="0" step="0.01" value="'+pm.sueldoBase.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.sueldoMensual)||0)/2))+'</span></div><div class="hint">Si este mes acordaste otro monto, cámbialo aquí. Aplica solo a esta quincena; la ficha del empleado no se toca.</div></div>':'')+
+    (pm.sueldoPendiente>0.005?'<div class="f" style="margin-top:14px"><label>Sueldo base a pagar ahora</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo" type="number" min="0" max="'+pm.sueldoPendiente.toFixed(2)+'" step="0.01" value="'+pm.sueldoPendiente.toFixed(2)+'"><button type="button" class="b bg bs" id="p-sueldo-todo">Todo</button><button type="button" class="b bg bs" id="p-sueldo-mitad">Mitad</button><button type="button" class="b bg bs" id="p-sueldo-cero">Nada</button></div><div class="hint">Para pagar el sueldo por partes. Lo que no pagues ahora queda pendiente en esta misma quincena y podrás abonarlo después.</div></div>':'')+
     '<div class="f" style="margin-top:14px"><label>Descontar de adelantos pendientes</label><input id="p-desc-adv" type="number" min="0" step="0.01" value="'+Math.min(adelPend,Math.max(0,pm.totalAntesAdelantos)).toFixed(2)+'"><div class="hint">Puedes descontar todo, una parte o $0. El saldo no descontado sigue pendiente para futuras quincenas.</div></div>'+ 
     '<div class="row" style="margin-top:10px"><div class="f"><label>Total a pagar</label><input id="p-mo" type="number" step="0.01" value="'+Math.max(0,pm.totalAntesAdelantos-adelPend).toFixed(2)+'" readonly></div>'+ 
     '<div class="f"><label>Fecha</label><input id="p-fe" type="date" value="'+today()+'"></div></div>'+ 
     '<div class="msec" style="margin-top:14px"><div class="mstitle">¿Desde qué wallets se paga?</div><p class="sub" style="font-size:12px;margin:-4px 0 10px">Puedes dividir el pago entre varias wallets. Ejemplo: $300 en Efectivo + $200 en USDT.</p><div id="p-wallet-parts"></div><button type="button" class="b bg bs" id="p-add-wallet"><i class="ti ti-plus"></i>Agregar wallet</button><div class="sim" style="margin-top:10px"><div class="simrow"><span>Distribuido entre wallets</span><span class="v" id="p-wallet-total">$0.00</span></div></div></div>'+
+    '<div class="msec" style="margin-top:14px"><div class="mstitle">Bonificaciones y descuentos</div><p class="sub" style="font-size:12px;margin:-4px 0 10px">Extras puntuales de este pago: bono por resultados, reembolso de gastos, horas adicionales. Usa monto negativo para un descuento.</p><div id="p-extras"></div><button type="button" class="b bg bs" id="p-add-extra"><i class="ti ti-plus"></i>Agregar concepto</button><div class="sim" style="margin-top:10px"><div class="simrow"><span>Total de extras</span><span class="v" id="p-extras-total">$0.00</span></div></div></div>'+
     '<div class="f"><label>Nota</label><input id="p-no" placeholder="Opcional"></div>'+ 
     '<div class="brow"><button class="b bp" id="p-ok">Registrar y generar comprobante</button><button class="b bg" id="p-only">Solo registrar</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);
@@ -3880,12 +3899,33 @@ function payModal(memberId,q){
     const adicional=r2(Math.max(0,Math.min(max,objetivoTotal-yaPagado-liberado)));
     amt.value=adicional.toFixed(2);
   }
+  function sueldoQuincena(){
+    const inp=document.getElementById('p-sueldo-q');
+    return inp?r2(Math.max(0,Number(inp.value)||0)):r2(pm.sueldoBase);
+  }
+  /* Lo que falta por pagar del sueldo, con el monto de esta quincena ya ajustado. */
+  function sueldoPendienteAhora(){return r2(Math.max(0,sueldoQuincena()-pm.sueldoYaPagado))}
+  function sueldoElegido(){
+    const inp=document.getElementById('p-sueldo');
+    if(!inp)return sueldoPendienteAhora();
+    return r2(Math.max(0,Math.min(sueldoPendienteAhora(),Number(inp.value)||0)));
+  }
+  function extrasList(){
+    return [...document.querySelectorAll('.p-extra-row')].map(r=>({
+      concepto:r.querySelector('.p-extra-co').value.trim(),
+      monto:r2(Number(r.querySelector('.p-extra-mo').value)||0)
+    })).filter(x=>x.concepto||Math.abs(x.monto)>0.005);
+  }
+  function extrasTotal(){return r2(extrasList().reduce((s,x)=>s+x.monto,0))}
   function syncTotal(){
-    const sumaClientes=clientSum(),bruto=r2(pm.sueldoPendiente+sumaClientes);
+    const sumaClientes=clientSum(),sb=sueldoElegido(),ex=extrasTotal(),bruto=r2(sb+sumaClientes+ex);
     const adv=Math.max(0,Math.min(adelPend,bruto,Number(document.getElementById('p-desc-adv')?.value)||0));
     const total=r2(Math.max(0,bruto-adv));
     const liberadas=r2(clientRows.reduce((sum,row)=>{const d=pm.detalle[Number(row.dataset.payi)];return sum+Math.min(Number(row.querySelector('.pay-client-mo').value)||0,Number(d.ganado)||0)},0));
     const cubierto=r2(Math.max(0,sumaClientes-liberadas));
+    const elSue=document.getElementById('pay-sueldo');if(elSue)elSue.textContent=money(sb);
+    const elEx=document.getElementById('pay-extras');if(elEx)elEx.textContent=(ex<0?'−':'')+money(Math.abs(ex));
+    const elExT=document.getElementById('p-extras-total');if(elExT)elExT.textContent=(ex<0?'−':'')+money(Math.abs(ex));
     document.getElementById('pay-liberado').textContent=money(liberadas);
     document.getElementById('pay-cubierto').textContent=money(cubierto);
     document.getElementById('pay-adelantos').textContent='−'+money(adv);
@@ -3907,11 +3947,47 @@ function payModal(memberId,q){
   }
   function syncWalletTotal(){const total=r2([...walletBox.querySelectorAll('.p-wallet-mo')].reduce((s,x)=>s+(Number(x.value)||0),0));document.getElementById('p-wallet-total').textContent=money(total);return total}
   addWalletPart(S.metodos[0]?.id||'',0);document.getElementById('p-add-wallet').onclick=()=>addWalletPart('',0);
+  const extrasBox=document.getElementById('p-extras');
+  function addExtra(concepto='',monto=0){
+    const row=document.createElement('div');row.className='row p-extra-row';row.style.marginBottom='8px';
+    row.innerHTML='<div class="f"><label>Concepto</label><input class="p-extra-co" placeholder="Bono por resultados, reembolso…" value="'+esc(concepto)+'"></div>'+
+      '<div class="f"><label>Monto</label><div style="display:flex;gap:6px"><input class="p-extra-mo" type="number" step="0.01" value="'+Number(monto||0).toFixed(2)+'"><button type="button" class="ib dg p-extra-del"><i class="ti ti-trash"></i></button></div></div>';
+    extrasBox.appendChild(row);
+    row.querySelector('.p-extra-mo').oninput=syncTotal;
+    row.querySelector('.p-extra-co').oninput=syncTotal;
+    row.querySelector('.p-extra-del').onclick=()=>{row.remove();syncTotal()};
+  }
+  document.getElementById('p-add-extra').onclick=()=>addExtra();
+
+  const inpSueQ=document.getElementById('p-sueldo-q');
+  const inpSue=document.getElementById('p-sueldo');
+  /* Si el usuario no ha tocado a mano "a pagar ahora", ese campo sigue al
+     sueldo de la quincena. En cuanto lo edita, se respeta su cifra y solo
+     se recorta si supera el nuevo pendiente. */
+  let sueldoTocadoAMano=false;
+  function refrescarTopeSueldo(){
+    if(!inpSue)return;
+    const tope=sueldoPendienteAhora();
+    inpSue.max=tope.toFixed(2);
+    if(!sueldoTocadoAMano)inpSue.value=tope.toFixed(2);
+    else if((Number(inpSue.value)||0)>tope)inpSue.value=tope.toFixed(2);
+  }
+  if(inpSueQ)inpSueQ.oninput=()=>{refrescarTopeSueldo();syncTotal()};
+  if(inpSue){
+    const setSue=v=>{sueldoTocadoAMano=true;inpSue.value=r2(Math.max(0,Math.min(sueldoPendienteAhora(),v))).toFixed(2);syncTotal()};
+    inpSue.oninput=()=>{sueldoTocadoAMano=true;syncTotal()};
+    document.getElementById('p-sueldo-todo').onclick=()=>setSue(sueldoPendienteAhora());
+    document.getElementById('p-sueldo-mitad').onclick=()=>setSue(sueldoPendienteAhora()/2);
+    document.getElementById('p-sueldo-cero').onclick=()=>setSue(0);
+  }
   syncTotal();syncWalletTotal();document.getElementById('p-desc-adv').oninput=syncTotal;document.getElementById('x').onclick=()=>{ov.remove();render()};
   async function doPay(gen){
     const detalle=pm.detalle.map((d,i)=>{const row=clientRows[i];const maxSel=Number(row?.querySelector('.pay-client-mo')?.dataset.max)||0;const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;return{companyId:d.companyId,negocio:d.negocio,monto:d.montoQuincena,pagable:r2(montoSel),liberado:r2(d.ganado),retenido:r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel)),cobrado:d.clientePago,coberturaManual:r2(Math.max(0,montoSel-(Number(d.ganado)||0)))};}).filter(d=>d.pagable>0||d.coberturaManual>0);
     const sumaClientes=r2(detalle.reduce((s,d)=>s+d.pagable,0));
-    const bruto=r2(pm.sueldoPendiente+sumaClientes);
+    const sueldoAhora=sueldoElegido();
+    const extras=extrasList(), extrasMonto=r2(extras.reduce((s,x)=>s+x.monto,0));
+    const bruto=r2(sueldoAhora+sumaClientes+extras.reduce((s,x)=>s+x.monto,0));
+    if(bruto<0){alert('Los descuentos superan el monto a pagar. Ajusta los conceptos.');return}
     const solicitadoAdv=Math.max(0,Math.min(adelPend,bruto,Number(document.getElementById('p-desc-adv')?.value)||0));
     const plan=solicitadoAdv>0?distribuirDescuentoAdelantos(memberId,document.getElementById('p-fe').value||today(),solicitadoAdv):{aplicados:[],descontado:0,restante:0};
     const total=r2(Math.max(0,bruto-plan.descontado));
@@ -3920,7 +3996,10 @@ function payModal(memberId,q){
     const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));
     if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}
     for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}
-    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:pm.sueldoPendiente};
+    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:sueldoAhora,
+      sueldoBaseQuincena:sueldoQuincena(),extras,extrasMonto,
+      sueldoPendienteTrasPago:r2(Math.max(0,sueldoQuincena()-pm.sueldoYaPagado-sueldoAhora)),
+      adelantoPendienteTrasPago:r2(Math.max(0,adelPend-plan.descontado))};
     S.payouts.push(p);await saveUI('payouts');ov.remove();toast('Pago registrado');if(gen)comprobantePDF(p);render();
   }
   document.getElementById('p-ok').onclick=()=>doPay(true);document.getElementById('p-only').onclick=()=>doPay(false);
@@ -4034,7 +4113,7 @@ function vPagosEquipo(v){
   if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();return}
   c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Wallet(s)</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
     const m=memberById(p.memberId);const clientes=(p.detalle||[]).map(x=>x.negocio).filter(Boolean).join(', ')||'—';
-    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+(esPayoutSinWallet(p)?'<span style="color:var(--tx3)">Sin wallet</span>':esc(payoutWalletsLabel(p)))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
+    return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+(totalExtras(p)?'<div style="font-size:11px;color:var(--tx3)">incl. '+(totalExtras(p)<0?'-':'+')+money(Math.abs(totalExtras(p)))+' en extras</div>':'')+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+(esPayoutSinWallet(p)?'<span style="color:var(--tx3)">Sin wallet</span>':esc(payoutWalletsLabel(p)))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
   }).join('')+'</tbody></table></div>';
   v.appendChild(c);
   c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
@@ -4296,9 +4375,40 @@ function comprobantePDF(p){
   d.setFillColor(246,243,250);d.roundedRect(R-184,146,184,58,12,12,'F');d.setTextColor(95,89,102);d.setFontSize(8.5);d.text('QUINCENA',R-168,164);d.text('FECHA',R-168,182);d.text('TIPO',R-168,200);d.setTextColor(35,31,42);d.setFont('helvetica','bold');d.setFontSize(10);d.text(p.quincenaKey||'—',R-14,164,{align:'right'});d.setFont('helvetica','normal');d.text(fdate(p.fecha),R-14,182,{align:'right'});d.text(p.tipo==='adelanto'?'Adelanto general':'Pago de quincena',R-14,200,{align:'right'});
   let y=242;d.setFillColor(35,31,42);d.roundedRect(M,y,R-M,30,8,8,'F');d.setTextColor(255,255,255);d.setFont('helvetica','bold');d.setFontSize(9.5);d.text('CONCEPTO',M+14,y+19);d.text('MONTO',R-14,y+19,{align:'right'});y+=30;
   d.setTextColor(40,36,47);d.setFont('helvetica','normal');d.setFontSize(10.5);
-  if(Number(p.sueldoBase)>0){d.text('Sueldo base de quincena',M+14,y+22);d.text(money(p.sueldoBase),R-14,y+22,{align:'right'});y+=38}
+  if(Number(p.sueldoBase)>0){
+    const habitual=r2((Number(m?.sueldoMensual)||0)/2), fijado=p.sueldoBaseQuincena!=null?r2(Number(p.sueldoBaseQuincena)||0):habitual;
+    let txt='Sueldo base de quincena';
+    if(Math.abs(fijado-habitual)>0.005)txt+=' (ajustado a '+money(fijado)+')';
+    else if(Math.abs(Number(p.sueldoBase)-fijado)>0.005)txt+=' (abono parcial de '+money(fijado)+')';
+    d.text(txt,M+14,y+22);d.text(money(p.sueldoBase),R-14,y+22,{align:'right'});y+=38}
   (p.detalle||[]).filter(x=>Number(x.pagable||0)>0).forEach(x=>{d.text(String(x.negocio||'').slice(0,42),M+14,y+22);d.text(money(x.pagable),R-14,y+22,{align:'right'});y+=30;if(y>H-220){d.addPage();d.setFillColor(255,255,255);d.rect(0,0,W,H,'F');y=70}});
+  (p.extras||[]).filter(x=>Math.abs(Number(x.monto)||0)>0.005).forEach(x=>{
+    const mo=r2(Number(x.monto)||0);
+    d.setTextColor(mo<0?145:40,mo<0?70:36,mo<0?88:47);
+    d.text(String(x.concepto||(mo<0?'Descuento':'Bonificación')).slice(0,42),M+14,y+22);
+    d.text((mo<0?'−':'+')+money(Math.abs(mo)),R-14,y+22,{align:'right'});
+    y+=30;if(y>H-220){d.addPage();d.setFillColor(255,255,255);d.roundedRect(34,34,W-68,H-68,18,18,'F');y=70}
+  });
+  d.setTextColor(40,36,47);
   if(Number(p.adelantosDescontados)>0){d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=24;d.setTextColor(145,70,88);d.text('(-) Adelantos descontados',M+14,y);d.text('−'+money(p.adelantosDescontados),R-14,y,{align:'right'});y+=26}
+  /* Saldos que quedan abiertos tras este pago: adelanto no descontado y
+     sueldo pagado solo en parte. Se calculan en el momento de pagar y se
+     guardan en el registro, pero si es un pago antiguo se recalculan. */
+  const advQueda=p.adelantoPendienteTrasPago!=null
+    ? r2(Number(p.adelantoPendienteTrasPago)||0)
+    : r2(Math.max(0,adelantosPendientesMiembro(p.memberId,p.fecha||today())));
+  const sueldoQueda=r2(Number(p.sueldoPendienteTrasPago)||0);
+  if(advQueda>0.005||sueldoQueda>0.005){
+    d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=20;
+    d.setFillColor(255,247,232);d.roundedRect(M,y,R-M,(advQueda>0.005&&sueldoQueda>0.005)?56:38,10,10,'F');
+    d.setTextColor(150,100,20);d.setFont('helvetica','bold');d.setFontSize(9);
+    d.text('PENDIENTE DESPUES DE ESTE PAGO',M+14,y+16);
+    d.setFont('helvetica','normal');d.setFontSize(9.5);d.setTextColor(120,88,30);
+    let yy=y+32;
+    if(advQueda>0.005){d.text('Adelanto sin descontar',M+14,yy);d.text(money(advQueda),R-14,yy,{align:'right'});yy+=18}
+    if(sueldoQueda>0.005){d.text('Sueldo base por pagar en esta quincena',M+14,yy);d.text(money(sueldoQueda),R-14,yy,{align:'right'})}
+    y+=((advQueda>0.005&&sueldoQueda>0.005)?56:38)+16;
+  }
   if(p.walletParts&&p.walletParts.length){d.setTextColor(110,103,118);d.setFontSize(8.5);d.text('Pagado desde: '+payoutWalletsLabel(p),M+14,y,{maxWidth:R-M-28});y+=24}
   if(p.nota){d.setTextColor(110,103,118);d.setFontSize(9);d.text('Nota: '+p.nota,M+14,y,{maxWidth:R-M-28});y+=30}
   y+=8;d.setFillColor(246,243,250);d.roundedRect(M,y,R-M,72,14,14,'F');d.setTextColor(95,89,102);d.setFontSize(9);d.text('TOTAL PAGADO',M+16,y+24);d.setTextColor(110,75,198);d.setFont('helvetica','bold');d.setFontSize(19);d.text(money(p.monto),R-16,y+50,{align:'right'});
