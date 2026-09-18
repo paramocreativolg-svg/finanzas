@@ -746,6 +746,7 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 <div id="tm"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 (function(){
 "use strict";
@@ -1047,7 +1048,7 @@ function walletCliente(companyId,desde,hasta){
 }
 function walletTotal(desde,hasta){
   let bruto=0,neto=0,equipo=0,agencia=0,comision=0;
-  S.cobros.filter(p=>(!desde||p.fecha>=desde)&&(!hasta||p.fecha<=hasta)).forEach(p=>{
+  S.cobros.filter(p=>!esDevolucionAdelanto(p)&&(!desde||p.fecha>=desde)&&(!hasta||p.fecha<=hasta)).forEach(p=>{
     const w=walletDeCobro(p);bruto+=Number(p.montoBruto)||0;neto+=w.neto;equipo+=w.equipo;agencia+=w.agencia;comision+=w.comision});
   return{bruto:r2(bruto),neto:r2(neto),equipo:r2(equipo),agencia:r2(agencia),comision:r2(comision)};
 }
@@ -1261,7 +1262,14 @@ function aplicacionesDeAdelanto(memberId,advanceId,untilDate){
     if(untilDate&&String(p.fecha||'')>untilDate)return;
     (p.advanceAplicados||[]).forEach(x=>{
       if(x.advanceId===advanceId&&(Number(x.monto)||0)>0)
-        out.push({payoutId:p.id,fecha:p.fecha,quincenaKey:p.quincenaKey||'',monto:r2(Number(x.monto)||0)});
+        out.push({payoutId:p.id,fecha:p.fecha,quincenaKey:p.quincenaKey||'',monto:r2(Number(x.monto)||0),externa:false});
+    });
+  });
+  devolucionesDeMiembro(memberId,untilDate).forEach(p=>{
+    (p.advanceAplicados||[]).forEach(x=>{
+      if(x.advanceId===advanceId&&(Number(x.monto)||0)>0)
+        out.push({payoutId:p.id,fecha:p.fecha,quincenaKey:'',monto:r2(Number(x.monto)||0),externa:true,
+          concepto:p.concepto||'Devolución externa'});
     });
   });
   return out.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
@@ -1306,12 +1314,24 @@ function adelantosGeneralesDeMiembro(memberId){
   const ini=fechaInicioControl();
   return S.payouts.filter(p=>p.memberId===memberId&&p.tipo==='adelanto'&&p.general===true&&(!ini||String(p.fecha||'')>=ini)).sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||String(a.id).localeCompare(String(b.id)));
 }
+/* Una devolución externa es dinero que la persona reintegra por fuera de su
+   quincena: transferencia, efectivo, lo que sea. Entra a una wallet como
+   ingreso y baja su saldo de adelantos igual que un descuento de nómina. */
+function esDevolucionAdelanto(p){return !!(p&&p.tipoIngreso==='devolucionAdelanto')}
+function devolucionesDeMiembro(memberId,untilDate){
+  return (S.cobros||[]).filter(p=>esDevolucionAdelanto(p)&&p.memberId===memberId
+    &&(!untilDate||String(p.fecha||'')<=untilDate));
+}
 function adelantosAplicadosAntesDe(memberId,untilDate){
-  return S.payouts.filter(p=>p.memberId===memberId&&p.tipo!=='adelanto'&&String(p.fecha||'')<=untilDate)
+  const map=S.payouts.filter(p=>p.memberId===memberId&&p.tipo!=='adelanto'&&String(p.fecha||'')<=untilDate)
     .reduce((map,p)=>{
       if(Array.isArray(p.advanceAplicados))p.advanceAplicados.forEach(x=>{map[x.advanceId]=r2((map[x.advanceId]||0)+(Number(x.monto)||0))});
       return map;
     },{});
+  devolucionesDeMiembro(memberId,untilDate).forEach(p=>{
+    (p.advanceAplicados||[]).forEach(x=>{map[x.advanceId]=r2((map[x.advanceId]||0)+(Number(x.monto)||0))});
+  });
+  return map;
 }
 function adelantosPendientesMiembro(memberId,untilDate){
   const avances=adelantosGeneralesDeMiembro(memberId).filter(a=>String(a.fecha||'')<=untilDate);
@@ -1899,6 +1919,7 @@ function head(v,eyeb,title,sub,right){
 
 /* ═══════════ RENDER ═══════════ */
 const mount=document.getElementById('mt');
+function conectarBotonExcel(){const b=document.getElementById('xl-btn');if(b)b.onclick=()=>exportarExcelModal();}
 function render(){
   try{
     document.querySelectorAll('.ov:not(.login-layer)').forEach(e=>e.remove());
@@ -2353,7 +2374,7 @@ function inferirPais(c){
 }
 function vEstadisticasClientes(v){
   const act=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
-  head(v,'Análisis','Estadísticas de clientes','Entiende cómo está compuesta tu cartera, dónde están tus clientes y qué tanto representa cada grupo.');
+  head(v,'Análisis','Estadísticas de clientes','Entiende cómo está compuesta tu cartera, dónde están tus clientes y qué tanto representa cada grupo.','<button class="b bp" id="xl-btn"><i class="ti ti-file-spreadsheet"></i>Exportar a Excel</button>');
   const total=act.length, ingresos=r2(act.reduce((s,c)=>s+(Number(c.tarifaBruta)||0),0)), ticket=total?ingresos/total:0;
   const hoy=new Date(today()+'T12:00:00');
   const antigBuckets={'Menos de 3 meses':0,'3–6 meses':0,'6–12 meses':0,'1–2 años':0,'Más de 2 años':0,'Sin fecha':0};
@@ -2440,6 +2461,7 @@ function vEstadisticasClientes(v){
     bc.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
   }
 
+  conectarBotonExcel();
   const country={};act.forEach(c=>{const k=inferirPais(c);country[k]=(country[k]||0)+1});
   const industry={};act.forEach(c=>{const k=String(c.industria||'No especificado').trim()||'No especificado';industry[k]=(industry[k]||0)+1});
   const freq={Mensual:0,Quincenal:0};act.forEach(c=>{c.frecuencia==='quincenal'?freq.Quincenal++:freq.Mensual++});
@@ -3283,13 +3305,14 @@ function vRentabilidad(v){
     'Cuánto queda para la agencia después de pagar al equipo que lleva cada cliente, más los reajustes que entran fuera del flujo normal. Parte de los cobros ya registrados, no de las tarifas teóricas.',
     '<div class="chips" style="margin:0">'+
       [['mes','Este mes'],['trim','3 meses'],['anio','Este año'],['todo','Histórico']]
-      .map(([k,l])=>'<button type="button" class="chip'+(P===k?' on':'')+'" data-per="'+k+'">'+l+'</button>').join('')+'</div>');
+      .map(([k,l])=>'<button type="button" class="chip'+(P===k?' on':'')+'" data-per="'+k+'">'+l+'</button>').join('')+
+      '</div><button class="b bg" id="xl-btn" style="margin-left:8px"><i class="ti ti-file-spreadsheet"></i>Excel</button>');
 
   const t=rentabilidadRealTotal(desde,hasta);
 
   if(!t.clientes&&!t.reajustes.num&&!t.gastos.num){
     v.appendChild(frag(mt('ti-coin','No hay cobros registrados en este período.')));
-    v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
+    v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});conectarBotonExcel();
     return;
   }
 
@@ -3451,7 +3474,7 @@ function vRentabilidad(v){
     v.appendChild(cm);
   }
 
-  v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
+  v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});conectarBotonExcel();
   v.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
 }
 
@@ -3537,7 +3560,9 @@ function saldoWallet(wid,hasta){
     const b=Number(p.montoBruto)||0,cm=r2(b*cp/100),nt=r2(b-cm);
     ent+=nt;com+=cm;
     const co=companyById(p.companyId);
-    movs.push({fecha:p.fecha,tipo:'cobro',desc:(co?co.negocio:'Cobro')+(cm>0?' · comisión '+money(cm):''),monto:nt});
+    const mb=esDevolucionAdelanto(p)?memberById(p.memberId):null;
+    movs.push({fecha:p.fecha,tipo:esDevolucionAdelanto(p)?'devolucion':'cobro',
+      desc:(mb?'Devolución de adelanto · '+mb.nombre:co?co.negocio:'Cobro')+(cm>0?' · comisión '+money(cm):''),monto:nt});
   });
   S.payouts.forEach(p=>{
     if(hasta&&p.fecha>hasta)return;
@@ -4269,7 +4294,7 @@ function deudasEquipo(){
   });return resultado.sort((a,b)=>b.quincenaKey.localeCompare(a.quincenaKey));
 }
 function vPagosEquipo(v){
-  head(v,'Equipo','Pagos al equipo','Registra pagos, adelantos independientes y controla lo pendiente por cliente.','<button class="b bp" id="new-adv-general"><i class="ti ti-cash"></i>Nuevo adelanto al equipo</button>');
+  head(v,'Equipo','Pagos al equipo','Registra pagos, adelantos independientes y controla lo pendiente por cliente.','<button class="b bg" id="new-devolucion"><i class="ti ti-arrow-back-up"></i>Registrar devolución</button><button class="b bp" id="new-adv-general"><i class="ti ti-cash"></i>Nuevo adelanto al equipo</button>');
   const year=S.nomYear;
   const pagos=[...visiblePayouts()].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
   const total=r2(pagos.filter(p=>!esPayoutSinWallet(p)).reduce((s,p)=>s+(Number(p.monto)||0),0));
@@ -4356,7 +4381,7 @@ function vPagosEquipo(v){
   v.appendChild(dc);
   const c=document.createElement('div');c.className='card';
   c.innerHTML='<div class="ctitle">Historial de pagos <span class="cnt">'+pagos.length+'</span></div>';
-  if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();return}
+  if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();const nd=document.getElementById('new-devolucion');if(nd)nd.onclick=()=>devolucionAdelantoModal();return}
   c.innerHTML+='<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Miembro</th><th>Quincena</th><th>Tipo</th><th>Monto</th><th>Adelantos descontados</th><th>Wallet(s)</th><th>Cliente(s)</th><th></th></tr></thead><tbody>'+pagos.map(p=>{
     const m=memberById(p.memberId);const clientes=(p.detalle||[]).map(x=>x.negocio).filter(Boolean).join(', ')||'—';
     return '<tr><td class="n">'+fdate(p.fecha)+'</td><td>'+esc(m?m.nombre:'—')+'</td><td class="n">'+esc(p.quincenaKey||'—')+'</td><td>'+(p.tipo==='adelanto'?'<span class="p p-i">Adelanto</span>':'<span class="p p-ok">Quincena</span>')+'</td><td class="n">'+money(p.monto)+(totalExtras(p)?'<div style="font-size:11px;color:var(--tx3)">incl. '+(totalExtras(p)<0?'-':'+')+money(Math.abs(totalExtras(p)))+' en extras</div>':'')+'</td><td class="n">'+money(p.adelantosDescontados||0)+'</td><td style="max-width:220px">'+(esPayoutSinWallet(p)?'<span style="color:var(--tx3)">Sin wallet</span>':esc(payoutWalletsLabel(p)))+'</td><td style="max-width:260px">'+esc(clientes)+'</td><td><div class="ta"><button class="ib" data-pdfpay="'+p.id+'" title="Generar comprobante"><i class="ti ti-file-invoice"></i></button><button class="ib" data-editpayhist="'+p.id+'" title="Editar pago"><i class="ti ti-edit"></i></button><button class="ib dg" data-delpay="'+p.id+'" title="Eliminar"><i class="ti ti-trash"></i></button></div></td></tr>';
@@ -4365,10 +4390,184 @@ function vPagosEquipo(v){
   c.querySelectorAll('[data-editpayhist]').forEach(b=>b.onclick=()=>editarPagoModal(b.dataset.editpayhist));
   c.querySelectorAll('[data-pdfpay]').forEach(b=>b.onclick=()=>{const p=S.payouts.find(x=>x.id===b.dataset.pdfpay);if(p&&visiblePayouts().some(x=>x.id===p.id))comprobantePDF(p)});
   c.querySelectorAll('[data-delpay]').forEach(b=>b.onclick=async()=>{if(!visiblePayouts().some(x=>x.id===b.dataset.delpay)){alert('No tienes acceso a este pago.');return}if(!confirm('¿Eliminar este pago?'))return;S.payouts=S.payouts.filter(x=>x.id!==b.dataset.delpay);await saveUI('payouts');toast('Pago eliminado');render()});
-  const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();
+  const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();const nd=document.getElementById('new-devolucion');if(nd)nd.onclick=()=>devolucionAdelantoModal();
 }
 
 /* Adelanto general al empleado, independiente del estado del cliente. */
+/* ═══════════ EXPORTACIÓN A EXCEL ═══════════ */
+function exportarExcel(desde,hasta,etiqueta){
+  if(typeof XLSX==='undefined'){alert('No se pudo cargar el generador de Excel. Revisa tu conexión y reintenta.');return}
+  const wb=XLSX.utils.book_new();
+  const en=(f)=>(!desde||f>=desde)&&(!hasta||f<=hasta);
+  const add=(nombre,filas,anchos)=>{
+    if(!filas.length)filas=[{'Sin datos':'No hay movimientos en este período'}];
+    const ws=XLSX.utils.json_to_sheet(filas);
+    if(anchos)ws['!cols']=anchos.map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,nombre.slice(0,31));
+  };
+  const t=rentabilidadRealTotal(desde,hasta), gas=t.gastos;
+
+  add('Resumen',[
+    {Concepto:'Período',Valor:etiqueta},{Concepto:'Desde',Valor:desde||'inicio'},{Concepto:'Hasta',Valor:hasta||today()},
+    {Concepto:'',Valor:''},
+    {Concepto:'Cobrado a clientes',Valor:t.brutoClientes},
+    {Concepto:'Comisiones de cobro',Valor:-t.comision},
+    {Concepto:'Neto recibido',Valor:t.neto},
+    {Concepto:'Costo del equipo (devengado)',Valor:-t.equipoDevengado},
+    {Concepto:'Equipo ya pagado',Valor:t.equipoPagado},
+    {Concepto:'Equipo pendiente de pago',Valor:t.equipoPendiente},
+    {Concepto:'Reajustes de la agencia',Valor:t.reajustes.neto},
+    {Concepto:'Queda para la agencia',Valor:t.agencia},
+    {Concepto:'Gastos de la agencia',Valor:-gas.total},
+    {Concepto:'  · fijos',Valor:-gas.fijos},
+    {Concepto:'  · variables',Valor:-gas.variables},
+    {Concepto:'SALDO REAL',Valor:t.saldoReal},
+    {Concepto:'Margen sobre el neto (%)',Valor:t.saldoPct},
+    {Concepto:'',Valor:''},
+    {Concepto:'Clientes con cobros',Valor:t.clientes},
+    {Concepto:'Cobros registrados',Valor:t.cobros},
+  ],[34,16]);
+
+  add('Cobros',(S.cobros||[]).filter(p=>en(p.fecha)&&!esDevolucionAdelanto(p)).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))).map(p=>{
+    const c=companyById(p.companyId), w=walletById(p.metodoPagoId);
+    const cal=c?walletDeCobro(p):netoDeReajuste(p);
+    return{Fecha:p.fecha,Tipo:c?'Cliente':(p.reajuste?'Reajuste agencia':'Ingreso externo'),
+      Cliente:c?c.negocio:(p.concepto||''),Wallet:w?w.nombre:'',
+      Bruto:r2(Number(p.montoBruto)||0),Comision:cal.comision,Neto:cal.neto,
+      'Costo equipo':c?cal.equipo:0,'Queda agencia':c?cal.agencia:(p.reajuste?cal.neto:0),Nota:p.nota||''};
+  }),[12,16,26,14,11,11,11,13,14,30]);
+
+  add('Egresos',(S.egresos||[]).filter(e=>en(e.fecha)).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))).map(e=>({
+    Fecha:e.fecha,Categoria:e.categoria||'General',Descripcion:e.descripcion||'',
+    Tipo:e.esGastoFijo?'Fijo':'Variable',Monto:r2(Number(e.monto)||0),
+    Wallet:(walletById(e.walletId)||{}).nombre||''})),[12,18,34,10,11,14]);
+
+  add('Pagos al equipo',(S.payouts||[]).filter(p=>en(p.fecha)).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))).map(p=>{
+    const m=memberById(p.memberId);
+    return{Fecha:p.fecha,Miembro:m?m.nombre:'',Quincena:p.quincenaKey||'',
+      Tipo:p.tipo==='adelanto'?(esPayoutSinWallet(p)?'Adelanto (comodín)':'Adelanto'):'Pago de quincena',
+      'Sueldo base':r2(Number(p.sueldoBase)||0),
+      'Por clientes':r2((p.detalle||[]).reduce((s,d)=>s+(Number(d.pagable)||0),0)),
+      Extras:totalExtras(p),'Adelanto descontado':r2(Number(p.adelantosDescontados)||0),
+      'Total pagado':r2(Number(p.monto)||0),
+      Wallet:esPayoutSinWallet(p)?'(sin wallet)':payoutWalletsLabel(p),Nota:p.nota||''};
+  }),[12,18,14,18,12,12,10,18,13,20,26]);
+
+  add('Adelantos',estadoAdelantosTodos(hasta||today()).flatMap(e=>
+    e.adelantos.map(a=>({Miembro:e.nombre,Fecha:a.fecha,Monto:a.monto,Descontado:a.descontado,
+      Saldo:a.saldo,Estado:a.liquidado?'Saldado':'Pendiente','Devuelto %':a.pct,
+      Motivo:a.nota||'',Origen:esPayoutSinWallet(a)?'Comodín':'Wallet'}))),[18,12,11,12,11,12,11,26,12]);
+
+  add('Devoluciones',(S.cobros||[]).filter(p=>esDevolucionAdelanto(p)&&en(p.fecha)).map(p=>{
+    const m=memberById(p.memberId);
+    return{Fecha:p.fecha,Miembro:m?m.nombre:'',Monto:r2(Number(p.montoBruto)||0),
+      Wallet:(walletById(p.metodoPagoId)||{}).nombre||'',Concepto:p.concepto||''};
+  }),[12,18,11,14,32]);
+
+  add('Clientes',(visibleCompanies()||[]).map(c=>{
+    const r=rentabilidadRealCliente(c,desde,hasta), ven=vencimientoCliente(c), ec=estadoCuentaCliente(c);
+    return{Cliente:c.negocio,Estado:c.estado||'activo',Desde:c.fechaInicio||'',
+      Tarifa:r2(Number(c.tarifaBruta)||0),Frecuencia:c.frecuencia==='quincenal'?'Quincenal':'Mensual',
+      'Cobros periodo':r.cobros,'Bruto periodo':r.bruto,'Neto periodo':r.neto,
+      'Costo equipo':r.equipoDevengado,'Deja agencia':r.agencia,'Margen %':r.margenPct,
+      Saldo:ec.saldo,Vencido:ven.vencido?'Si':'No','Dias atraso':ven.vencido?ven.dias:0,
+      'Ultimo pago':ven.ultimo||''};
+  }),[26,10,12,11,12,13,13,13,13,13,10,11,9,12,12]);
+
+  add('Cartera mes a mes',serieCartera(24).filter(x=>x.nuevos||x.perdidos||x.pausados||x.reactivados||x.activos).map(x=>({
+    Mes:x.ym,Nuevos:x.nuevos,Reactivados:x.reactivados,Pausados:x.pausados,Perdidos:x.perdidos,
+    'Activos al cierre':x.activos,'Churn %':x.churnPct,'MRR ganado':x.mrrGanado,
+    'MRR perdido':x.mrrPerdido,Neto:x.neto})),[10,9,13,11,10,17,10,13,13,11]);
+
+  add('Bajas',(visibleCompanies()||[]).filter(c=>c.estado!=='activo').map(c=>{
+    const ev=eventosCliente(c).filter(e=>e.tipo==='pausado'||e.tipo==='perdido').pop();
+    return{Cliente:c.negocio,Estado:c.estado,Desde:ev?ev.fecha:'',Motivo:ev?ev.motivo:'',
+      Facturaba:r2(Number(c.tarifaBruta)||0)};}),[26,10,12,38,12]);
+
+  add('Rentabilidad mensual',serieMensualAgencia(24).filter(x=>x.bruto>0||x.gastos>0).map(x=>({
+    Mes:x.ym,Ingresos:x.bruto,Equipo:x.equipo,Reajustes:x.reajustes,
+    'Margen agencia':x.agencia,Gastos:x.gastos,'Saldo del mes':x.saldoReal,
+    'Margen %':x.margenPct})),[10,12,11,11,15,11,14,10]);
+
+  add('Wallets',(S.metodos||[]).map(w=>{
+    const sw=saldoWallet(w.id,hasta||today());
+    return{Wallet:w.nombre,Titular:w.titular||'',Comision:Number(w.comisionPct)||0,
+      'Saldo inicial':sw.inicial,Entradas:sw.entradas,Comisiones:sw.comisiones,
+      Salidas:sw.salidas,Saldo:sw.saldo};}),[18,18,10,14,12,12,12,12]);
+
+  XLSX.writeFile(wb,'Paramo_'+String(etiqueta||'export').replace(/[^a-zA-Z0-9]+/g,'_')+'_'+today()+'.xlsx');
+  toast('Excel generado · '+wb.SheetNames.length+' hojas');
+}
+function exportarExcelModal(){
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  const hoy=today(),ym=hoy.slice(0,7),yr=hoy.slice(0,4);
+  const ud=new Date(Number(yr),Number(ym.slice(5,7)),0).getDate();
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Exportar a Excel</div><div class="esub">Estadísticas y movimientos del período que elijas, en un archivo con 11 hojas.</div></div><button class="ib" id="xl-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="f"><label>Período</label><div class="chips" style="margin:0">'+
+      [['mes','Este mes'],['trim','Últimos 3 meses'],['anio','Este año'],['todo','Histórico'],['custom','Personalizado']]
+      .map(([k,l],i)=>'<button type="button" class="chip'+(i===0?' on':'')+'" data-xl="'+k+'">'+l+'</button>').join('')+'</div></div>'+
+    '<div class="row" id="xl-custom" style="display:none"><div class="f"><label>Desde</label><input id="xl-d" type="date" value="'+yr+'-01-01"></div><div class="f"><label>Hasta</label><input id="xl-h" type="date" value="'+hoy+'"></div></div>'+
+    '<div class="msec" style="margin-top:12px"><div class="mstitle">Hojas incluidas</div><div style="font-size:12.5px;color:var(--tx2);line-height:1.8">Resumen · Cobros · Egresos · Pagos al equipo · Adelantos · Devoluciones · Clientes · Cartera mes a mes · Bajas · Rentabilidad mensual · Wallets</div></div>'+
+    '<div class="brow"><button class="b bp" id="xl-ok"><i class="ti ti-file-spreadsheet"></i>Generar Excel</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#xl-x').onclick=()=>ov.remove();
+  let modo='mes';
+  md.querySelectorAll('[data-xl]').forEach(b=>b.onclick=()=>{
+    modo=b.dataset.xl;md.querySelectorAll('[data-xl]').forEach(x=>x.classList.toggle('on',x===b));
+    md.querySelector('#xl-custom').style.display=modo==='custom'?'':'none';});
+  md.querySelector('#xl-ok').onclick=()=>{
+    let desde=null,hasta=null,et='Historico';
+    if(modo==='mes'){desde=ym+'-01';hasta=ym+'-'+ud;et='Mes '+ym}
+    else if(modo==='trim'){const d=new Date(hoy+'T12:00:00');d.setMonth(d.getMonth()-2);d.setDate(1);desde=d.toISOString().slice(0,10);hasta=hoy;et='Ultimos 3 meses'}
+    else if(modo==='anio'){desde=yr+'-01-01';hasta=yr+'-12-31';et='Anio '+yr}
+    else if(modo==='custom'){desde=md.querySelector('#xl-d').value;hasta=md.querySelector('#xl-h').value;
+      if(!desde||!hasta||desde>hasta){alert('Revisa las fechas: la inicial debe ser anterior a la final.');return}
+      et=desde+'_a_'+hasta}
+    try{exportarExcel(desde,hasta,et);ov.remove()}catch(e){console.error(e);alert('No se pudo generar el Excel: '+(e.message||e))}};
+}
+function devolucionAdelantoModal(){
+ const conDeuda=(S.members||[]).map(m=>({m,pend:adelantosPendientesMiembro(m.id,today())})).filter(x=>x.pend>0.005);
+ if(!conDeuda.length){alert('Nadie tiene adelantos pendientes por devolver.');return}
+ const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+ const md=document.createElement('div');md.className='mdl';
+ md.innerHTML='<div class="mhd"><div><div class="mtitle">Devolución de adelanto</div><div class="esub">La persona reintegra por fuera de su quincena. Entra a la wallet y baja su saldo.</div></div><button class="ib" id="dv-x"><i class="ti ti-x"></i></button></div>'+
+  '<div class="row"><div class="f"><label>Quién devuelve</label><select id="dv-m">'+conDeuda.map(x=>'<option value="'+x.m.id+'">'+esc(x.m.nombre)+' · debe '+money(x.pend)+'</option>').join('')+'</select></div>'+
+  '<div class="f"><label>Monto que devuelve</label><input id="dv-mo" type="number" min="0" step="0.01"></div></div>'+
+  '<div class="row"><div class="f"><label>Entra en</label><select id="dv-wa">'+S.metodos.map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+'</option>').join('')+'</select></div>'+
+  '<div class="f"><label>Fecha</label><input id="dv-fe" type="date" value="'+today()+'"></div></div>'+
+  '<div class="f"><label>Concepto</label><input id="dv-co" placeholder="Transferencia, efectivo, reintegro…"></div>'+
+  '<div class="msec" style="margin-top:12px"><div class="mstitle">Se aplicará a</div><div id="dv-prev"></div></div>'+
+  '<div class="brow"><button class="b bp" id="dv-ok">Registrar devolución</button></div>';
+ ov.appendChild(md);document.body.appendChild(ov);document.getElementById('dv-x').onclick=()=>ov.remove();
+ const selM=md.querySelector('#dv-m'), inpMo=md.querySelector('#dv-mo'), prev=md.querySelector('#dv-prev');
+ function dibujar(){
+   const mid=selM.value, pend=adelantosPendientesMiembro(mid,today());
+   const mo=r2(Math.max(0,Number(inpMo.value)||0));
+   if(mo>pend+0.005){prev.innerHTML='<div class="hint" style="color:var(--red)">Está devolviendo más de lo que debe ('+money(pend)+').</div>';return}
+   if(mo<=0){prev.innerHTML='<div class="hint">Debe '+money(pend)+'. Escribe cuánto devuelve.</div>';return}
+   const plan=distribuirDescuentoAdelantos(mid,today(),mo);
+   const est=estadoAdelantosMiembro(mid,today());
+   prev.innerHTML='<div class="sim">'+plan.aplicados.map(a=>{
+     const ad=est.adelantos.find(x=>x.id===a.advanceId);
+     return '<div class="simrow"><span>Adelanto del '+(ad?fdate(ad.fecha):'—')+'</span><span class="v">−'+money(a.monto)+'</span></div>';
+   }).join('')+'<div class="simrow tot"><span>Le quedará debiendo</span><span class="v" style="color:'+(pend-mo>0.005?'var(--amb)':'var(--lime)')+'">'+money(r2(pend-mo))+'</span></div></div>';
+ }
+ selM.onchange=dibujar;inpMo.oninput=dibujar;dibujar();
+ md.querySelector('#dv-ok').onclick=async()=>{
+   const mid=selM.value, mo=r2(Math.max(0,Number(inpMo.value)||0));
+   const pend=adelantosPendientesMiembro(mid,today());
+   if(mo<=0){alert('Escribe el monto que devuelve.');return}
+   if(mo>pend+0.005){alert('No puede devolver más de lo que debe ('+money(pend)+').');return}
+   const plan=distribuirDescuentoAdelantos(mid,today(),mo);
+   const m=memberById(mid);
+   S.cobros.push({id:uid(),tipoIngreso:'devolucionAdelanto',memberId:mid,
+     concepto:md.querySelector('#dv-co').value.trim()||('Devolución de adelanto · '+(m?m.nombre:'')),
+     montoBruto:mo,comisionPct:0,metodoPagoId:md.querySelector('#dv-wa').value,
+     fecha:md.querySelector('#dv-fe').value||today(),advanceAplicados:plan.aplicados});
+   if(!await saveUI('cobros'))return;
+   ov.remove();toast('Devolución registrada · entró a la wallet y bajó su saldo');render();
+ };
+}
 function adelantoGeneralModal(){
  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
  const md=document.createElement('div');md.className='mdl';const ms=S.members.filter(m=>m.activo);
