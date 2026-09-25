@@ -1569,7 +1569,7 @@ async function verifyDataIntegrity(){
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
   cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],
-  mCompany:null,mContact:null,mProspect:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
+  mCompany:null,mContact:null,mProspect:null,lead:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
   nomYear:new Date().getFullYear(),nomQ:null,cobranzaMes:today().slice(0,7),rentPeriodo:'mes',presetCompany:null,viewEmpresas:'cards',viewEstado:'cards',loading:true,sessionUserId:null};
@@ -1708,7 +1708,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['rentabilidad','Rentabilidad real'],['capacidad','Capacidad del equipo'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -1965,7 +1965,8 @@ function renderNav(){
     ['n1',[['panel','ti-home','Inicio',null],['proyeccion','ti-chart-donut','Proyección',null],['estadisticas-clientes','ti-chart-pie','Estadísticas clientes',null]]],
     ['n2',[['empresas','ti-building','Empresas',visibleCompanies().filter(c=>c.estado==='activo').length],
            ['contactos','ti-address-book','Contactos',visibleContacts().length],
-           ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length]]],
+           ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length],
+           ['captacion','ti-radar','Captación',null]]],
     ['n3',[['rentabilidad','ti-coin','Rentabilidad real',null],
            ['wallets','ti-wallet','Wallets',S.metodos.length],
            ['fechas-pago','ti-calendar-event','Fechas de pago',null],
@@ -2019,7 +2020,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,capacidad:vCapacidad,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -2393,9 +2394,615 @@ const STG=[
   ['ganado','Ganado','var(--lime)'],
   ['perdido','Perdido','var(--red)']
 ];
+/* ═══════════ CAPTACIÓN / CRM DE PROSPECTOS ═══════════
+   El navegador no puede pedir páginas de otros dominios (CORS), así que la
+   app no scrapea por sí misma. El flujo es: extraes fuera (script de consola,
+   Apify, PhantomBuster, export de Maps…) y pegas aquí. El importador detecta
+   columnas, limpia y descarta duplicados contra prospectos y clientes. */
+const FUENTES=['Instagram','Google Maps','LinkedIn','Web','Referido','Evento','WhatsApp','Otro'];
+const CAMPOS_PROSPECTO=[
+  {k:'negocio',etiqueta:'Negocio',alias:['negocio','nombre','name','title','business','empresa','cuenta','username','page','perfil']},
+  {k:'ubicacion',etiqueta:'Ubicación',alias:['ubicacion','ubicación','location','address','direccion','dirección','ciudad','city','zona']},
+  {k:'telefono',etiqueta:'Teléfono',alias:['telefono','teléfono','phone','celular','movil','móvil','whatsapp','tel']},
+  {k:'email',etiqueta:'Email',alias:['email','correo','mail','e-mail']},
+  {k:'instagram',etiqueta:'Instagram',alias:['instagram','ig','usuario','handle','perfil_ig']},
+  {k:'web',etiqueta:'Sitio web',alias:['web','website','url','sitio','pagina','página','link']},
+  {k:'categoria',etiqueta:'Categoría',alias:['categoria','categoría','category','rubro','giro','tipo','industria']},
+  {k:'seguidores',etiqueta:'Seguidores',alias:['seguidores','followers','fans','suscriptores'],num:true},
+  {k:'rating',etiqueta:'Calificación',alias:['rating','calificacion','calificación','estrellas','stars','score'],num:true},
+  {k:'resenas',etiqueta:'Reseñas',alias:['resenas','reseñas','reviews','opiniones','num_reviews'],num:true},
+  {k:'montoEstimado',etiqueta:'Monto estimado',alias:['monto','montoestimado','valor','value','presupuesto','ticket'],num:true},
+  {k:'notas',etiqueta:'Notas',alias:['notas','nota','notes','comentario','descripcion','descripción','bio','about']}
+];
+const normCab=x=>String(x||'').trim().toLowerCase().replace(/[\s_\-.]/g,'');
+function detectarCampo(cabecera){
+  const n=normCab(cabecera);
+  if(!n)return '';
+  const exacto=CAMPOS_PROSPECTO.find(c=>c.alias.some(a=>normCab(a)===n));
+  if(exacto)return exacto.k;
+  const parcial=CAMPOS_PROSPECTO.find(c=>c.alias.some(a=>n.includes(normCab(a))||normCab(a).includes(n)));
+  return parcial?parcial.k:'';
+}
+/* Parser tolerante: JSON, CSV con comillas, TSV pegado desde una hoja. */
+function parsearPegado(texto){
+  const t=String(texto||'').trim();
+  if(!t)return{cabeceras:[],filas:[],formato:null};
+  if(t[0]==='['||t[0]==='{'){
+    try{
+      let j=JSON.parse(t);
+      if(!Array.isArray(j))j=[j];
+      const objs=j.filter(x=>x&&typeof x==='object');
+      const cab=[...new Set(objs.flatMap(o=>Object.keys(o)))];
+      return{cabeceras:cab,filas:objs.map(o=>cab.map(k=>{
+        const val=o[k];
+        return val==null?'':typeof val==='object'?JSON.stringify(val):String(val);
+      })),formato:'JSON'};
+    }catch(e){ /* no era JSON válido, se intenta como tabla */ }
+  }
+  const lineas=t.split(/\r?\n/).filter(l=>l.trim());
+  if(!lineas.length)return{cabeceras:[],filas:[],formato:null};
+  const tabs=(lineas[0].match(/\t/g)||[]).length, comas=(lineas[0].match(/,/g)||[]).length, pcomas=(lineas[0].match(/;/g)||[]).length;
+  const sep=tabs>=Math.max(comas,pcomas)&&tabs>0?'\t':pcomas>comas?';':',';
+  const cortar=(linea)=>{
+    const out=[];let buf='',dentro=false;
+    for(let i=0;i<linea.length;i++){
+      const ch=linea[i];
+      if(ch==='"'){ if(dentro&&linea[i+1]==='"'){buf+='"';i++} else dentro=!dentro; continue }
+      if(ch===sep&&!dentro){out.push(buf);buf='';continue}
+      buf+=ch;
+    }
+    out.push(buf);return out.map(x=>x.trim());
+  };
+  const cabeceras=cortar(lineas[0]);
+  const filas=lineas.slice(1).map(cortar);
+  return{cabeceras,filas,formato:sep==='\t'?'TSV':sep===';'?'CSV (;)':'CSV'};
+}
+const limpiarTel=v=>String(v||'').replace(/[^\d+]/g,'');
+const limpiarIG=v=>{
+  let x=String(v||'').trim();
+  if(!x)return '';
+  x=x.replace(/^https?:\/\/(www\.)?instagram\.com\//i,'').replace(/\/.*$/,'').replace(/^@/,'');
+  return x?'@'+x:'';
+};
+/* Los scrapers devuelven números en formatos muy distintos: 8.9k, 8,9k,
+   1.200, 1,200, 4.6. Hay que decidir si el punto o la coma son decimales
+   o separador de miles ANTES de aplicar el sufijo k/m. */
+const numDe=v=>{
+  let x=String(v||'').trim().toLowerCase().replace(/[\s$€.,]*$/,m=>m.replace(/[\s$€]/g,'')).replace(/[\s$€]/g,'');
+  const mult=/k$/.test(x)?1000:/m$/.test(x)?1000000:1;
+  x=x.replace(/[km]$/,'');
+  if(/^-?\d{1,3}(\.\d{3})+$/.test(x))x=x.replace(/\./g,'');        // 1.200.000 → miles
+  else if(/^-?\d{1,3}(,\d{3})+$/.test(x))x=x.replace(/,/g,'');      // 1,200,000 → miles
+  else if(/,\d{1,2}$/.test(x))x=x.replace(/\./g,'').replace(',','.'); // 8,9 → decimal
+  else x=x.replace(/,/g,'');
+  const n=parseFloat(x.replace(/[^\d.\-]/g,''));
+  return isNaN(n)?0:r2(n*mult);
+};
+function claveDedupe(o){
+  return{
+    nombre:String(o.negocio||'').trim().toLowerCase().replace(/[^a-z0-9áéíóúñ ]/gi,'').replace(/\s+/g,' '),
+    ig:String(o.instagram||'').toLowerCase().replace(/^@/,''),
+    tel:limpiarTel(o.telefono).slice(-9),
+    email:String(o.email||'').trim().toLowerCase()
+  };
+}
+function buscarDuplicado(o){
+  const k=claveDedupe(o);
+  if(!k.nombre&&!k.ig&&!k.tel&&!k.email)return null;
+  const coincide=(cand,tipo)=>{
+    const c=claveDedupe(cand);
+    if(k.ig&&c.ig&&k.ig===c.ig)return{tipo,registro:cand,por:'Instagram'};
+    if(k.email&&c.email&&k.email===c.email)return{tipo,registro:cand,por:'email'};
+    if(k.tel&&c.tel&&k.tel===c.tel)return{tipo,registro:cand,por:'teléfono'};
+    if(k.nombre&&c.nombre&&k.nombre===c.nombre)return{tipo,registro:cand,por:'nombre'};
+    return null;
+  };
+  for(const p of (S.prospects||[])){const r=coincide(p,'prospecto');if(r)return r}
+  for(const c of (S.companies||[])){const r=coincide({negocio:c.negocio,instagram:c.instagram,telefono:c.telefono,email:c.email},'cliente');
+    if(r){r.registro=c;return r}}
+  return null;
+}
+/* Actividad del prospecto: llamadas, mensajes, notas. */
+function actividadDe(p){return Array.isArray(p&&p.actividad)?p.actividad.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))):[]}
+function ultimoContacto(p){const a=actividadDe(p);return a.length?a[0].fecha:''}
+function diasSinContacto(p){const f=ultimoContacto(p)||p.fechaCreacion;return f?difDiasISO(f,today()):null}
+function prospectosPendientes(){
+  return (visibleProspects()||[]).filter(p=>p.estado!=='ganado'&&p.estado!=='perdido'&&p.proximoSeguimiento&&p.proximoSeguimiento<=today())
+    .sort((a,b)=>String(a.proximoSeguimiento).localeCompare(String(b.proximoSeguimiento)));
+}
+function vCaptacion(v){
+  if(!S.capTab)S.capTab='importar';
+  const T=S.capTab;
+  head(v,'Clientes','Captación','Vuelca aquí cualquier lista que consigas y la app la limpia, quita duplicados y la mete al pipeline.',
+    '<div class="chips" style="margin:0">'+
+    [['importar','Importar'],['bandeja','Bandeja'],['extraer','Extractores'],['fuentes','Por fuente']]
+    .map(([k,l])=>'<button type="button" class="chip'+(T===k?' on':'')+'" data-ct="'+k+'">'+l+'</button>').join('')+'</div>');
+  v.querySelectorAll('[data-ct]').forEach(b=>b.onclick=()=>{S.capTab=b.dataset.ct;render()});
+
+  if(T==='importar')panelImportar(v);
+  else if(T==='bandeja')panelBandeja(v);
+  else if(T==='extraer')panelExtractores(v);
+  else panelFuentes(v);
+}
+
+function panelImportar(v){
+  if(!S.imp)S.imp={texto:'',mapa:null,fuente:'Instagram',etapa:'nuevo'};
+  const I=S.imp;
+  const c=document.createElement('div');c.className='card';c.style.marginBottom='16px';
+  c.innerHTML='<div class="ctitle">1 · Pega tus datos</div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Vuelca aquí lo que traigas de donde sea: un scraper, una hoja de cálculo, un export de Maps, una lista escrita a mano. '+
+    'Acepta CSV, TSV (pegado directo de Excel o Sheets) y JSON. Si trae encabezados, detecta las columnas solo.</div>'+
+    '<div class="f"><textarea id="imp-t" rows="7" placeholder="negocio,ubicacion,telefono,instagram&#10;Pizzería Napoli,La Grita,04141234567,@napoli_lagrita&#10;...">'+esc(I.texto||'')+'</textarea></div>'+
+    '<div class="row"><div class="f"><label>Fuente</label><select id="imp-f">'+FUENTES.map(f=>'<option'+(I.fuente===f?' selected':'')+'>'+f+'</option>').join('')+'</select></div>'+
+    '<div class="f"><label>Entran en la etapa</label><select id="imp-e">'+STG.map(([k,l])=>'<option value="'+k+'"'+(I.etapa===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div></div>'+
+    '<div class="brow" style="justify-content:space-between"><button class="b bg bs" id="imp-demo">Ver ejemplo</button><button class="b bp" id="imp-go"><i class="ti ti-table-import"></i>Analizar</button></div>';
+  v.appendChild(c);
+  c.querySelector('#imp-t').oninput=e=>{I.texto=e.target.value};
+  c.querySelector('#imp-f').onchange=e=>{I.fuente=e.target.value};
+  c.querySelector('#imp-e').onchange=e=>{I.etapa=e.target.value};
+  c.querySelector('#imp-demo').onclick=()=>{
+    I.texto='negocio,ubicacion,telefono,instagram,categoria,seguidores\nPizzería Napoli,La Grita,04141234567,@napoli_lagrita,Restaurante,3400\nÓptica Visión,San Cristóbal,04267778899,@opticavision,Salud,1200\nGimnasio Fuerza,La Grita,,@fuerzagym,Fitness,8900';
+    I.mapa=null;render();
+  };
+  c.querySelector('#imp-go').onclick=()=>{I.mapa='auto';render()};
+
+  if(!I.mapa||!String(I.texto||'').trim())return;
+
+  const par=parsearPegado(I.texto);
+  if(!par.filas.length){
+    v.appendChild(frag('<div class="card" style="border-left:3px solid var(--amb)"><div class="ctitle">No se pudo leer</div><div class="sub" style="font-size:12.5px">Revisa que haya al menos una fila de datos además del encabezado.</div></div>'));
+    return;
+  }
+  if(!I.cols||I.colsDe!==par.cabeceras.join('|')){
+    I.cols=par.cabeceras.map(detectarCampo);I.colsDe=par.cabeceras.join('|');
+  }
+
+  /* Mapeo de columnas */
+  const cm=document.createElement('div');cm.className='card';cm.style.marginBottom='16px';
+  cm.innerHTML='<div class="ctitle">2 · Revisa las columnas <span class="cnt">'+par.formato+' · '+par.filas.length+' filas</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Lo que detecté automáticamente. Cambia lo que esté mal o marca "Ignorar" lo que no quieras traer.</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">'+
+    par.cabeceras.map((h,i)=>'<div class="f" style="margin:0"><label>'+esc(h||'(sin nombre)')+'</label>'+
+      '<select class="imp-col" data-i="'+i+'"><option value="">— Ignorar —</option>'+
+      CAMPOS_PROSPECTO.map(cc=>'<option value="'+cc.k+'"'+(I.cols[i]===cc.k?' selected':'')+'>'+cc.etiqueta+'</option>').join('')+'</select>'+
+      '<div class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ej: '+esc(String(par.filas[0][i]||'—').slice(0,40))+'</div></div>').join('')+
+    '</div>';
+  v.appendChild(cm);
+  cm.querySelectorAll('.imp-col').forEach(sel=>sel.onchange=()=>{I.cols[Number(sel.dataset.i)]=sel.value;render()});
+
+  /* Construcción y dedupe */
+  const idxNegocio=I.cols.indexOf('negocio');
+  const registros=par.filas.map((f,n)=>{
+    const o={};
+    I.cols.forEach((k,i)=>{
+      if(!k)return;
+      const campo=CAMPOS_PROSPECTO.find(cc=>cc.k===k);
+      let val=f[i]||'';
+      if(k==='telefono')val=limpiarTel(val);
+      else if(k==='instagram')val=limpiarIG(val);
+      else if(campo&&campo.num)val=numDe(val);
+      else val=String(val).trim();
+      if(val!==''&&val!==0)o[k]=val; else if(campo&&campo.num)o[k]=0;
+    });
+    return{fila:n+2,o,dup:buscarDuplicado(o),vacio:!String(o.negocio||'').trim()};
+  });
+  const listos=registros.filter(r=>!r.vacio&&!r.dup);
+  const dups=registros.filter(r=>!r.vacio&&r.dup);
+  const vacios=registros.filter(r=>r.vacio);
+
+  const pr=document.createElement('div');pr.className='card';
+  pr.innerHTML='<div class="ctitle">3 · Vista previa <span class="cnt">'+listos.length+' a importar</span></div>'+
+    '<div class="mets" style="margin-bottom:12px">'+
+      '<div class="met met-crit tone-lime"><div class="mlab">Se van a crear</div><div class="mval">'+listos.length+'</div><div class="msub">prospectos nuevos</div></div>'+
+      '<div class="met met-ctx"><div class="mlab">Duplicados</div><div class="mval">'+dups.length+'</div><div class="msub">ya los tienes</div></div>'+
+      '<div class="met met-ctx"><div class="mlab">Sin nombre</div><div class="mval">'+vacios.length+'</div><div class="msub">se descartan</div></div>'+
+    '</div>'+
+    (idxNegocio<0?'<div class="sub" style="color:var(--red);font-size:12.5px;margin-bottom:10px">Ninguna columna está marcada como <strong>Negocio</strong>. Sin eso no se puede importar.</div>':'')+
+    (listos.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Negocio</th><th>Ubicación</th><th>Contacto</th><th>Categoría</th><th>Seguidores</th></tr></thead><tbody>'+
+      listos.slice(0,12).map(r=>'<tr><td><strong>'+esc(r.o.negocio)+'</strong></td><td>'+esc(r.o.ubicacion||'—')+'</td>'+
+        '<td style="font-size:12px">'+[r.o.instagram,r.o.telefono,r.o.email].filter(Boolean).map(esc).join('<br>')||'—'+'</td>'+
+        '<td>'+esc(r.o.categoria||'—')+'</td><td class="n">'+(r.o.seguidores?r.o.seguidores.toLocaleString():'—')+'</td></tr>').join('')+
+      '</tbody></table></div>'+(listos.length>12?'<div class="sub" style="font-size:12px;margin-top:8px">y '+(listos.length-12)+' más…</div>':''):'')+
+    (dups.length?'<div style="margin-top:14px"><div style="font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Duplicados detectados</div>'+
+      dups.slice(0,8).map(r=>'<div class="lrow"><div><div class="lname">'+esc(r.o.negocio||'(sin nombre)')+'</div><div class="lsub">Coincide por '+r.dup.por+' con un '+r.dup.tipo+' existente: '+esc(r.dup.registro.negocio||'')+'</div></div><span class="p p-w">Omitido</span></div>').join('')+
+      (dups.length>8?'<div class="sub" style="font-size:12px">y '+(dups.length-8)+' más…</div>':'')+'</div>':'')+
+    '<div class="brow"><button class="b bp" id="imp-save"'+(!listos.length||idxNegocio<0?' disabled':'')+'><i class="ti ti-download"></i>Importar '+listos.length+' prospecto'+(listos.length===1?'':'s')+'</button>'+
+    (dups.length?'<button class="b bg" id="imp-force">Importar también los '+dups.length+' duplicados</button>':'')+'</div>';
+  v.appendChild(pr);
+
+  const crear=async(lista)=>{
+    const hoy=today();
+    lista.forEach(r=>{
+      S.prospects.push({id:uid(),estado:I.etapa,fechaCreacion:hoy,fuente:I.fuente,
+        negocio:r.o.negocio,ubicacion:r.o.ubicacion||'',telefono:r.o.telefono||'',email:r.o.email||'',
+        instagram:r.o.instagram||'',web:r.o.web||'',categoria:r.o.categoria||'',
+        seguidores:r.o.seguidores||0,rating:r.o.rating||0,resenas:r.o.resenas||0,
+        montoEstimado:r.o.montoEstimado||0,notas:r.o.notas||'',actividad:[],proximoSeguimiento:''});
+    });
+    if(!await saveUI('prospects'))return;
+    toast(lista.length+' prospectos importados');
+    S.imp={texto:'',mapa:null,fuente:I.fuente,etapa:I.etapa};
+    S.bnd={q:'',fuente:I.fuente,etapa:'todas',contacto:'todos',orden:'reciente',sel:[]};
+    S.capTab='bandeja';render();
+  };
+  const bs=pr.querySelector('#imp-save');if(bs)bs.onclick=()=>crear(listos);
+  const bf=pr.querySelector('#imp-force');if(bf)bf.onclick=()=>{if(confirm('Vas a crear '+dups.length+' prospectos que ya existen. ¿Seguro?'))crear(listos.concat(dups))};
+}
+/* Los extractores corren en la pestaña del sitio, no aquí: así no hay CORS
+   que valga, porque el código se ejecuta en el mismo origen de la página. */
+const EXTRACTORES=[
+  {k:'maps',nombre:'Google Maps',icono:'ti-map-pin',
+   comoUsar:['Busca en Google Maps lo que quieras, por ejemplo "restaurantes en La Grita".','Deja abierto el panel de resultados de la izquierda y baja hasta el final para que cargue todo.','Abre la consola del navegador con F12 y pega el código.','Se copia solo al portapapeles. Vuelve aquí y pégalo en Importar.'],
+   codigo:`(()=>{const out=[];document.querySelectorAll('div[role="feed"] > div > div[jsaction]').forEach(el=>{
+  const n=el.querySelector('.fontHeadlineSmall')?.textContent?.trim();if(!n)return;
+  const txt=el.innerText.split('\\n').map(s=>s.trim()).filter(Boolean);
+  const rat=txt.find(t=>/^\\d[.,]\\d$/.test(t))||'';
+  const rev=(txt.find(t=>/^\\(\\d[\\d.,]*\\)$/.test(t))||'').replace(/[()]/g,'');
+  const tel=(el.innerText.match(/(\\+?\\d[\\d\\s\\-()]{7,})/)||[])[1]||'';
+  const cat=txt[txt.indexOf(rat)+1]||'';
+  const web=el.querySelector('a[data-value="Sitio web"]')?.href||'';
+  out.push({negocio:n,categoria:cat,rating:rat,resenas:rev,telefono:tel,web:web,ubicacion:document.title.replace(' - Google Maps','')});
+});
+copy(JSON.stringify(out,null,1));console.log('Copiados '+out.length+' negocios');})()`},
+  {k:'ig',nombre:'Instagram · seguidores o seguidos',icono:'ti-brand-instagram',
+   comoUsar:['Entra al perfil de una cuenta parecida a tus clientes y abre su lista de seguidores.','Desliza hasta cargar todos los que quieras capturar.','Abre la consola con F12 y pega el código.','Se copia al portapapeles como JSON.'],
+   codigo:`(()=>{const out=[],vistos=new Set();
+document.querySelectorAll('div[role="dialog"] a[href^="/"]').forEach(a=>{
+  const u=a.getAttribute('href').replace(/\\//g,'');
+  if(!u||vistos.has(u)||u.includes('explore'))return;vistos.add(u);
+  const cont=a.closest('div[style]')||a.parentElement?.parentElement;
+  const nom=cont?.innerText?.split('\\n').filter(Boolean)[1]||u;
+  out.push({negocio:nom,instagram:'@'+u,web:'https://instagram.com/'+u});
+});
+copy(JSON.stringify(out,null,1));console.log('Copiados '+out.length+' perfiles');})()`},
+  {k:'paginas',nombre:'Listados y directorios web',icono:'ti-world-search',
+   comoUsar:['Abre el directorio o listado que quieras capturar.','Pega el código en la consola (F12).','Te pedirá que hagas clic sobre UN nombre de negocio de la lista.','Con ese clic deduce el patrón y extrae todos los demás.'],
+   codigo:`(()=>{alert('Haz clic en el NOMBRE de un negocio de la lista');
+document.addEventListener('click',function h(e){e.preventDefault();e.stopPropagation();
+  document.removeEventListener('click',h,true);
+  const el=e.target,cls=[...el.classList].filter(c=>!/hover|active|focus/.test(c));
+  const sel=el.tagName.toLowerCase()+(cls.length?'.'+cls.join('.'):'');
+  const nodos=[...document.querySelectorAll(sel)];
+  const out=nodos.map(n=>{
+    const caja=n.closest('li,article,tr,div[class]')||n.parentElement;
+    const t=caja?caja.innerText:n.innerText;
+    return{negocio:n.innerText.trim(),
+      telefono:(t.match(/(\\+?\\d[\\d\\s\\-()]{7,})/)||[])[1]||'',
+      email:(t.match(/[\\w.\\-]+@[\\w.\\-]+\\.\\w+/)||[])[0]||'',
+      web:caja?.querySelector('a[href^="http"]')?.href||''};
+  }).filter(x=>x.negocio);
+  copy(JSON.stringify(out,null,1));console.log('Copiados '+out.length+' registros con el selector '+sel);
+},true);})()`}
+];
+/* ── Bandeja: todo lo que entra, en tabla, para trabajarlo en lote ── */
+/* ─────────── HISTORIA DEL LEAD ───────────
+   Antes el cambio de etapa se pisaba sin dejar rastro. Ahora cada movimiento
+   queda fechado, así se puede ver cuánto lleva atascado en cada fase. */
+function moverEtapa(p,nueva,nota){
+  const previa=p.estado||'nuevo';
+  if(previa===nueva)return false;
+  if(!Array.isArray(p.historialEtapa))p.historialEtapa=[];
+  p.historialEtapa.push({fecha:today(),de:previa,a:nueva,nota:(nota||'').trim()});
+  p.estado=nueva;
+  return true;
+}
+function etiquetaEtapa(k){const x=STG.find(e=>e[0]===k);return x?x[1]:k}
+function colorEtapa(k){const x=STG.find(e=>e[0]===k);return x?x[2]:'var(--tx3)'}
+function entradaEtapaActual(p){
+  const h=(p.historialEtapa||[]).filter(x=>x.a===p.estado);
+  return h.length?h[h.length-1].fecha:(p.fechaCreacion||'');
+}
+function diasEnEtapa(p){const f=entradaEtapaActual(p);return f?difDiasISO(f,today()):null}
+/* Línea de tiempo unificada: alta, cambios de etapa y contactos. */
+function lineaTiempoLead(p){
+  const ev=[];
+  if(p.fechaCreacion)ev.push({fecha:p.fechaCreacion,tipo:'alta',titulo:'Entró a la base',detalle:p.fuente?'Fuente: '+p.fuente:'',icono:'ti-download',color:'var(--tx3)'});
+  (p.historialEtapa||[]).forEach(h=>ev.push({fecha:h.fecha,tipo:'etapa',titulo:'Pasó a '+etiquetaEtapa(h.a),
+    detalle:h.nota||('desde '+etiquetaEtapa(h.de)),icono:'ti-arrow-right',color:colorEtapa(h.a)}));
+  (p.actividad||[]).forEach(a=>ev.push({fecha:a.fecha,tipo:'contacto',titulo:a.tipo,detalle:a.detalle||'',
+    icono:a.tipo==='Llamada'?'ti-phone':a.tipo==='WhatsApp'?'ti-brand-whatsapp':a.tipo==='Email'?'ti-mail':
+      a.tipo==='Mensaje IG'?'ti-brand-instagram':a.tipo==='Reunión'?'ti-users':a.tipo==='Propuesta enviada'?'ti-file-text':'ti-note',
+    color:'var(--lav)'}));
+  return ev.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+}
+function enlacesContacto(p){
+  const out=[];
+  const tel=String(p.telefono||'').replace(/[^\d+]/g,'');
+  if(tel){
+    const wa=tel.replace(/\D/g,'').replace(/^0/,'58');
+    out.push({k:'wa',etiqueta:'WhatsApp',icono:'ti-brand-whatsapp',href:'https://wa.me/'+wa,color:'var(--lime)'});
+    out.push({k:'tel',etiqueta:'Llamar',icono:'ti-phone',href:'tel:'+tel,color:'var(--sky)'});
+  }
+  if(p.email)out.push({k:'em',etiqueta:'Email',icono:'ti-mail',href:'mailto:'+p.email,color:'var(--amb)'});
+  if(p.instagram)out.push({k:'ig',etiqueta:'Instagram',icono:'ti-brand-instagram',href:'https://instagram.com/'+String(p.instagram).replace(/^@/,''),color:'var(--pink)'});
+  if(p.web)out.push({k:'web',etiqueta:'Sitio',icono:'ti-world',href:/^https?:/.test(p.web)?p.web:'https://'+p.web,color:'var(--lav)'});
+  return out;
+}
+
+/* ─────────── PANEL CRM DEL LEAD ─────────── */
+function vLead(v,p){
+  const ev=lineaTiempoLead(p), dEtapa=diasEnEtapa(p), dContacto=diasSinContacto(p);
+  const idx=STG.findIndex(x=>x[0]===p.estado);
+  const cerrado=p.estado==='ganado'||p.estado==='perdido';
+
+  head(v,'Prospecto',esc(p.negocio||'(sin nombre)'),
+    [p.categoria,p.ubicacion,p.fuente?'vía '+p.fuente:''].filter(Boolean).join(' · ')||'Sin datos adicionales',
+    '<button class="b bg" id="ld-volver"><i class="ti ti-arrow-left"></i>Volver</button>'+
+    '<button class="b bp" id="ld-edit"><i class="ti ti-edit"></i>Editar ficha</button>');
+
+  /* Barra de etapas */
+  const bar=document.createElement('div');bar.className='card';bar.style.marginBottom='16px';
+  bar.innerHTML='<div class="ctitle">Etapa <span class="cnt">'+(dEtapa!=null?'lleva '+dEtapa+' día'+(dEtapa===1?'':'s')+' aquí':'')+'</span></div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+
+    STG.map((e,i)=>'<button type="button" class="chip'+(p.estado===e[0]?' on':'')+'" data-et="'+e[0]+'" style="'+
+      (p.estado===e[0]?'background:'+e[2]+';border-color:'+e[2]+';color:#fff':(i<idx&&!cerrado?'opacity:.55':''))+'">'+
+      (i<idx&&!cerrado?'<i class="ti ti-check"></i> ':'')+e[1]+'</button>').join('')+'</div>'+
+    '<div class="sub" style="font-size:12.5px">Toca una etapa para moverlo. Queda registrado con la fecha.</div>';
+  v.appendChild(bar);
+  bar.querySelectorAll('[data-et]').forEach(b=>b.onclick=async()=>{
+    if(!moverEtapa(p,b.dataset.et))return;
+    if(!await saveUI('prospects'))return;
+    toast('Movido a '+etiquetaEtapa(b.dataset.et));render();
+  });
+
+  const g=document.createElement('div');g.className='g2b';
+
+  /* Columna izquierda: datos y acciones */
+  const izq=document.createElement('div');
+  const enl=enlacesContacto(p);
+  const acc=document.createElement('div');acc.className='card';acc.style.marginBottom='16px';
+  acc.innerHTML='<div class="ctitle">Contactar</div>'+
+    (enl.length
+      ? '<div style="display:flex;gap:8px;flex-wrap:wrap">'+enl.map(x=>'<a class="b bg bs" href="'+esc(x.href)+'" target="_blank" rel="noopener" style="text-decoration:none;color:'+x.color+'"><i class="ti '+x.icono+'"></i>'+x.etiqueta+'</a>').join('')+'</div>'
+      : '<div style="font-size:12.5px;color:var(--amb)">No hay teléfono, email ni redes. Edita la ficha para agregarlos.</div>')+
+    '<div class="sim" style="margin-top:12px">'+
+      (p.telefono?'<div class="simrow"><span>Teléfono</span><span class="v mono">'+esc(p.telefono)+'</span></div>':'')+
+      (p.email?'<div class="simrow"><span>Email</span><span class="v" style="font-size:12px">'+esc(p.email)+'</span></div>':'')+
+      (p.instagram?'<div class="simrow"><span>Instagram</span><span class="v">'+esc(p.instagram)+(p.seguidores?' · '+Number(p.seguidores).toLocaleString():'')+'</span></div>':'')+
+      (p.montoEstimado?'<div class="simrow tot"><span>Monto estimado</span><span class="v">'+money(p.montoEstimado)+'</span></div>':'')+
+    '</div>';
+  izq.appendChild(acc);
+
+  /* Registrar contacto */
+  const reg=document.createElement('div');reg.className='card';reg.style.marginBottom='16px';
+  reg.innerHTML='<div class="ctitle">Registrar contacto</div>'+
+    '<div class="f"><label>Tipo</label><div class="chips" style="margin:0">'+
+      ['Llamada','WhatsApp','Email','Mensaje IG','Reunión','Propuesta enviada','Nota']
+      .map((t,i)=>'<button type="button" class="chip'+(i===0?' on':'')+'" data-tp="'+t+'">'+t+'</button>').join('')+'</div></div>'+
+    '<div class="f"><label>Qué pasó</label><textarea id="ld-det" rows="2" placeholder="No contestó · Pidió propuesta · Quedamos en llamar el lunes"></textarea></div>'+
+    '<div class="row"><div class="f"><label>Próximo seguimiento</label><input id="ld-seg" type="date" value="'+esc(p.proximoSeguimiento||'')+'"></div>'+
+    '<div class="f" style="display:flex;align-items:flex-end"><button class="b bp" id="ld-add" style="width:100%"><i class="ti ti-plus"></i>Guardar contacto</button></div></div>';
+  izq.appendChild(reg);
+  let tipoSel='Llamada';
+  reg.querySelectorAll('[data-tp]').forEach(b=>b.onclick=()=>{
+    tipoSel=b.dataset.tp;reg.querySelectorAll('[data-tp]').forEach(x=>x.classList.toggle('on',x===b))});
+  reg.querySelector('#ld-add').onclick=async()=>{
+    if(!Array.isArray(p.actividad))p.actividad=[];
+    p.actividad.push({fecha:today(),tipo:tipoSel,detalle:reg.querySelector('#ld-det').value.trim()});
+    p.proximoSeguimiento=reg.querySelector('#ld-seg').value||'';
+    if(!await saveUI('prospects'))return;
+    toast('Contacto registrado');render();
+  };
+
+  /* Estado del seguimiento */
+  const est=document.createElement('div');est.className='card';
+  const venc=p.proximoSeguimiento&&p.proximoSeguimiento<=today();
+  est.style.cssText='border-left:3px solid '+(venc?'var(--red)':dContacto!=null&&dContacto>14?'var(--amb)':'var(--lime)');
+  est.innerHTML='<div class="ctitle">Situación</div><div class="sim">'+
+    '<div class="simrow"><span>En la base desde</span><span class="v">'+(p.fechaCreacion?fdate(p.fechaCreacion):'—')+'</span></div>'+
+    '<div class="simrow"><span>Último contacto</span><span class="v"'+(dContacto!=null&&dContacto>14?' style="color:var(--amb)"':'')+'>'+
+      (ultimoContacto(p)?'hace '+dContacto+' d':'<span style="color:var(--amb)">nunca</span>')+'</span></div>'+
+    '<div class="simrow"><span>Contactos registrados</span><span class="v">'+(p.actividad||[]).length+'</span></div>'+
+    '<div class="simrow tot"><span>Próximo seguimiento</span><span class="v"'+(venc?' style="color:var(--red)"':'')+'>'+
+      (p.proximoSeguimiento?fdate(p.proximoSeguimiento)+(venc?' · vencido':''):'sin programar')+'</span></div>'+
+    '</div>'+(p.notas?'<div style="margin-top:12px"><div style="font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Notas de la ficha</div><div style="font-size:12.5px;color:var(--tx2)">'+esc(p.notas)+'</div></div>':'');
+  izq.appendChild(est);
+  g.appendChild(izq);
+
+  /* Columna derecha: línea de tiempo */
+  const der=document.createElement('div');
+  const tl=document.createElement('div');tl.className='card';
+  tl.innerHTML='<div class="ctitle">Historia <span class="cnt">'+ev.length+'</span></div>'+
+    (ev.length?'<div style="display:flex;flex-direction:column">'+ev.map((e,i)=>
+      '<div style="display:flex;gap:10px">'+
+        '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">'+
+          '<div style="width:26px;height:26px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;color:'+e.color+'"><i class="ti '+e.icono+'" style="font-size:14px"></i></div>'+
+          (i<ev.length-1?'<div style="width:2px;flex:1;background:var(--ln);min-height:14px"></div>':'')+
+        '</div>'+
+        '<div style="padding-bottom:14px;min-width:0;flex:1">'+
+          '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">'+
+            '<strong style="font-size:13px">'+esc(e.titulo)+'</strong>'+
+            '<span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">'+fdate(e.fecha)+'</span></div>'+
+          (e.detalle?'<div style="font-size:12.5px;color:var(--tx2);margin-top:2px">'+esc(e.detalle)+'</div>':'')+
+        '</div></div>').join('')+'</div>'
+      :'<div style="font-size:12.5px;color:var(--tx3);padding:8px 0">Todavía no hay movimientos.</div>');
+  der.appendChild(tl);
+  g.appendChild(der);
+  v.appendChild(g);
+
+  v.querySelector('#ld-volver').onclick=()=>{S.lead=null;render()};
+  v.querySelector('#ld-edit').onclick=()=>{S.mProspect=p.id;render()};
+}
+
+function panelBandeja(v){
+  if(!S.bnd)S.bnd={q:'',fuente:'todas',etapa:'todas',contacto:'todos',orden:'reciente',sel:[]};
+  const B=S.bnd;
+  const todos=visibleProspects()||[];
+  if(!todos.length){
+    v.appendChild(frag(mt('ti-inbox','Nada en la bandeja todavía. Importa una lista y aparecerá aquí.')));
+    return;
+  }
+  const fuentes=[...new Set(todos.map(p=>p.fuente||'Sin fuente'))].sort();
+  const tieneContacto=p=>!!(p.telefono||p.email||p.instagram);
+
+  const pasa=p=>{
+    const q=String(B.q||'').trim().toLowerCase();
+    if(q&&![p.negocio,p.ubicacion,p.categoria,p.instagram,p.email,p.telefono,p.notas].filter(Boolean).join(' ').toLowerCase().includes(q))return false;
+    if(B.fuente!=='todas'&&(p.fuente||'Sin fuente')!==B.fuente)return false;
+    if(B.etapa!=='todas'&&p.estado!==B.etapa)return false;
+    if(B.contacto==='con'&&!tieneContacto(p))return false;
+    if(B.contacto==='sin'&&tieneContacto(p))return false;
+    if(B.contacto==='sintocar'&&actividadDe(p).length)return false;
+    return true;
+  };
+  let lista=todos.filter(pasa);
+  const dias=p=>diasSinContacto(p)==null?-1:diasSinContacto(p);
+  if(B.orden==='reciente')lista.sort((a,b)=>String(b.fechaCreacion||'').localeCompare(String(a.fechaCreacion||'')));
+  else if(B.orden==='olvidados')lista.sort((a,b)=>dias(b)-dias(a));
+  else if(B.orden==='monto')lista.sort((a,b)=>(Number(b.montoEstimado)||0)-(Number(a.montoEstimado)||0));
+  else lista.sort((a,b)=>String(a.negocio||'').localeCompare(String(b.negocio||'')));
+
+  const sinTocar=todos.filter(p=>!actividadDe(p).length&&p.estado==='nuevo').length;
+  const conDatos=todos.filter(tieneContacto).length;
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit '+(sinTocar>0?'tone-amb':'tone-lime')+'"><div class="mlab">Sin tocar</div><div class="mval">'+sinTocar+'</div><div class="msub">nuevos que nadie ha contactado</div></div>'+
+    '<div class="met"><div class="mlab">En la bandeja</div><div class="mval">'+todos.length+'</div><div class="msub">prospectos en total</div></div>'+
+    '<div class="met"><div class="mlab">Con forma de contactar</div><div class="mval">'+conDatos+'</div><div class="msub">'+pct(todos.length?r2(conDatos/todos.length*100):0)+' de la base</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Valor estimado</div><div class="mval">'+money(r2(todos.reduce((x,p)=>x+(Number(p.montoEstimado)||0),0)))+'</div><div class="msub">si cerraran todos</div></div>'+
+    '</div>'));
+
+  const sel=(id,label,val,ops)=>'<div class="f"><label>'+label+'</label><select id="'+id+'">'+
+    ops.map(([k,l,n])=>'<option value="'+esc(k)+'"'+(val===k?' selected':'')+'>'+esc(l)+(n!=null?' ('+n+')':'')+'</option>').join('')+'</select></div>';
+  const fc=document.createElement('div');fc.className='card';fc.style.marginBottom='14px';
+  fc.innerHTML='<div class="f"><label>Buscar</label><input id="bn-q" value="'+esc(B.q||'')+'" placeholder="Nombre, zona, categoría, contacto…"></div>'+
+    '<div class="row">'+
+      sel('bn-fu','Fuente',B.fuente,[['todas','Todas']].concat(fuentes.map(f=>[f,f,todos.filter(p=>(p.fuente||'Sin fuente')===f).length])))+
+      sel('bn-et','Etapa',B.etapa,[['todas','Todas']].concat(STG.map(([k,l])=>[k,l,todos.filter(p=>p.estado===k).length])))+
+    '</div><div class="row">'+
+      sel('bn-ct','Datos de contacto',B.contacto,[['todos','Cualquiera'],['con','Con teléfono, email o IG',conDatos],['sin','Sin forma de contactar',todos.length-conDatos],['sintocar','Nunca contactados',todos.filter(p=>!actividadDe(p).length).length]])+
+      sel('bn-or','Ordenar por',B.orden,[['reciente','Más recientes primero'],['olvidados','Más olvidados primero'],['monto','Mayor monto estimado'],['nombre','Nombre A-Z']])+
+    '</div>'+
+    '<div class="sub" style="font-size:12.5px"><strong>'+lista.length+'</strong> de '+todos.length+' visibles</div>';
+  v.appendChild(fc);
+  const con=(id,campo)=>{const el=fc.querySelector('#'+id);if(el)el.onchange=()=>{B[campo]=el.value;B.sel=[];render()}};
+  con('bn-fu','fuente');con('bn-et','etapa');con('bn-ct','contacto');con('bn-or','orden');
+  const bq=fc.querySelector('#bn-q');let tq=null;
+  bq.oninput=()=>{clearTimeout(tq);tq=setTimeout(()=>{B.q=bq.value;B.sel=[];render();
+    const n=document.getElementById('bn-q');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}},280)};
+
+  /* Acciones en lote */
+  if(B.sel.length){
+    const ac=document.createElement('div');ac.className='card';ac.style.cssText='margin-bottom:14px;border-left:3px solid var(--lav)';
+    ac.innerHTML='<div class="ctitle">'+B.sel.length+' seleccionado'+(B.sel.length===1?'':'s')+'</div>'+
+      '<div class="row"><div class="f"><label>Mover a etapa</label><div style="display:flex;gap:6px"><select id="bn-me">'+
+        STG.map(([k,l])=>'<option value="'+k+'">'+l+'</option>').join('')+'</select><button class="b bp bs" id="bn-mv">Mover</button></div></div>'+
+      '<div class="f"><label>Programar seguimiento</label><div style="display:flex;gap:6px"><input id="bn-fe" type="date" value="'+today()+'"><button class="b bp bs" id="bn-pg">Poner</button></div></div></div>'+
+      '<div class="brow" style="justify-content:space-between"><button class="b bg bs" id="bn-nada">Quitar selección</button><button class="b bg bd bs" id="bn-del">Eliminar los '+B.sel.length+'</button></div>';
+    v.appendChild(ac);
+    const conSel=fn=>async()=>{B.sel.forEach(id=>{const p=S.prospects.find(x=>x.id===id);if(p)fn(p)});
+      if(!await saveUI('prospects'))return;B.sel=[];render()};
+    ac.querySelector('#bn-mv').onclick=conSel(p=>{p.estado=ac.querySelector('#bn-me').value});
+    ac.querySelector('#bn-pg').onclick=conSel(p=>{p.proximoSeguimiento=ac.querySelector('#bn-fe').value});
+    ac.querySelector('#bn-nada').onclick=()=>{B.sel=[];render()};
+    ac.querySelector('#bn-del').onclick=async()=>{
+      if(!confirm('¿Eliminar '+B.sel.length+' prospectos? No se puede deshacer.'))return;
+      S.prospects=S.prospects.filter(x=>!B.sel.includes(x.id));
+      if(!await saveUI('prospects'))return;B.sel=[];toast('Eliminados');render()};
+  }
+
+  const tabla=document.createElement('div');tabla.className='card';
+  const todosSel=lista.length&&lista.every(p=>B.sel.includes(p.id));
+  tabla.innerHTML='<div class="ctitle">Bandeja <span class="cnt">'+lista.length+'</span></div>'+
+    '<div style="overflow-x:auto"><table class="t"><thead><tr>'+
+    '<th style="width:32px"><input type="checkbox" id="bn-all" '+(todosSel?'checked':'')+' style="width:auto;margin:0"></th>'+
+    '<th>Negocio</th><th>Contacto</th><th>Fuente</th><th>Etapa</th><th>Último toque</th><th>Seguimiento</th><th>Monto</th></tr></thead><tbody>'+
+    lista.slice(0,200).map(p=>{
+      const d=diasSinContacto(p), act=actividadDe(p).length;
+      const col=STG.find(x=>x[0]===p.estado);
+      return '<tr data-pid="'+p.id+'"'+(B.sel.includes(p.id)?' style="background:var(--lav2)"':'')+'>'+
+      '<td><input type="checkbox" class="bn-ck" data-id="'+p.id+'" '+(B.sel.includes(p.id)?'checked':'')+' style="width:auto;margin:0"></td>'+
+      '<td class="bn-ir" style="cursor:pointer"><strong>'+esc(p.negocio||'(sin nombre)')+'</strong>'+
+        '<div style="font-size:11px;color:var(--tx3)">'+esc([p.categoria,p.ubicacion].filter(Boolean).join(' · ')||'—')+'</div></td>'+
+      '<td style="font-size:12px">'+([p.instagram,p.telefono,p.email].filter(Boolean).map(esc).join('<br>')||'<span style="color:var(--amb)">sin datos</span>')+'</td>'+
+      '<td style="font-size:12px">'+esc(p.fuente||'—')+'</td>'+
+      '<td><span class="p" style="background:var(--card2);color:'+(col?col[2]:'var(--tx2)')+'">'+esc(col?col[1]:p.estado)+'</span></td>'+
+      '<td class="n" style="font-size:12px">'+(act?'hace '+d+' d<div style="font-size:11px;color:var(--tx3)">'+act+' contacto'+(act===1?'':'s')+'</div>':'<span style="color:var(--amb)">nunca</span>')+'</td>'+
+      '<td class="n" style="font-size:12px">'+(p.proximoSeguimiento?(p.proximoSeguimiento<=today()?'<span style="color:var(--red);font-weight:700">'+fdate(p.proximoSeguimiento)+'</span>':fdate(p.proximoSeguimiento)):'—')+'</td>'+
+      '<td class="n">'+(p.montoEstimado?money(p.montoEstimado):'—')+'</td></tr>';
+    }).join('')+'</tbody></table></div>'+
+    (lista.length>200?'<div class="sub" style="font-size:12px;margin-top:8px">Mostrando 200 de '+lista.length+'. Afina los filtros para ver el resto.</div>':'');
+  v.appendChild(tabla);
+
+  tabla.querySelector('#bn-all').onchange=e=>{
+    B.sel=e.target.checked?lista.map(p=>p.id):[];render()};
+  tabla.querySelectorAll('.bn-ck').forEach(ck=>ck.onclick=e=>{
+    e.stopPropagation();
+    const id=ck.dataset.id;
+    B.sel=ck.checked?[...new Set([...B.sel,id])]:B.sel.filter(x=>x!==id);
+    render();});
+  tabla.querySelectorAll('.bn-ir').forEach(td=>td.onclick=()=>{S.lead=td.closest('tr').dataset.pid;S.tab='prospectos';render()});
+}
+
+function panelExtractores(v){
+  v.appendChild(frag('<div class="card" style="margin-bottom:16px;border-left:3px solid var(--amb)">'+
+    '<div class="ctitle">Por qué funciona así</div>'+
+    '<div class="sub" style="font-size:12.5px">Esta app vive en el navegador y no puede pedirle páginas a otros dominios: el navegador lo bloquea por seguridad (CORS). '+
+    'La vuelta es ejecutar la extracción <strong>dentro de la pestaña del sitio</strong>, donde sí tiene permiso. Copias el código, lo pegas en la consola de esa página, '+
+    'y te deja el resultado en el portapapeles listo para la pestaña Importar.</div>'+
+    '<div class="sub" style="font-size:12px;margin-top:8px;color:var(--tx3)">Estos sitios cambian su maquetado a menudo, así que un extractor puede dejar de funcionar. Si pasa, avísame con lo que salga en la consola y lo ajusto.</div></div>'));
+
+  EXTRACTORES.forEach(x=>{
+    const c=document.createElement('div');c.className='card';c.style.marginBottom='16px';
+    c.innerHTML='<div class="ctitle"><i class="ti '+x.icono+'"></i> '+esc(x.nombre)+'</div>'+
+      '<ol style="font-size:12.5px;color:var(--tx2);margin:0 0 12px;padding-left:18px;line-height:1.9">'+
+      x.comoUsar.map(p2=>'<li>'+p2+'</li>').join('')+'</ol>'+
+      '<pre style="background:var(--ink);color:var(--txi);padding:12px;border-radius:var(--r);overflow-x:auto;font-size:11px;line-height:1.5;margin:0"><code>'+esc(x.codigo)+'</code></pre>'+
+      '<div class="brow"><button class="b bp bs" data-cp="'+x.k+'"><i class="ti ti-copy"></i>Copiar código</button></div>';
+    v.appendChild(c);
+    c.querySelector('[data-cp]').onclick=async()=>{
+      try{await navigator.clipboard.writeText(x.codigo);toast('Código copiado · pégalo en la consola del sitio')}
+      catch(e){
+        const ta=c.querySelector('code');const r=document.createRange();r.selectNode(ta);
+        window.getSelection().removeAllRanges();window.getSelection().addRange(r);
+        toast('Selecciónalo y copia con Ctrl+C');
+      }
+    };
+  });
+}
+
+function panelFuentes(v){
+  const ps=visibleProspects()||[];
+  if(!ps.length){v.appendChild(frag(mt('ti-database-search','Todavía no hay prospectos. Importa una lista para empezar.')));return}
+  const porFuente=new Map();
+  ps.forEach(p=>{
+    const f=p.fuente||'Sin fuente';
+    const e=porFuente.get(f)||{fuente:f,total:0,ganados:0,perdidos:0,abiertos:0,monto:0};
+    e.total++;e.monto=r2(e.monto+(Number(p.montoEstimado)||0));
+    if(p.estado==='ganado')e.ganados++;else if(p.estado==='perdido')e.perdidos++;else e.abiertos++;
+    porFuente.set(f,e);
+  });
+  const filas=[...porFuente.values()].map(e=>({...e,
+    cerrados:e.ganados+e.perdidos,
+    conversion:(e.ganados+e.perdidos)>0?r2(e.ganados/(e.ganados+e.perdidos)*100):0
+  })).sort((a,b)=>b.total-a.total);
+  const c=document.createElement('div');c.className='card';
+  c.innerHTML='<div class="ctitle">Rendimiento por fuente <span class="cnt">'+ps.length+' prospectos</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Qué canal te trae prospectos que de verdad cierran. La conversión se calcula solo sobre los ya cerrados, ganados o perdidos.</div>'+
+    '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fuente</th><th>Total</th><th>Abiertos</th><th>Ganados</th><th>Perdidos</th><th>Conversión</th><th>Valor estimado</th></tr></thead><tbody>'+
+    filas.map(f=>'<tr><td><strong>'+esc(f.fuente)+'</strong></td><td class="n">'+f.total+'</td>'+
+      '<td class="n">'+f.abiertos+'</td><td class="n" style="color:var(--lime)">'+f.ganados+'</td>'+
+      '<td class="n" style="color:var(--red)">'+f.perdidos+'</td>'+
+      '<td class="n">'+(f.cerrados?'<span class="p '+(f.conversion>=40?'p-ok':f.conversion>=15?'p-w':'p-g')+'">'+pct(f.conversion)+'</span>':'<span style="color:var(--tx3)">sin cerrar aún</span>')+'</td>'+
+      '<td class="n">'+money(f.monto)+'</td></tr>').join('')+'</tbody></table></div>';
+  v.appendChild(c);
+}
 function vProspectos(v){
-  head(v,'Clientes','Prospectos','Arrastra las tarjetas entre columnas.',
+  if(S.lead){
+    const lp=(S.prospects||[]).find(x=>x.id===S.lead);
+    if(lp){vLead(v,lp);return}
+    S.lead=null;
+  }
+  head(v,'Clientes','Prospectos','Arrastra las tarjetas entre columnas. Toca una para abrir su panel.',
     '<button class="b bp" id="new-p"><i class="ti ti-plus"></i>Nuevo</button>');
+  const pend=prospectosPendientes();
+  if(pend.length){
+    const al=document.createElement('div');al.className='card';al.style.cssText='margin-bottom:14px;border-left:3px solid var(--amb)';
+    al.innerHTML='<div class="ctitle">Seguimientos pendientes <span class="cnt">'+pend.length+'</span></div>'+
+      pend.slice(0,6).map(x=>'<div class="lrow" data-pp="'+x.id+'" style="cursor:pointer"><div><div class="lname">'+esc(x.negocio)+'</div><div class="lsub">'+esc(x.fuente||'')+' · tocaba el '+fdate(x.proximoSeguimiento)+'</div></div><span class="p '+(x.proximoSeguimiento<today()?'p-d':'p-w')+'">'+(x.proximoSeguimiento<today()?'vencido':'hoy')+'</span></div>').join('');
+    v.appendChild(al);
+    al.querySelectorAll('[data-pp]').forEach(r=>r.onclick=()=>{S.lead=r.dataset.pp;render()});
+  }
   const bd=document.createElement('div');bd.style.cssText='display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;align-items:flex-start';
   STG.forEach(([k,lb,col])=>{
     const items=visibleProspects().filter(p=>p.estado===k);
@@ -2416,14 +3023,14 @@ function vProspectos(v){
         (k==='ganado'?'<button class="b bp bs" style="height:24px;padding:0 9px;font-size:11px" data-cv="'+p.id+'">Convertir</button>':'')+'</div>';
       card.ondragstart=e=>{e.dataTransfer.setData('text/plain',p.id);card.style.opacity='.4'};
       card.ondragend=()=>card.style.opacity='1';
-      card.onclick=e=>{if(e.target.closest('button'))return;S.mProspect=p.id;render()};
+      card.onclick=e=>{if(e.target.closest('button'))return;S.lead=p.id;render()};
       w.appendChild(card);
     });
     c.ondragover=e=>{e.preventDefault();c.style.background='var(--pink2)'};
     c.ondragleave=()=>c.style.background='var(--card2)';
     c.ondrop=async e=>{e.preventDefault();c.style.background='var(--card2)';
       const p=S.prospects.find(x=>x.id===e.dataTransfer.getData('text/plain'));
-      if(p&&p.estado!==k){p.estado=k;await saveUI('prospects');toast('Movido a '+lb);render()}};
+      if(p&&moverEtapa(p,k)){await saveUI('prospects');toast('Movido a '+lb);render()}};
     bd.appendChild(c);
   });
   v.appendChild(bd);
@@ -2438,33 +3045,63 @@ function vProspectos(v){
 }
 function mProspectModal(){
   const isNew=S.mProspect==='new';
-  const p=isNew?{id:'new',negocio:'',ubicacion:'',montoEstimado:0,estado:'nuevo'}:S.prospects.find(x=>x.id===S.mProspect);
+  const p=isNew?{id:'new',negocio:'',ubicacion:'',montoEstimado:0,estado:'nuevo',actividad:[]}:S.prospects.find(x=>x.id===S.mProspect);
   if(!p){S.mProspect=null;return}
+  if(!Array.isArray(p.actividad))p.actividad=[];
   const ov=document.createElement('div');ov.className='ov';
   ov.onclick=e=>{if(e.target===ov){S.mProspect=null;render()}};
   const m=document.createElement('div');m.className='mdl';
-  m.innerHTML='<div class="mhd"><div class="mid">'+av(p.negocio||'?','l')+'<div class="mtitle">'+(isNew?'Nuevo prospecto':esc(p.negocio))+'</div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
-    '<div class="row"><div class="f"><label>Negocio</label><input id="pp-n" value="'+esc(p.negocio)+'"></div>'+
+  const dias=isNew?null:diasSinContacto(p);
+  const acts=actividadDe(p);
+  m.innerHTML='<div class="mhd"><div class="mid">'+av(p.negocio||'?','l')+'<div><div class="mtitle">'+(isNew?'Nuevo prospecto':esc(p.negocio))+'</div>'+
+      (isNew?'':'<div class="esub">'+esc(p.fuente||'Sin fuente')+(dias!=null?' · sin contacto hace '+dias+' d':'')+'</div>')+
+    '</div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="row"><div class="f"><label>Negocio</label><input id="pp-n" value="'+esc(p.negocio||'')+'"></div>'+
     '<div class="f"><label>Ubicación</label><input id="pp-u" value="'+esc(p.ubicacion||'')+'"></div></div>'+
+    '<div class="row"><div class="f"><label>Teléfono</label><input id="pp-tel" value="'+esc(p.telefono||'')+'"></div>'+
+    '<div class="f"><label>Email</label><input id="pp-em" value="'+esc(p.email||'')+'"></div></div>'+
+    '<div class="row"><div class="f"><label>Instagram</label><input id="pp-ig" value="'+esc(p.instagram||'')+'" placeholder="@usuario"></div>'+
+    '<div class="f"><label>Sitio web</label><input id="pp-web" value="'+esc(p.web||'')+'"></div></div>'+
+    '<div class="row"><div class="f"><label>Categoría</label><input id="pp-cat" value="'+esc(p.categoria||'')+'"></div>'+
+    '<div class="f"><label>Fuente</label><select id="pp-fu">'+FUENTES.map(f=>'<option'+((p.fuente||'Otro')===f?' selected':'')+'>'+f+'</option>').join('')+'</select></div></div>'+
     '<div class="row"><div class="f"><label>Monto estimado</label><input id="pp-m" type="number" step="0.01" value="'+(p.montoEstimado||'')+'"></div>'+
     '<div class="f"><label>Etapa</label><select id="pp-e">'+STG.map(([k,l])=>'<option value="'+k+'"'+(p.estado===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div></div>'+
+    '<div class="row"><div class="f"><label>Próximo seguimiento</label><input id="pp-seg" type="date" value="'+esc(p.proximoSeguimiento||'')+'"><div class="hint">Te avisa en Prospectos cuando llegue la fecha.</div></div>'+
+    '<div class="f"><label>Seguidores</label><input id="pp-seg2" type="number" step="1" value="'+(p.seguidores||'')+'"></div></div>'+
+    '<div class="f"><label>Notas</label><textarea id="pp-no" rows="2">'+esc(p.notas||'')+'</textarea></div>'+
+    (isNew?'':'<div class="msec" style="margin-top:12px"><div class="mstitle">Actividad<span class="cnt">'+acts.length+'</span></div>'+
+      '<div class="row" style="align-items:end"><div class="f"><label>Registrar contacto</label><select id="pp-at">'+
+        ['Llamada','WhatsApp','Email','Mensaje IG','Reunión','Propuesta enviada','Nota'].map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+      '<div class="f"><label>Detalle</label><div style="display:flex;gap:6px"><input id="pp-ad" placeholder="Qué pasó"><button class="b bp bs" id="pp-aa">Añadir</button></div></div></div>'+
+      (acts.length?acts.slice(0,8).map(a=>'<div class="lrow"><div><div class="lname">'+esc(a.tipo)+'</div><div class="lsub">'+esc(a.detalle||'')+'</div></div><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">'+fdate(a.fecha)+'</span></div>').join('')
+        :'<div style="font-size:12.5px;color:var(--tx3);padding:6px 0">Sin contactos registrados todavía.</div>')+
+      '</div>')+
     '<div class="brow"><button class="b bp" id="pp-s">'+(isNew?'Crear':'Guardar')+'</button>'+(isNew?'':'<button class="b bg bd" id="pp-d">Eliminar</button>')+'</div>';
   ov.appendChild(m);document.body.appendChild(ov);
   document.getElementById('x').onclick=()=>{S.mProspect=null;render()};
+  const aa=document.getElementById('pp-aa');
+  if(aa)aa.onclick=async()=>{
+    const det=document.getElementById('pp-ad').value.trim();
+    p.actividad.push({fecha:today(),tipo:document.getElementById('pp-at').value,detalle:det});
+    if(!await saveUI('prospects'))return;
+    toast('Contacto registrado');render();
+  };
   document.getElementById('pp-s').onclick=async()=>{
     const n=document.getElementById('pp-n').value.trim();if(!n){alert('Nombre requerido.');return}
-    const patch={negocio:n,ubicacion:document.getElementById('pp-u').value.trim(),
-      montoEstimado:Number(document.getElementById('pp-m').value)||0,estado:document.getElementById('pp-e').value};
-    if(isNew)S.prospects.push({id:uid(),...patch,fechaCreacion:today()});else Object.assign(p,patch);
+    const g=id=>document.getElementById(id).value.trim();
+    const patch={negocio:n,ubicacion:g('pp-u'),telefono:limpiarTel(g('pp-tel')),email:g('pp-em'),
+      instagram:limpiarIG(g('pp-ig')),web:g('pp-web'),categoria:g('pp-cat'),fuente:g('pp-fu'),
+      montoEstimado:Number(document.getElementById('pp-m').value)||0,estado:g('pp-e'),
+      proximoSeguimiento:g('pp-seg'),seguidores:Number(document.getElementById('pp-seg2').value)||0,
+      notas:g('pp-no')};
+    if(isNew)S.prospects.push({id:uid(),...patch,fechaCreacion:today(),actividad:[],historialEtapa:[]});
+    else{const nuevaEtapa=patch.estado;delete patch.estado;Object.assign(p,patch);moverEtapa(p,nuevaEtapa)}
     S.mProspect=null;await saveUI('prospects');toast('Guardado');render()};
   const d=document.getElementById('pp-d');
-  if(d)d.onclick=async()=>{if(!confirm('¿Eliminar?'))return;S.prospects=S.prospects.filter(x=>x.id!==p.id);
-    S.mProspect=null;await saveUI('prospects');render()};
+  if(d)d.onclick=async()=>{if(!confirm('¿Eliminar este prospecto?'))return;S.prospects=S.prospects.filter(x=>x.id!==p.id);
+    S.mProspect=null;await saveUI('prospects');toast('Eliminado');render()};
 }
 
-
-
-/* ─────────── ESTADÍSTICAS DE CLIENTES ─────────── */
 function inferirPais(c){
   if(c&&c.pais)return c.pais;
   const u=String(c&&c.ubicacion||'').toLowerCase();
