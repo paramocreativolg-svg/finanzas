@@ -375,6 +375,14 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
   .ecard:hover,.card:hover{transform:none}
 }
 
+
+/* Acciones de la cabecera: el botón de Excel vive aquí en todas las secciones */
+.hd-acc{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.xl-global{white-space:nowrap}
+@media(max-width:700px){
+  .hd-acc{width:100%;justify-content:flex-start}
+  .xl-global .xl-txt{display:none}
+}
 </style>
 
 <style>
@@ -1549,7 +1557,7 @@ let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],rol
   cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],
   mCompany:null,mContact:null,mProspect:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
-  fCompany:'todos',fContact:'todos',fInvoice:'todas',
+  fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
   nomYear:new Date().getFullYear(),nomQ:null,cobranzaMes:today().slice(0,7),rentPeriodo:'mes',presetCompany:null,viewEmpresas:'cards',viewEstado:'cards',loading:true,sessionUserId:null};
 
 /* ═══════════ HELPERS DE MODELO ═══════════ */
@@ -1691,6 +1699,69 @@ const TAB_PERMS=[
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
 function roleById(id){return S.roles.find(r=>r.id===id)}
+
+/* ═══════════ CAPACIDAD DEL EQUIPO ═══════════
+   Cada miembro tiene un tope de clientes que puede llevar. La capacidad de la
+   agencia NO es la suma de todos: un cliente necesita community Y diseñador,
+   así que el techo lo pone el área que menos capacidad tenga de esas dos.
+   El filmmaker solo limita a los clientes de Venezuela. */
+const AREAS=[
+  {k:'community',nombre:'Community manager',limitante:true,color:'var(--lav)'},
+  {k:'disenador',nombre:'Diseñador',limitante:true,color:'var(--sky)'},
+  {k:'filmmaker',nombre:'Filmmaker',limitante:false,soloVenezuela:true,color:'var(--pink)'},
+  {k:'otro',nombre:'Otra área',limitante:false,color:'var(--tx3)'}
+];
+function areaDe(m){const k=String(m&&m.area||'otro');return AREAS.find(a=>a.k===k)||AREAS[3]}
+function esClienteVenezuela(c){return inferirPais(c)==='Venezuela'}
+/* Clientes activos que lleva un miembro, por asignación directa. */
+function clientesDeMiembro(memberId){
+  return (visibleCompanies()||[]).filter(c=>c.estado==='activo'&&
+    (c.asignaciones||[]).some(a=>a.memberId===memberId&&a.activo!==false));
+}
+function capacidadPorArea(){
+  const activos=(S.members||[]).filter(m=>m.activo!==false);
+  return AREAS.map(a=>{
+    const miembros=activos.filter(m=>areaDe(m).k===a.k).map(m=>{
+      const cls=clientesDeMiembro(m.id);
+      const tope=Number(m.capacidadClientes)||0;
+      return{m,tope,usados:cls.length,libres:Math.max(0,tope-cls.length),
+        clientes:cls,sinTope:tope<=0,
+        pct:tope>0?r2(cls.length/tope*100):0,
+        excedido:tope>0&&cls.length>tope};
+    }).sort((x,y)=>y.pct-x.pct);
+    /* Clientes distintos cubiertos por el área (dos personas pueden compartir uno). */
+    const cubiertos=new Set();miembros.forEach(x=>x.clientes.forEach(c=>cubiertos.add(c.id)));
+    const capacidad=miembros.reduce((s,x)=>s+x.tope,0);
+    const usados=cubiertos.size;
+    return{...a,miembros,capacidad,usados,libres:Math.max(0,capacidad-usados),
+      pct:capacidad>0?r2(usados/capacidad*100):0,
+      sinConfigurar:miembros.filter(x=>x.sinTope).length,
+      cubiertosVE:[...cubiertos].map(id=>companyById(id)).filter(c=>c&&esClienteVenezuela(c)).length};
+  });
+}
+function capacidadAgencia(){
+  const areas=capacidadPorArea();
+  const byK=k=>areas.find(a=>a.k===k);
+  const com=byK('community'), dis=byK('disenador'), fil=byK('filmmaker');
+  const activos=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
+  const activosVE=activos.filter(esClienteVenezuela).length;
+  /* El techo general lo marca la más apretada entre community y diseñador. */
+  const limitantes=[com,dis].filter(a=>a.capacidad>0);
+  const techo=limitantes.length?Math.min(...limitantes.map(a=>a.capacidad)):0;
+  const cuelloBotella=limitantes.length
+    ? limitantes.reduce((a,b)=>a.capacidad<=b.capacidad?a:b)
+    : null;
+  /* Venezuela: además del techo general, no puede pasar del filmmaker. */
+  const techoVE=fil.capacidad>0?Math.min(techo||fil.capacidad,fil.capacidad):techo;
+  return{areas,com,dis,fil,
+    techo,ocupados:activos.length,libres:Math.max(0,techo-activos.length),
+    pct:techo>0?r2(activos.length/techo*100):0,
+    cuelloBotella,
+    techoVE,ocupadosVE:activosVE,libresVE:Math.max(0,techoVE-activosVE),
+    pctVE:techoVE>0?r2(activosVE/techoVE*100):0,
+    filmmakerLimita:fil.capacidad>0&&techoVE<techo,
+    sinConfigurar:areas.reduce((s,a)=>s+a.sinConfigurar,0)};
+}
 function userById(id){return S.users.find(u=>u.id===id)}
 function currentUser(){return userById(S.sessionUserId)}
 function roleCan(role,key){return !!(role&&role.permisos&&role.permisos[key]===true)}
@@ -1914,12 +1985,16 @@ function renderNav(){
   const lo=document.getElementById('logout');if(lo)lo.onclick=logout;
 }
 function head(v,eyeb,title,sub,right){
-  v.appendChild(frag('<div class="hd"><div><div class="eyeb">'+eyeb+'</div><h1 class="t">'+title+'</h1><p class="sub">'+sub+'</p></div>'+(right||'')+'</div>'));
+  /* El botón de Excel se añade aquí para que exista en TODAS las secciones
+     sin tener que tocar cada vista una por una. */
+  const btnXL='<button class="b bg xl-global" title="Exportar a Excel"><i class="ti ti-file-spreadsheet"></i><span class="xl-txt">Excel</span></button>';
+  const acciones='<div class="hd-acc">'+(right||'')+btnXL+'</div>';
+  v.appendChild(frag('<div class="hd"><div><div class="eyeb">'+eyeb+'</div><h1 class="t">'+title+'</h1><p class="sub">'+sub+'</p></div>'+acciones+'</div>'));
+  v.querySelectorAll('.xl-global').forEach(b=>b.onclick=()=>exportarExcelModal());
 }
 
 /* ═══════════ RENDER ═══════════ */
 const mount=document.getElementById('mt');
-function conectarBotonExcel(){const b=document.getElementById('xl-btn');if(b)b.onclick=()=>exportarExcelModal();}
 function render(){
   try{
     document.querySelectorAll('.ov:not(.login-layer)').forEach(e=>e.remove());
@@ -2290,6 +2365,19 @@ function vEgresos(v){
     S.egresos=S.egresos.filter(x=>x.id!==b.dataset.de);await saveUI('egresos');render()});
 }
 
+/* STG se usaba en vProspectos y en el modal de prospecto, pero nunca se
+   declaraba: abrir Prospectos lanzaba "STG is not defined" y la sección
+   quedaba en blanco. Las etapas se deducen de cómo se usa: clave, etiqueta
+   y color de la columna, con 'ganado' y 'perdido' como cierres (el menú
+   lateral ya excluye esos dos del conteo). */
+const STG=[
+  ['nuevo','Nuevo','var(--sky)'],
+  ['contactado','Contactado','var(--lav)'],
+  ['propuesta','Propuesta enviada','var(--amb)'],
+  ['negociacion','En negociación','var(--pink)'],
+  ['ganado','Ganado','var(--lime)'],
+  ['perdido','Perdido','var(--red)']
+];
 function vProspectos(v){
   head(v,'Clientes','Prospectos','Arrastra las tarjetas entre columnas.',
     '<button class="b bp" id="new-p"><i class="ti ti-plus"></i>Nuevo</button>');
@@ -2374,7 +2462,7 @@ function inferirPais(c){
 }
 function vEstadisticasClientes(v){
   const act=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
-  head(v,'Análisis','Estadísticas de clientes','Entiende cómo está compuesta tu cartera, dónde están tus clientes y qué tanto representa cada grupo.','<button class="b bp" id="xl-btn"><i class="ti ti-file-spreadsheet"></i>Exportar a Excel</button>');
+  head(v,'Análisis','Estadísticas de clientes','Entiende cómo está compuesta tu cartera, dónde están tus clientes y qué tanto representa cada grupo.');
   const total=act.length, ingresos=r2(act.reduce((s,c)=>s+(Number(c.tarifaBruta)||0),0)), ticket=total?ingresos/total:0;
   const hoy=new Date(today()+'T12:00:00');
   const antigBuckets={'Menos de 3 meses':0,'3–6 meses':0,'6–12 meses':0,'1–2 años':0,'Más de 2 años':0,'Sin fecha':0};
@@ -2461,7 +2549,7 @@ function vEstadisticasClientes(v){
     bc.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
   }
 
-  conectarBotonExcel();
+  
   const country={};act.forEach(c=>{const k=inferirPais(c);country[k]=(country[k]||0)+1});
   const industry={};act.forEach(c=>{const k=String(c.industria||'No especificado').trim()||'No especificado';industry[k]=(industry[k]||0)+1});
   const freq={Mensual:0,Quincenal:0};act.forEach(c=>{c.frecuencia==='quincenal'?freq.Quincenal++:freq.Mensual++});
@@ -2512,7 +2600,14 @@ function proyeccionBase(){
   const margenBruto=r2(ingresos-comisionesCobro-equipoVariable);
   const utilidad=r2(margenBruto-sueldosFijos-gastosFijos);
   const netoClientes=r2(ingresos-comisionesCobro);
-  return{clientes:act.length,ingresos,comisionesCobro,netoClientes,equipoVariable,sueldosFijos,gastosFijos,gastosFijosRecurrentes,gastosFijosProyeccion,margenBruto,utilidad};
+  const detalleSueldos=(S.members||[]).filter(m=>m.activo).map(m=>{
+    const esG=esPisoGarantizado(m);
+    const monto=m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'?r2(Number(m.sueldoMensual)||0)
+      :esG?complementoMensualDe(m):0;
+    return{m,esG,monto,piso:esG?r2(Number(m.ingresoGarantizado)||0):0,
+      comision:esG?comisionTeoricaMensual(m.id):0};
+  }).filter(x=>x.monto>0.005||x.esG);
+  return{clientes:act.length,ingresos,comisionesCobro,netoClientes,equipoVariable,sueldosFijos,gastosFijos,gastosFijosRecurrentes,gastosFijosProyeccion,margenBruto,utilidad,detalleSueldos};
 }
 function vProyeccion(v){
   const b=proyeccionBase(), gastoFijo=b.gastosFijos;
@@ -2523,7 +2618,7 @@ function vProyeccion(v){
     '<div class="met"><div class="mlab">Ingresos proyectados</div><div class="mval">'+money(b.ingresos)+'</div><div class="msub">Tarifas mensuales actuales</div></div>'+ 
     '<div class="met met-ctx"><div class="mlab">Neto después de comisión</div><div class="mval">'+money(b.netoClientes)+'</div><div class="msub">Lo que teóricamente queda del cliente</div></div>'+
     '<div class="met"><div class="mlab">Costo variable equipo</div><div class="mval">'+money(b.equipoVariable)+'</div><div class="msub">Pagos ligados a clientes</div></div>'+ 
-    '<div class="met met-ctx"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">Nómina fija mensual</div></div>'+ 
+    '<div class="met met-ctx"><div class="mlab">Sueldos fijos</div><div class="mval">'+money(b.sueldosFijos)+'</div><div class="msub">'+(b.detalleSueldos.some(x=>x.esG)?'Sueldos + complementos garantizados':'Nómina fija mensual')+'</div></div>'+ 
     '<div class="met"><div class="mlab">Gastos fijos</div><div class="mval">'+money(b.gastosFijos)+'</div><div class="msub">Recurrentes + extras de proyección</div></div>'+ 
     '<div class="met met-crit tone-lime"><div class="mlab">Ganancia mensual proyectada</div><div class="mval">'+money(b.utilidad)+'</div><div class="msub">Sin usar movimientos reales</div></div>'+ 
     '</div>'));
@@ -2545,7 +2640,14 @@ function vProyeccion(v){
     '<div class="lrow"><div><div class="lname">Comisiones teóricas de cobro</div><div class="lsub">Según comisión del cliente o método configurado</div></div><div class="mono" style="color:var(--red)">−'+money(b.comisionesCobro)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Neto después de comisiones</div><div class="lsub">Ingresos menos comisiones teóricas</div></div><div class="mono">'+money(b.netoClientes)+'</div></div>'+
     '<div class="lrow"><div><div class="lname">Equipo variable</div><div class="lsub">Asignaciones y comisiones por cliente</div></div><div class="mono" style="color:var(--red)">−'+money(b.equipoVariable)+'</div></div>'+
-    '<div class="lrow"><div><div class="lname">Sueldos fijos</div><div class="lsub">Empleados sueldo / mixtos</div></div><div class="mono" style="color:var(--red)">−'+money(b.sueldosFijos)+'</div></div>'+
+    '<div class="lrow"><div><div class="lname">Sueldos fijos</div><div class="lsub">'+
+      (b.detalleSueldos.some(x=>x.esG)
+        ? 'Sueldo de fijos y mixtos, más el complemento de los garantizados. Su parte por clientes ya está arriba, en equipo variable.'
+        : 'Empleados con sueldo fijo o mixto')+'</div></div><div class="mono" style="color:var(--red)">−'+money(b.sueldosFijos)+'</div></div>'+
+    b.detalleSueldos.map(x=>'<div class="lrow" style="padding-left:16px;opacity:.85"><div><div class="lname" style="font-weight:400;font-size:12.5px">'+esc(x.m.nombre)+'</div><div class="lsub">'+
+      (x.esG?'Garantizado '+money(x.piso)+' · sus clientes le dan '+money(x.comision)+', la agencia pone el resto'
+       :x.m.tipoCompensacion==='mixto'?'Mixto · sueldo base'
+       :'Sueldo fijo')+'</div></div><div class="mono" style="font-size:12.5px">−'+money(x.monto)+'</div></div>').join('')+
     '<div class="lrow"><div><div class="lname">Gastos fijos</div><div class="lsub">Recurrentes de Egresos + extras de proyección</div></div><div class="mono" style="color:var(--red)">−'+money(b.gastosFijos)+'</div></div>'+
     '<div class="lrow" style="padding-top:14px"><div><div class="lname" style="font-weight:700">Queda libre para la agencia</div><div class="lsub">Resultado mensual proyectado</div></div><div class="mono" style="font-size:16px;font-weight:700;color:'+(b.utilidad>=0?'var(--lime)':'var(--red)')+'">'+money(b.utilidad)+'</div></div>';
   g.appendChild(c1);
@@ -2564,7 +2666,7 @@ function vProyeccion(v){
     '<div class="sub" style="font-size:12px;margin-top:8px">Los recurrentes se configuran en Egresos; los extras son solo de proyección y no modifican tus egresos reales.</div></div>'));
   g.appendChild(c2);v.appendChild(g);
   const cClients=document.createElement('div');cClients.className='card';cClients.style.marginTop='16px';
-  const trs=(S.companies||[]).filter(c=>c.estado==='activo').map(c=>{const cs=cascadaCliente(c);return '<tr><td><strong>'+esc(c.negocio)+'</strong></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(cs.bruto)+'</td><td class="n">−'+money(cs.comisionMonto)+'</td><td class="n">'+money(cs.neto)+'</td><td class="n">−'+money(cs.equipo)+'</td><td class="n" style="font-weight:700">'+money(cs.agencia)+'</td><td class="n">'+money(cs.agencia*100/(cs.bruto||1))+'%</td></tr>'}).join('');
+  const trs=(S.companies||[]).filter(c=>c.estado==='activo').map(c=>{const cs=cascadaCliente(c);return '<tr><td><strong>'+esc(c.negocio)+'</strong></td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(cs.bruto)+'</td><td class="n">'+(cs.comisionMonto>0.005?'−'+money(cs.comisionMonto):'<span style="color:var(--tx3)">—</span>')+'</td><td class="n">'+money(cs.neto)+'</td><td class="n">'+(cs.equipo>0.005?'−'+money(cs.equipo):'<span style="color:var(--tx3)">—</span>')+'</td><td class="n" style="font-weight:700">'+money(cs.agencia)+'</td><td class="n">'+pct(r2(cs.agencia*100/(cs.bruto||1)))+'</td></tr>'}).join('');
   cClients.innerHTML='<div class="ctitle">Cuánto deja cada cliente <span class="cnt">sin gastos fijos</span></div>'+(trs?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Frecuencia</th><th>Ingreso mensual</th><th>Comisión cobro</th><th>Neto después de comisión</th><th>Equipo variable</th><th>Libre para agencia</th><th>Margen</th></tr></thead><tbody>'+trs+'</tbody></table></div>':'<div style="font-size:12.5px;color:var(--tx3)">No hay clientes activos.</div>');
   v.appendChild(cClients);
   const c3=document.createElement('div');c3.className='card';c3.style.marginTop='16px';
@@ -2608,6 +2710,53 @@ function vPanel(v){
 
   const u=currentUser();
   head(v,'Panel','Dashboard','Cobros, pagos y cuánto va quedando para la agencia, cliente por cliente.');
+
+  /* ── Capacidad del equipo ── */
+  const CAP=capacidadAgencia();
+  if(CAP.techo>0||CAP.sinConfigurar||CAP.areas.some(a=>a.miembros.length)){
+    const cap=document.createElement('div');cap.className='card';cap.style.cssText='margin-bottom:16px;border-left:3px solid '+(CAP.pct>=90?'var(--red)':CAP.pct>=75?'var(--amb)':'var(--lime)');
+    const barra=(usados,tope,color)=>{
+      const pct=tope>0?Math.min(100,Math.round(usados/tope*100)):0;
+      const over=tope>0&&usados>tope;
+      return '<div style="background:var(--card2);border-radius:99px;height:9px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+(over?'var(--red)':color)+';border-radius:99px"></div></div>';
+    };
+    let html='<div class="ctitle">Capacidad del equipo'+(CAP.techo>0?' <span class="cnt">'+CAP.ocupados+' de '+CAP.techo+' cupos · '+CAP.libres+' libre'+(CAP.libres===1?'':'s')+'</span>':'')+'</div>';
+    if(CAP.techo>0){
+      html+='<div class="sub" style="font-size:12.5px;margin-bottom:12px">Un cliente necesita community y diseñador, así que el techo lo marca el área más apretada de las dos'+
+        (CAP.cuelloBotella?': <strong>'+CAP.cuelloBotella.nombre+'</strong> con '+CAP.cuelloBotella.capacidad+' cupos':'')+'.</div>'+
+      '<div class="mets" style="margin-bottom:14px">'+
+        '<div class="met met-crit '+(CAP.pct>=90?'tone-red':CAP.pct>=75?'tone-amb':'tone-lime')+'"><div class="mlab">Cupos libres</div><div class="mval">'+CAP.libres+'</div><div class="msub">'+pct(CAP.pct)+' de la capacidad usada</div></div>'+
+        '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+CAP.ocupados+'</div><div class="msub">techo de '+CAP.techo+'</div></div>'+
+        (CAP.fil.capacidad>0
+          ? '<div class="met"><div class="mlab">Cupos Venezuela</div><div class="mval" style="color:'+(CAP.libresVE<=0?'var(--red)':CAP.pctVE>=75?'var(--amb)':'var(--lime)')+'">'+CAP.libresVE+'</div><div class="msub">'+CAP.ocupadosVE+' de '+CAP.techoVE+' · limita el filmmaker</div></div>'
+          : '<div class="met met-ctx"><div class="mlab">Cupos Venezuela</div><div class="mval">—</div><div class="msub">sin filmmaker con tope</div></div>')+
+      '</div>';
+    } else {
+      html+='<div class="sub" style="font-size:12.5px;margin-bottom:12px">Pon el área y el tope de clientes de cada persona en Miembros y aquí verás cuánta capacidad te queda.</div>';
+    }
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
+      CAP.areas.filter(a=>a.miembros.length).map(a=>
+        '<div style="background:var(--card2);border-radius:var(--r);padding:12px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px">'+
+          '<strong style="font-size:13px">'+a.nombre+'</strong>'+
+          '<span class="mono" style="font-size:12px;color:'+(a.capacidad>0&&a.usados>a.capacidad?'var(--red)':'var(--tx2)')+'">'+a.usados+(a.capacidad>0?' / '+a.capacidad:'')+'</span></div>'+
+        (a.capacidad>0?barra(a.usados,a.capacidad,a.color):'<div style="font-size:11.5px;color:var(--tx3)">sin topes definidos</div>')+
+        '<div style="font-size:11px;color:var(--tx3);margin-top:6px">'+
+          (a.limitante?'Limita el techo general':a.soloVenezuela?'Limita solo Venezuela':'No limita')+
+          (a.capacidad>0?' · '+a.libres+' libre'+(a.libres===1?'':'s'):'')+'</div>'+
+        '<div style="margin-top:9px;display:flex;flex-direction:column;gap:5px">'+
+          a.miembros.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px">'+
+            '<span style="color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.m.nombre)+'</span>'+
+            '<span class="mono" style="color:'+(x.excedido?'var(--red)':x.sinTope?'var(--tx3)':x.pct>=90?'var(--amb)':'var(--tx2)')+';white-space:nowrap">'+
+              x.usados+(x.sinTope?'':' / '+x.tope)+(x.excedido?' ⚠':'')+'</span></div>').join('')+
+        '</div></div>').join('')+'</div>';
+    const excedidos=CAP.areas.flatMap(a=>a.miembros.filter(x=>x.excedido));
+    if(excedidos.length)html+='<div class="sub" style="font-size:12.5px;margin-top:12px;color:var(--red)">'+
+      excedidos.map(x=>esc(x.m.nombre)+' lleva '+x.usados+' con un tope de '+x.tope).join(' · ')+'</div>';
+    if(CAP.sinConfigurar)html+='<div class="sub" style="font-size:12px;margin-top:10px;color:var(--tx3)">'+CAP.sinConfigurar+' persona'+(CAP.sinConfigurar===1?'':'s')+' sin tope definido. No cuentan para la capacidad.</div>';
+    cap.innerHTML=html;
+    v.appendChild(cap);
+  }
 
   v.appendChild(frag('<div class="mets">'+
     '<div class="met met-ctx"><div class="mico" style="background:var(--sky)"><i class="ti ti-users"></i></div><div class="mlab">Clientes activos</div><div class="mval">'+act.length+'</div><div class="msub">'+visibleCompanies().length+' clientes registrados</div></div>'+
@@ -2673,7 +2822,98 @@ function tarifaClienteLabel(c){
 /* ─────────── EMPRESAS ─────────── */
 function vEmpresas(v){
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
-  const ch=document.createElement('div');ch.className='chips';[['todos','Todas'],['activo','Activas'],['pausado','Pausadas'],['perdido','Perdidas']].forEach(([k,l])=>{const b=document.createElement('button');b.className='chip'+(S.fCompany===k?' on':'');b.textContent=l;b.onclick=()=>{S.fCompany=k;render()};ch.appendChild(b)});v.appendChild(ch);const list=visibleCompanies().filter(c=>S.fCompany==='todos'||c.estado===S.fCompany);
+  /* ── Filtros ── */
+  if(!S.fEmp)S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};
+  const F=S.fEmp;
+  const todos=visibleCompanies();
+  const porEstado=todos.filter(c=>S.fCompany==='todos'||c.estado===S.fCompany);
+  const ymAhora=today().slice(0,7);
+
+  /* Opciones disponibles, sacadas de los datos reales */
+  const paises=[...new Set(todos.map(c=>inferirPais(c)))].sort();
+  const wallets=(S.metodos||[]).filter(w=>todos.some(c=>c.metodoPagoId===w.id));
+  const miembrosConClientes=(S.members||[]).filter(m=>todos.some(c=>(c.asignaciones||[]).some(a=>a.memberId===m.id&&a.activo!==false)));
+  const areasConGente=AREAS.filter(a=>miembrosConClientes.some(m=>areaDe(m).k===a.k));
+
+  const coincide=c=>{
+    const q=String(F.q||'').trim().toLowerCase();
+    if(q){
+      const texto=[c.negocio,c.ubicacion,c.pais,c.servicios,c.notasTexto].filter(Boolean).join(' ').toLowerCase();
+      const equipo=(c.asignaciones||[]).map(a=>{const m=memberById(a.memberId);return m?m.nombre:''}).join(' ').toLowerCase();
+      if(!texto.includes(q)&&!equipo.includes(q))return false;
+    }
+    if(F.pais!=='todos'&&inferirPais(c)!==F.pais)return false;
+    if(F.frecuencia!=='todas'&&(c.frecuencia||'mensual')!==F.frecuencia)return false;
+    if(F.wallet!=='todas'&&c.metodoPagoId!==F.wallet)return false;
+    if(F.miembro!=='todos'&&!(c.asignaciones||[]).some(a=>a.memberId===F.miembro&&a.activo!==false))return false;
+    if(F.area!=='todas'){
+      const tiene=(c.asignaciones||[]).some(a=>{
+        if(a.activo===false)return false;
+        const m=memberById(a.memberId);return m&&areaDe(m).k===F.area;
+      });
+      if(F.area==='__sin'){if((c.asignaciones||[]).some(a=>a.activo!==false))return false}
+      else if(!tiene)return false;
+    }
+    if(F.cobro!=='todos'){
+      const ven=vencimientoCliente(c), est=estadoCobroMes(c.id,ymAhora);
+      if(F.cobro==='vencidos'&&!ven.vencido)return false;
+      if(F.cobro==='aldia'&&ven.vencido)return false;
+      if(F.cobro==='cobrado'&&est!=='pagado')return false;
+      if(F.cobro==='sincobrar'&&est==='pagado')return false;
+    }
+    return true;
+  };
+
+  const ch=document.createElement('div');ch.className='chips';
+  [['todos','Todas'],['activo','Activas'],['pausado','Pausadas'],['perdido','Perdidas']].forEach(([k,l])=>{
+    const n=todos.filter(c=>k==='todos'||c.estado===k).length;
+    const b=document.createElement('button');b.className='chip'+(S.fCompany===k?' on':'');
+    b.innerHTML=l+' <span style="opacity:.6">'+n+'</span>';
+    b.onclick=()=>{S.fCompany=k;render()};ch.appendChild(b)});
+  v.appendChild(ch);
+
+  const sel=(id,label,valor,opciones)=>'<div class="f"><label>'+label+'</label><select id="'+id+'">'+
+    opciones.map(([k,l,n])=>'<option value="'+esc(k)+'"'+(valor===k?' selected':'')+'>'+esc(l)+(n!=null?' ('+n+')':'')+'</option>').join('')+'</select></div>';
+
+  const fc=document.createElement('div');fc.className='card';fc.style.marginBottom='14px';
+  fc.innerHTML='<div class="row" style="align-items:end">'+
+    '<div class="f" style="grid-column:1/-1"><label>Buscar</label><input id="fe-q" placeholder="Nombre, ubicación, servicio o persona del equipo…" value="'+esc(F.q||'')+'"></div></div>'+
+    '<div class="row">'+
+      sel('fe-pais','País',F.pais,[['todos','Todos los países']].concat(paises.map(p=>[p,p,porEstado.filter(c=>inferirPais(c)===p).length])))+
+      sel('fe-area','Área que lo lleva',F.area,[['todas','Todas las áreas']]
+        .concat(areasConGente.map(a=>[a.k,a.nombre,porEstado.filter(c=>(c.asignaciones||[]).some(x=>{const m=memberById(x.memberId);return x.activo!==false&&m&&areaDe(m).k===a.k})).length]))
+        .concat([['__sin','Sin equipo asignado',porEstado.filter(c=>!(c.asignaciones||[]).some(a=>a.activo!==false)).length]]))+
+    '</div>'+
+    '<div class="row">'+
+      sel('fe-miembro','Persona',F.miembro,[['todos','Cualquiera']].concat(miembrosConClientes.map(m=>[m.id,m.nombre+' · '+areaDe(m).nombre,porEstado.filter(c=>(c.asignaciones||[]).some(a=>a.memberId===m.id&&a.activo!==false)).length])))+
+      sel('fe-frec','Frecuencia',F.frecuencia,[['todas','Todas'],['mensual','Mensual',porEstado.filter(c=>(c.frecuencia||'mensual')==='mensual').length],['quincenal','Quincenal',porEstado.filter(c=>c.frecuencia==='quincenal').length]])+
+    '</div>'+
+    '<div class="row">'+
+      sel('fe-wallet','Wallet de cobro',F.wallet,[['todas','Todas']].concat(wallets.map(w=>[w.id,w.nombre,porEstado.filter(c=>c.metodoPagoId===w.id).length])))+
+      sel('fe-cobro','Situación de cobro',F.cobro,[['todos','Cualquiera'],['vencidos','Solo vencidos'],['aldia','Solo al día'],['cobrado','Ya cobrados este mes'],['sincobrar','Sin cobrar este mes']])+
+    '</div>'+
+    '<div class="brow" style="justify-content:space-between;align-items:center"><div id="fe-info" class="sub" style="font-size:12.5px"></div><button class="b bg bs" id="fe-clear"><i class="ti ti-filter-off"></i>Limpiar filtros</button></div>';
+  v.appendChild(fc);
+
+  const list=porEstado.filter(coincide);
+
+  const activosF=list.filter(c=>c.estado==='activo');
+  const facturacion=r2(activosF.reduce((s,c)=>s+(Number(c.tarifaBruta)||0),0));
+  const hayFiltro=F.q||F.pais!=='todos'||F.area!=='todas'||F.miembro!=='todos'||F.frecuencia!=='todas'||F.wallet!=='todas'||F.cobro!=='todos';
+  fc.querySelector('#fe-info').innerHTML='<strong>'+list.length+'</strong> de '+porEstado.length+' clientes'+
+    (facturacion>0?' · '+money(facturacion)+' al mes':'')+
+    (hayFiltro?'':' · sin filtros aplicados');
+  fc.querySelector('#fe-clear').style.display=hayFiltro?'':'none';
+
+  const cambiar=(id,campo)=>{const el=fc.querySelector('#'+id);if(el)el.onchange=()=>{F[campo]=el.value;render()}};
+  cambiar('fe-pais','pais');cambiar('fe-area','area');cambiar('fe-miembro','miembro');
+  cambiar('fe-frec','frecuencia');cambiar('fe-wallet','wallet');cambiar('fe-cobro','cobro');
+  const inpQ=fc.querySelector('#fe-q');
+  let tq=null;
+  inpQ.oninput=()=>{clearTimeout(tq);tq=setTimeout(()=>{F.q=inpQ.value;render();
+    const n=document.getElementById('fe-q');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}},280)};
+  fc.querySelector('#fe-clear').onclick=()=>{S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};render()};
+
   if(!list.length)v.appendChild(frag(mt('ti-building','No hay empresas con ese filtro.')));
   else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(()=>{const vv=vencimientoCliente(c),pp=proximoCobroCliente(c);return vv.vencido?'<span class="p p-d">Vencido '+vv.dias+' d</span><div style="font-size:11px;color:var(--tx3)">próximo '+(pp?fdate(pp):'—')+'</div>':(pp?fdate(pp):'—')})()+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
   else{const g=document.createElement('div');g.className='grid';list.forEach(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>',card=document.createElement('div');card.className='ecard';card.innerHTML='<div class="etop">'+av(c.negocio,'',0,c.foto)+'<div style="min-width:0;flex:1"><div class="ename">'+esc(c.negocio)+'</div><div class="esub">'+(rn.numMiembros||0)+' en el equipo · margen '+money(rn.margenAgencia)+'</div></div></div><div style="display:flex;gap:6px;flex-wrap:wrap">'+pill+'<span class="p '+(c.estado==='activo'?'p-ok':c.estado==='pausado'?'p-w':'p-g')+'">'+(c.estado==='activo'?'Activo':c.estado==='pausado'?'Pausado':'Perdido')+'</span></div><div class="emeta"><div><div class="eamt">'+money(c.tarifaBruta)+'</div><div class="enote">bruto al mes</div></div><div style="text-align:right"><div class="eamt" style="font-size:13px;color:var(--tx2)">'+money(rn.porMiembroMes)+'</div><div class="enote">equipo variable</div></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};g.appendChild(card)});v.appendChild(g)}
@@ -3306,13 +3546,13 @@ function vRentabilidad(v){
     '<div class="chips" style="margin:0">'+
       [['mes','Este mes'],['trim','3 meses'],['anio','Este año'],['todo','Histórico']]
       .map(([k,l])=>'<button type="button" class="chip'+(P===k?' on':'')+'" data-per="'+k+'">'+l+'</button>').join('')+
-      '</div><button class="b bg" id="xl-btn" style="margin-left:8px"><i class="ti ti-file-spreadsheet"></i>Excel</button>');
+      '</div>');
 
   const t=rentabilidadRealTotal(desde,hasta);
 
   if(!t.clientes&&!t.reajustes.num&&!t.gastos.num){
     v.appendChild(frag(mt('ti-coin','No hay cobros registrados en este período.')));
-    v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});conectarBotonExcel();
+    v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
     return;
   }
 
@@ -3474,7 +3714,7 @@ function vRentabilidad(v){
     v.appendChild(cm);
   }
 
-  v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});conectarBotonExcel();
+  v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
   v.querySelectorAll('tr[data-emp]').forEach(r=>r.onclick=()=>{S.tab='empresas';S.mCompany=r.dataset.emp;render()});
 }
 
@@ -3828,6 +4068,8 @@ function mMemberModal(){
       fotoCampo('m-foto',m.foto,'Foto',1)+
       '<div class="row"><div class="f"><label>Nombre</label><input id="m-n" value="'+esc(m.nombre)+'"></div>'+
       '<div class="f"><label>Rol</label><select id="m-r">'+S.roles.map(r=>'<option value="'+r.id+'"'+(m.roleId===r.id?' selected':'')+'>'+esc(r.nombre)+'</option>').join('')+'</select></div></div>'+
+      '<div class="row"><div class="f"><label>Área</label><select id="m-ar">'+AREAS.map(a=>'<option value="'+a.k+'"'+((m.area||'otro')===a.k?' selected':'')+'>'+a.nombre+'</option>').join('')+'</select><div class="hint" id="m-ar-hint"></div></div>'+
+      '<div class="f"><label>Tope de clientes</label><input id="m-cap" type="number" min="0" step="1" value="'+(Number(m.capacidadClientes)||0)+'"><div class="hint" id="m-cap-hint">Cuántos clientes puede llevar a la vez. Déjalo en 0 si no quieres limitarlo.</div></div></div>'+
       '<div class="row"><div class="f"><label>Email</label><input id="m-e" type="email" value="'+esc(m.email||'')+'"></div>'+
       '<div class="f"><label>Teléfono</label><input id="m-t" value="'+esc(m.telefono||'')+'"></div></div>'+
       '<div class="row"><div class="f"><label>Cómo cobra</label><select id="m-c">'+
@@ -3873,6 +4115,19 @@ function mMemberModal(){
   document.getElementById('x').onclick=()=>{S.mMember=null;S.eMember=null;render()};
   if(editing){
     const getFotoMiembro=fotoBind('m-foto',m.foto);
+    const selAr=document.getElementById('m-ar'), inpCap=document.getElementById('m-cap');
+    function ajustarArea(){
+      const a=AREAS.find(x=>x.k===selAr.value)||AREAS[3];
+      document.getElementById('m-ar-hint').innerHTML=
+        a.limitante?'<strong>Limita el techo de la agencia.</strong> Un cliente necesita esta área, así que el total de clientes no puede pasar de la suma de topes aquí.'
+        :a.soloVenezuela?'<strong>Limita solo a los clientes de Venezuela.</strong> No afecta al techo del resto de la cartera.'
+        :'No entra en el cálculo de capacidad de la agencia.';
+      const actual=clientesDeMiembro(m.id).length, tope=Number(inpCap.value)||0;
+      document.getElementById('m-cap-hint').innerHTML=tope>0
+        ? 'Lleva '+actual+' de '+tope+(actual>tope?' · <span style="color:var(--red)">está por encima de su tope</span>':' · le quedan '+Math.max(0,tope-actual))
+        : 'Sin tope. Lleva '+actual+' cliente'+(actual===1?'':'s')+' ahora mismo.';
+    }
+    selAr.onchange=ajustarArea;inpCap.oninput=ajustarArea;ajustarArea();
     const selC=document.getElementById('m-c');
     function ajustarCampos(){
       const t=selC.value;
@@ -3894,7 +4149,10 @@ function mMemberModal(){
     selC.onchange=ajustarCampos;document.getElementById('m-g').oninput=ajustarCampos;ajustarCampos();
     document.getElementById('m-save').onclick=async()=>{
       const n=document.getElementById('m-n').value.trim();if(!n){alert('Ponle nombre.');return}
-      const patch={nombre:n,roleId:document.getElementById('m-r').value,email:document.getElementById('m-e').value.trim(),
+      const patch={nombre:n,roleId:document.getElementById('m-r').value,
+        area:document.getElementById('m-ar').value,
+        capacidadClientes:Math.max(0,Math.round(Number(document.getElementById('m-cap').value)||0)),
+        email:document.getElementById('m-e').value.trim(),
         telefono:document.getElementById('m-t').value.trim(),tipoCompensacion:document.getElementById('m-c').value,ingresoGarantizado:r2(Number(document.getElementById('m-g')?.value)||0),
         sueldoMensual:Number(document.getElementById('m-s').value)||0,activo:document.getElementById('m-a').value==='1',
         foto:getFotoMiembro()};
@@ -4395,11 +4653,13 @@ function vPagosEquipo(v){
 
 /* Adelanto general al empleado, independiente del estado del cliente. */
 /* ═══════════ EXPORTACIÓN A EXCEL ═══════════ */
-function exportarExcel(desde,hasta,etiqueta){
+function exportarExcel(desde,hasta,etiqueta,hojas){
   if(typeof XLSX==='undefined'){alert('No se pudo cargar el generador de Excel. Revisa tu conexión y reintenta.');return}
   const wb=XLSX.utils.book_new();
   const en=(f)=>(!desde||f>=desde)&&(!hasta||f<=hasta);
+  const quiere=(n)=>!Array.isArray(hojas)||hojas.indexOf(n)>=0;
   const add=(nombre,filas,anchos)=>{
+    if(!quiere(nombre))return;
     if(!filas.length)filas=[{'Sin datos':'No hay movimientos en este período'}];
     const ws=XLSX.utils.json_to_sheet(filas);
     if(anchos)ws['!cols']=anchos.map(w=>({wch:w}));
@@ -4495,26 +4755,64 @@ function exportarExcel(desde,hasta,etiqueta){
       'Saldo inicial':sw.inicial,Entradas:sw.entradas,Comisiones:sw.comisiones,
       Salidas:sw.salidas,Saldo:sw.saldo};}),[18,18,10,14,12,12,12,12]);
 
+  if(!wb.SheetNames.length){alert('Selecciona al menos una hoja para exportar.');return}
   XLSX.writeFile(wb,'Paramo_'+String(etiqueta||'export').replace(/[^a-zA-Z0-9]+/g,'_')+'_'+today()+'.xlsx');
   toast('Excel generado · '+wb.SheetNames.length+' hojas');
 }
+/* Qué hojas interesan según dónde esté el usuario. */
+const HOJAS_EXCEL=['Resumen','Cobros','Egresos','Pagos al equipo','Adelantos','Devoluciones','Clientes','Cartera mes a mes','Bajas','Rentabilidad mensual','Wallets'];
+const HOJAS_POR_SECCION={
+  panel:HOJAS_EXCEL,
+  rentabilidad:['Resumen','Cobros','Egresos','Rentabilidad mensual','Clientes'],
+  proyeccion:['Resumen','Clientes','Rentabilidad mensual'],
+  'estadisticas-clientes':['Clientes','Cartera mes a mes','Bajas'],
+  empresas:['Clientes','Cobros'],
+  contactos:['Clientes'],
+  prospectos:['Clientes'],
+  'fechas-pago':['Clientes','Cobros'],
+  'estado-cuenta':['Clientes','Cobros'],
+  linea:['Cobros','Clientes'],
+  cobros:['Cobros','Resumen'],
+  caja:['Resumen','Cobros','Egresos','Wallets'],
+  wallets:['Wallets','Cobros','Egresos'],
+  facturas:['Cobros','Clientes'],
+  egresos:['Egresos','Resumen'],
+  'gastos-fijos':['Egresos'],
+  equipo:['Pagos al equipo','Adelantos','Devoluciones'],
+  nomina:['Pagos al equipo','Adelantos','Devoluciones'],
+  'pagos-equipo':['Pagos al equipo','Adelantos','Devoluciones'],
+  ajustes:HOJAS_EXCEL
+};
 function exportarExcelModal(){
   const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
   const md=document.createElement('div');md.className='mdl';
   const hoy=today(),ym=hoy.slice(0,7),yr=hoy.slice(0,4);
   const ud=new Date(Number(yr),Number(ym.slice(5,7)),0).getDate();
-  md.innerHTML='<div class="mhd"><div><div class="mtitle">Exportar a Excel</div><div class="esub">Estadísticas y movimientos del período que elijas, en un archivo con 11 hojas.</div></div><button class="ib" id="xl-x"><i class="ti ti-x"></i></button></div>'+
+  const seccion=S.tab||'panel';
+  const sugeridas=HOJAS_POR_SECCION[seccion]||HOJAS_EXCEL;
+  const par=(TAB_PERMS||[]).find(x=>x[0]===seccion);
+  const nombreSeccion=par?par[1]:seccion;
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Exportar a Excel</div><div class="esub">Vienes de <strong>'+esc(nombreSeccion)+'</strong>, así que dejé marcadas las hojas de esa sección. Puedes añadir las que quieras.</div></div><button class="ib" id="xl-x"><i class="ti ti-x"></i></button></div>'+
     '<div class="f"><label>Período</label><div class="chips" style="margin:0">'+
       [['mes','Este mes'],['trim','Últimos 3 meses'],['anio','Este año'],['todo','Histórico'],['custom','Personalizado']]
       .map(([k,l],i)=>'<button type="button" class="chip'+(i===0?' on':'')+'" data-xl="'+k+'">'+l+'</button>').join('')+'</div></div>'+
     '<div class="row" id="xl-custom" style="display:none"><div class="f"><label>Desde</label><input id="xl-d" type="date" value="'+yr+'-01-01"></div><div class="f"><label>Hasta</label><input id="xl-h" type="date" value="'+hoy+'"></div></div>'+
-    '<div class="msec" style="margin-top:12px"><div class="mstitle">Hojas incluidas</div><div style="font-size:12.5px;color:var(--tx2);line-height:1.8">Resumen · Cobros · Egresos · Pagos al equipo · Adelantos · Devoluciones · Clientes · Cartera mes a mes · Bajas · Rentabilidad mensual · Wallets</div></div>'+
+    '<div class="msec" style="margin-top:12px"><div class="mstitle">Hojas a incluir</div>'+
+    '<div class="chips" style="margin:0 0 10px"><button type="button" class="chip" id="xl-todas">Todas</button><button type="button" class="chip" id="xl-seccion">Solo esta sección</button><button type="button" class="chip" id="xl-ninguna">Ninguna</button></div>'+
+    '<div id="xl-hojas" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px">'+
+      HOJAS_EXCEL.map(h=>'<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;cursor:pointer;padding:5px 8px;border-radius:9px;background:var(--card2)"><input type="checkbox" class="xl-h" value="'+h+'" style="width:auto;margin:0"'+(sugeridas.indexOf(h)>=0?' checked':'')+'>'+h+'</label>').join('')+
+    '</div></div>'+
     '<div class="brow"><button class="b bp" id="xl-ok"><i class="ti ti-file-spreadsheet"></i>Generar Excel</button></div>';
   ov.appendChild(md);document.body.appendChild(ov);md.querySelector('#xl-x').onclick=()=>ov.remove();
   let modo='mes';
   md.querySelectorAll('[data-xl]').forEach(b=>b.onclick=()=>{
     modo=b.dataset.xl;md.querySelectorAll('[data-xl]').forEach(x=>x.classList.toggle('on',x===b));
     md.querySelector('#xl-custom').style.display=modo==='custom'?'':'none';});
+  const casillas=()=>[...md.querySelectorAll('.xl-h')];
+  const marcar=(lista)=>casillas().forEach(c=>{c.checked=lista.indexOf(c.value)>=0});
+  md.querySelector('#xl-todas').onclick=()=>marcar(HOJAS_EXCEL);
+  md.querySelector('#xl-seccion').onclick=()=>marcar(sugeridas);
+  md.querySelector('#xl-ninguna').onclick=()=>marcar([]);
   md.querySelector('#xl-ok').onclick=()=>{
     let desde=null,hasta=null,et='Historico';
     if(modo==='mes'){desde=ym+'-01';hasta=ym+'-'+ud;et='Mes '+ym}
@@ -4523,7 +4821,9 @@ function exportarExcelModal(){
     else if(modo==='custom'){desde=md.querySelector('#xl-d').value;hasta=md.querySelector('#xl-h').value;
       if(!desde||!hasta||desde>hasta){alert('Revisa las fechas: la inicial debe ser anterior a la final.');return}
       et=desde+'_a_'+hasta}
-    try{exportarExcel(desde,hasta,et);ov.remove()}catch(e){console.error(e);alert('No se pudo generar el Excel: '+(e.message||e))}};
+    const hojas=[...md.querySelectorAll('.xl-h')].filter(c=>c.checked).map(c=>c.value);
+    if(!hojas.length){alert('Marca al menos una hoja.');return}
+    try{exportarExcel(desde,hasta,et,hojas);ov.remove()}catch(e){console.error(e);alert('No se pudo generar el Excel: '+(e.message||e))}};
 }
 function devolucionAdelantoModal(){
  const conDeuda=(S.members||[]).map(m=>({m,pend:adelantosPendientesMiembro(m.id,today())})).filter(x=>x.pend>0.005);
