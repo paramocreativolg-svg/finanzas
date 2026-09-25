@@ -1694,7 +1694,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['rentabilidad','Rentabilidad real'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['capacidad','Capacidad del equipo'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -1962,6 +1962,7 @@ function renderNav(){
            ['facturas','ti-file-invoice','Facturas',visibleInvoices().length],
            ['egresos','ti-receipt-2','Egresos',visibleEgresos().length]]],
     ['n4',[['equipo','ti-users','Miembros',visibleMembers().length],
+           ['capacidad','ti-gauge','Capacidad',(()=>{const c=capacidadAgencia();return c.techo>0?c.libres:null})()],
            ['nomina','ti-calendar-dollar','Nómina',null],
            ['pagos-equipo','ti-cash-banknote','Pagos al equipo',null]]],
     ['n5',[['ajustes','ti-settings','Ajustes',null]]]
@@ -2004,7 +2005,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,capacidad:vCapacidad,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -2711,52 +2712,6 @@ function vPanel(v){
   const u=currentUser();
   head(v,'Panel','Dashboard','Cobros, pagos y cuánto va quedando para la agencia, cliente por cliente.');
 
-  /* ── Capacidad del equipo ── */
-  const CAP=capacidadAgencia();
-  if(CAP.techo>0||CAP.sinConfigurar||CAP.areas.some(a=>a.miembros.length)){
-    const cap=document.createElement('div');cap.className='card';cap.style.cssText='margin-bottom:16px;border-left:3px solid '+(CAP.pct>=90?'var(--red)':CAP.pct>=75?'var(--amb)':'var(--lime)');
-    const barra=(usados,tope,color)=>{
-      const pct=tope>0?Math.min(100,Math.round(usados/tope*100)):0;
-      const over=tope>0&&usados>tope;
-      return '<div style="background:var(--card2);border-radius:99px;height:9px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+(over?'var(--red)':color)+';border-radius:99px"></div></div>';
-    };
-    let html='<div class="ctitle">Capacidad del equipo'+(CAP.techo>0?' <span class="cnt">'+CAP.ocupados+' de '+CAP.techo+' cupos · '+CAP.libres+' libre'+(CAP.libres===1?'':'s')+'</span>':'')+'</div>';
-    if(CAP.techo>0){
-      html+='<div class="sub" style="font-size:12.5px;margin-bottom:12px">Un cliente necesita community y diseñador, así que el techo lo marca el área más apretada de las dos'+
-        (CAP.cuelloBotella?': <strong>'+CAP.cuelloBotella.nombre+'</strong> con '+CAP.cuelloBotella.capacidad+' cupos':'')+'.</div>'+
-      '<div class="mets" style="margin-bottom:14px">'+
-        '<div class="met met-crit '+(CAP.pct>=90?'tone-red':CAP.pct>=75?'tone-amb':'tone-lime')+'"><div class="mlab">Cupos libres</div><div class="mval">'+CAP.libres+'</div><div class="msub">'+pct(CAP.pct)+' de la capacidad usada</div></div>'+
-        '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+CAP.ocupados+'</div><div class="msub">techo de '+CAP.techo+'</div></div>'+
-        (CAP.fil.capacidad>0
-          ? '<div class="met"><div class="mlab">Cupos Venezuela</div><div class="mval" style="color:'+(CAP.libresVE<=0?'var(--red)':CAP.pctVE>=75?'var(--amb)':'var(--lime)')+'">'+CAP.libresVE+'</div><div class="msub">'+CAP.ocupadosVE+' de '+CAP.techoVE+' · limita el filmmaker</div></div>'
-          : '<div class="met met-ctx"><div class="mlab">Cupos Venezuela</div><div class="mval">—</div><div class="msub">sin filmmaker con tope</div></div>')+
-      '</div>';
-    } else {
-      html+='<div class="sub" style="font-size:12.5px;margin-bottom:12px">Pon el área y el tope de clientes de cada persona en Miembros y aquí verás cuánta capacidad te queda.</div>';
-    }
-    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
-      CAP.areas.filter(a=>a.miembros.length).map(a=>
-        '<div style="background:var(--card2);border-radius:var(--r);padding:12px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px">'+
-          '<strong style="font-size:13px">'+a.nombre+'</strong>'+
-          '<span class="mono" style="font-size:12px;color:'+(a.capacidad>0&&a.usados>a.capacidad?'var(--red)':'var(--tx2)')+'">'+a.usados+(a.capacidad>0?' / '+a.capacidad:'')+'</span></div>'+
-        (a.capacidad>0?barra(a.usados,a.capacidad,a.color):'<div style="font-size:11.5px;color:var(--tx3)">sin topes definidos</div>')+
-        '<div style="font-size:11px;color:var(--tx3);margin-top:6px">'+
-          (a.limitante?'Limita el techo general':a.soloVenezuela?'Limita solo Venezuela':'No limita')+
-          (a.capacidad>0?' · '+a.libres+' libre'+(a.libres===1?'':'s'):'')+'</div>'+
-        '<div style="margin-top:9px;display:flex;flex-direction:column;gap:5px">'+
-          a.miembros.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px">'+
-            '<span style="color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.m.nombre)+'</span>'+
-            '<span class="mono" style="color:'+(x.excedido?'var(--red)':x.sinTope?'var(--tx3)':x.pct>=90?'var(--amb)':'var(--tx2)')+';white-space:nowrap">'+
-              x.usados+(x.sinTope?'':' / '+x.tope)+(x.excedido?' ⚠':'')+'</span></div>').join('')+
-        '</div></div>').join('')+'</div>';
-    const excedidos=CAP.areas.flatMap(a=>a.miembros.filter(x=>x.excedido));
-    if(excedidos.length)html+='<div class="sub" style="font-size:12.5px;margin-top:12px;color:var(--red)">'+
-      excedidos.map(x=>esc(x.m.nombre)+' lleva '+x.usados+' con un tope de '+x.tope).join(' · ')+'</div>';
-    if(CAP.sinConfigurar)html+='<div class="sub" style="font-size:12px;margin-top:10px;color:var(--tx3)">'+CAP.sinConfigurar+' persona'+(CAP.sinConfigurar===1?'':'s')+' sin tope definido. No cuentan para la capacidad.</div>';
-    cap.innerHTML=html;
-    v.appendChild(cap);
-  }
 
   v.appendChild(frag('<div class="mets">'+
     '<div class="met met-ctx"><div class="mico" style="background:var(--sky)"><i class="ti ti-users"></i></div><div class="mlab">Clientes activos</div><div class="mval">'+act.length+'</div><div class="msub">'+visibleCompanies().length+' clientes registrados</div></div>'+
@@ -4029,6 +3984,93 @@ function mWalletModal(){
 }
 
 /* ─────────── EQUIPO ─────────── */
+/* ═══════════ CAPACIDAD ═══════════ */
+function vCapacidad(v){
+  const CAP=capacidadAgencia();
+  head(v,'Equipo','Capacidad','Cuántos clientes puede sostener el equipo y cuánto de eso ya está ocupado. El techo lo marca el área más apretada entre community y diseñador; el filmmaker limita solo a Venezuela.',
+    (isAdminUser()?'<button class="b bp" id="cap-eq"><i class="ti ti-users"></i>Editar topes</button>':''));
+
+  const sinTopes=CAP.techo<=0;
+  if(sinTopes&&!CAP.areas.some(a=>a.miembros.length)){
+    v.appendChild(frag(mt('ti-gauge','Todavía no hay miembros con área asignada. Ve a Miembros y define el área y el tope de clientes de cada persona.')));
+    const b=document.getElementById('cap-eq');if(b)b.onclick=()=>{S.tab='equipo';render()};
+    return;
+  }
+
+  /* ── Métricas ── */
+  const tono=p=>p>=90?'tone-red':p>=75?'tone-amb':'tone-lime';
+  v.appendChild(frag('<div class="mets mets-h">'+
+    (sinTopes
+      ? '<div class="met met-crit tone-amb"><div class="mlab">Sin topes definidos</div><div class="mval">—</div><div class="msub">pon el tope de cada persona para ver la capacidad</div></div>'
+      : '<div class="met met-crit '+tono(CAP.pct)+'"><div class="mlab">Cupos libres</div><div class="mval">'+CAP.libres+'</div><div class="msub">'+pct(CAP.pct)+' de la capacidad usada</div></div>')+
+    '<div class="met"><div class="mlab">Clientes activos</div><div class="mval">'+CAP.ocupados+'</div><div class="msub">'+(sinTopes?'sin techo calculado':'techo de '+CAP.techo)+'</div></div>'+
+    (CAP.fil.capacidad>0
+      ? '<div class="met"><div class="mlab">Cupos Venezuela</div><div class="mval" style="color:'+(CAP.libresVE<=0?'var(--red)':CAP.pctVE>=75?'var(--amb)':'var(--lime)')+'">'+CAP.libresVE+'</div><div class="msub">'+CAP.ocupadosVE+' de '+CAP.techoVE+' · limita el filmmaker</div></div>'
+      : '<div class="met met-ctx"><div class="mlab">Cupos Venezuela</div><div class="mval">—</div><div class="msub">ningún filmmaker con tope</div></div>')+
+    '<div class="met met-ctx"><div class="mlab">Cuello de botella</div><div class="mval" style="font-size:19px">'+(CAP.cuelloBotella?esc(CAP.cuelloBotella.nombre):'—')+'</div><div class="msub">'+(CAP.cuelloBotella?CAP.cuelloBotella.capacidad+' cupos, lo más bajo':'define topes en community y diseño')+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Personas con tope</div><div class="mval">'+CAP.areas.reduce((n,a)=>n+a.miembros.filter(x=>!x.sinTope).length,0)+'</div><div class="msub">'+(CAP.sinConfigurar?CAP.sinConfigurar+' sin definir':'todas definidas')+'</div></div>'+
+    '</div>'));
+
+  /* ── Cómo sale el techo ── */
+  if(!sinTopes){
+    const exp=document.createElement('div');exp.className='card';exp.style.marginBottom='16px';
+    exp.innerHTML='<div class="ctitle">De dónde sale el techo</div>'+
+      '<div class="sim">'+
+      '<div class="simrow"><span>Capacidad de community</span><span class="v">'+CAP.com.capacidad+' cupos</span></div>'+
+      '<div class="simrow"><span>Capacidad de diseño</span><span class="v">'+CAP.dis.capacidad+' cupos</span></div>'+
+      '<div class="simrow tot"><span>Techo general = el menor de los dos</span><span class="v">'+CAP.techo+' cupos</span></div>'+
+      '</div>'+
+      (CAP.fil.capacidad>0?'<div class="sim" style="margin-top:10px">'+
+        '<div class="simrow"><span>Capacidad de filmmaker</span><span class="v">'+CAP.fil.capacidad+' cupos</span></div>'+
+        '<div class="simrow tot"><span>Techo para clientes de Venezuela</span><span class="v">'+CAP.techoVE+' cupos</span></div></div>':'')+
+      '<div class="sub" style="font-size:12.5px;margin-top:10px">Un cliente necesita community y diseño, así que no puedes tener más clientes de los que soporte la más apretada de las dos. Los clientes venezolanos además pasan por filmmaker.</div>';
+    v.appendChild(exp);
+  }
+
+  /* ── Área por área ── */
+  const barra=(usados,tope,color)=>{
+    const p=tope>0?Math.min(100,Math.round(usados/tope*100)):0, over=tope>0&&usados>tope;
+    return '<div style="background:var(--card2);border-radius:99px;height:10px;overflow:hidden"><div style="height:100%;width:'+p+'%;background:'+(over?'var(--red)':color)+';border-radius:99px"></div></div>';
+  };
+  CAP.areas.filter(a=>a.miembros.length).forEach(a=>{
+    const card=document.createElement('div');card.className='card';card.style.cssText='margin-bottom:16px;border-left:3px solid '+a.color;
+    card.innerHTML='<div class="ctitle">'+a.nombre+' <span class="cnt">'+a.usados+(a.capacidad>0?' de '+a.capacidad+' · '+a.libres+' libre'+(a.libres===1?'':'s'):' clientes')+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">'+
+        (a.limitante?'Limita el techo general de la agencia.'
+         :a.soloVenezuela?'Limita solo a los clientes de Venezuela ('+a.cubiertosVE+' de los suyos lo son).'
+         :'No entra en el cálculo de capacidad.')+'</div>'+
+      (a.capacidad>0?barra(a.usados,a.capacidad,a.color)+'<div style="font-size:11.5px;color:var(--tx3);margin-top:6px">'+pct(a.pct)+' ocupado</div>':'<div style="font-size:12.5px;color:var(--tx3)">Nadie de esta área tiene tope definido.</div>')+
+      '<div style="overflow-x:auto;margin-top:14px"><table class="t"><thead><tr><th>Persona</th><th>Lleva</th><th>Tope</th><th>Libres</th><th>Ocupación</th><th>Clientes</th></tr></thead><tbody>'+
+      a.miembros.map(x=>'<tr data-mem="'+x.m.id+'" style="cursor:pointer">'+
+        '<td><div style="display:flex;align-items:center;gap:8px">'+av(x.m.nombre,'s',1,x.m.foto)+'<strong>'+esc(x.m.nombre)+'</strong></div></td>'+
+        '<td class="n" style="font-weight:700;color:'+(x.excedido?'var(--red)':'var(--tx)')+'">'+x.usados+'</td>'+
+        '<td class="n">'+(x.sinTope?'<span style="color:var(--tx3)">sin tope</span>':x.tope)+'</td>'+
+        '<td class="n">'+(x.sinTope?'—':'<span style="color:'+(x.libres<=0?'var(--red)':x.libres<=1?'var(--amb)':'var(--lime)')+'">'+x.libres+'</span>')+'</td>'+
+        '<td style="min-width:130px">'+(x.sinTope?'<span style="color:var(--tx3);font-size:12px">—</span>':barra(x.usados,x.tope,a.color)+'<div style="font-size:11px;color:'+(x.excedido?'var(--red)':'var(--tx3)')+';margin-top:3px">'+pct(x.pct)+(x.excedido?' · por encima del tope':'')+'</div>')+'</td>'+
+        '<td style="max-width:280px;font-size:12px;color:var(--tx2)">'+(x.clientes.length?x.clientes.map(c=>esc(c.negocio)).join(', '):'<span style="color:var(--tx3)">ninguno</span>')+'</td></tr>').join('')+
+      '</tbody></table></div>';
+    v.appendChild(card);
+    card.querySelectorAll('tr[data-mem]').forEach(r=>r.onclick=()=>{S.tab='equipo';S.mMember=r.dataset.mem;render()});
+  });
+
+  /* ── Avisos ── */
+  const excedidos=CAP.areas.flatMap(a=>a.miembros.filter(x=>x.excedido));
+  const sinArea=(S.members||[]).filter(m=>m.activo!==false&&areaDe(m).k==='otro'&&clientesDeMiembro(m.id).length>0);
+  if(excedidos.length||CAP.sinConfigurar||sinArea.length||CAP.libres<=0||CAP.libresVE<=0){
+    const al=document.createElement('div');al.className='card';al.style.cssText='border-left:3px solid var(--amb)';
+    let h='<div class="ctitle">Qué revisar</div><div style="display:flex;flex-direction:column;gap:9px;font-size:13px">';
+    if(CAP.libres<=0&&CAP.techo>0)h+='<div style="color:var(--red)"><strong>No quedan cupos generales.</strong> Para tomar otro cliente necesitas subir el tope de '+(CAP.cuelloBotella?esc(CAP.cuelloBotella.nombre.toLowerCase()):'el área más apretada')+' o sumar a alguien.</div>';
+    if(CAP.libresVE<=0&&CAP.techoVE>0)h+='<div style="color:var(--amb)"><strong>Venezuela está lleno.</strong> Quedan '+CAP.libres+' cupos generales, pero no para clientes venezolanos hasta que crezca el filmmaker.</div>';
+    excedidos.forEach(x=>h+='<div style="color:var(--red)"><strong>'+esc(x.m.nombre)+'</strong> lleva '+x.usados+' clientes con un tope de '+x.tope+'.</div>');
+    if(CAP.sinConfigurar)h+='<div style="color:var(--tx2)">'+CAP.sinConfigurar+' persona'+(CAP.sinConfigurar===1?'':'s')+' sin tope definido. No cuentan para la capacidad.</div>';
+    sinArea.forEach(m=>h+='<div style="color:var(--tx2)"><strong>'+esc(m.nombre)+'</strong> lleva '+clientesDeMiembro(m.id).length+' cliente'+(clientesDeMiembro(m.id).length===1?'':'s')+' pero está en "Otra área", así que no cuenta para ningún techo.</div>');
+    h+='</div>';
+    al.innerHTML=h;v.appendChild(al);
+  }
+
+  const be=document.getElementById('cap-eq');if(be)be.onclick=()=>{S.tab='equipo';render()};
+}
+
 function vEquipo(v){
   head(v,'Equipo','Miembros','Quién trabaja qué cuentas y cuánto gana con ellas.',
     '<button class="b bp" id="new-m"><i class="ti ti-user-plus"></i>Nuevo miembro</button>');
