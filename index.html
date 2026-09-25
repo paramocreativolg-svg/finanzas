@@ -863,9 +863,23 @@ function comisionDe(c){
    - modo normal: {memberId, monto} = monto mensual fijo por cliente (esquema anterior)
    - modo comisión: {memberId, modo:'comision', comisionPct} = porcentaje del cliente que se suma al sueldo
 */
+/* Una asignación de modo 'equipo' dice QUIÉN trabaja en el cliente, sin
+   imputarle costo: el sueldo de esa persona ya está en la nómina fija.
+   Por eso asigsDe(), que existe para calcular costos, las deja fuera. */
+function esAsignacionSoloEquipo(a){return !!(a&&a.modo==='equipo')}
+/* Todo el equipo del cliente, cobre o no por él. */
+function equipoDe(c){
+  return (c.asignaciones||[]).filter(a=>a.memberId&&a.activo!==false&&memberById(a.memberId))
+    .map(a=>{
+      const m=memberById(a.memberId);
+      return{a,m,area:areaDe(m),soloEquipo:esAsignacionSoloEquipo(a),
+        costo:esAsignacionSoloEquipo(a)?0:montoAsignacionMensual(c,a)};
+    });
+}
 function asigsDe(c){
   return (c.asignaciones||[]).filter(a=>{
     if(!a.memberId||a.activo===false)return false;
+    if(esAsignacionSoloEquipo(a))return false;
     const m=memberById(a.memberId);
     if(!m)return false;
     // Las asignaciones por comisión pueden existir para cualquier tipo de empleado.
@@ -2944,10 +2958,17 @@ function mCompanyModal(){
         '<div class="met"><div class="mlab">Al equipo</div><div class="mval">'+money(w.equipo)+'</div></div>'+
         '<div class="met"><div class="mlab">A la agencia</div><div class="mval" style="color:var(--lime)">'+money(w.agencia)+'</div></div></div>'})()+
       '</div>'+
-      '<div class="msec"><div class="mstitle">Equipo<span class="cnt">'+rn.asignaciones.length+'</span></div>'+
-        (rn.asignaciones.length?rn.asignaciones.map(a=>{const t=memberById(a.memberId);if(!t)return'';
-          return '<div class="assoc" data-mem="'+t.id+'">'+av(t.nombre,'s',1,t.foto)+'<div class="ai"><div class="an">'+esc(t.nombre)+'</div><div class="as">'+esc((S.roles.find(r=>r.id===t.roleId)||{}).nombre||'')+' · '+(a.modo==='comision'?pct(a.comisionPct)+' comisión':'Monto mensual')+'</div></div><span class="mono" style="font-weight:600">'+money(montoAsignacionMensual(c,a))+'</span></div>'}).join(''):'<div style="font-size:12.5px;color:var(--tx3)">Nadie asignado. Edita para agregar.</div>')+
-      '</div>'+
+      (()=>{const eq=equipoDe(c), conCosto=eq.filter(x=>!x.soloEquipo), sinCosto=eq.filter(x=>x.soloEquipo);
+        const fila=x=>'<div class="assoc" data-mem="'+x.m.id+'">'+av(x.m.nombre,'s',1,x.m.foto)+
+          '<div class="ai"><div class="an">'+esc(x.m.nombre)+'</div><div class="as">'+esc(x.area.nombre)+' · '+
+          (x.soloEquipo?'sueldo en nómina fija':x.a.modo==='comision'?pct(x.a.comisionPct)+' comisión':'Monto mensual')+
+          '</div></div>'+(x.soloEquipo?'<span class="p p-g">Sin costo</span>':'<span class="mono" style="font-weight:600">'+money(x.costo)+'</span>')+'</div>';
+        return '<div class="msec"><div class="mstitle">Equipo<span class="cnt">'+eq.length+'</span></div>'+
+        (eq.length
+          ? conCosto.map(fila).join('')+
+            (sinCosto.length?'<div style="font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">Participan sin costo imputado</div>'+sinCosto.map(fila).join(''):'')
+          : '<div style="font-size:12.5px;color:var(--tx3)">Nadie asignado. Edita para agregar.</div>')+
+        '</div>'})()+
       '<div class="msec"><div class="mstitle">Contactos<span class="cnt">'+cts.length+'</span></div>'+
         (cts.length?cts.map(x=>'<div class="assoc" data-ct="'+x.contact.id+'">'+av(fullName(x.contact),'s',1,x.contact.foto)+'<div class="ai"><div class="an">'+esc(fullName(x.contact))+'</div><div class="as">'+esc(x.link.rol)+(x.contact.telefono?' · '+esc(x.contact.telefono):'')+'</div></div><button class="ib dg" data-unlink="'+x.link.id+'"><i class="ti ti-unlink"></i></button></div>').join(''):'<div style="font-size:12.5px;color:var(--tx3)">Sin contactos.</div>')+
         '<div style="display:flex;gap:8px;margin-top:9px"><select id="lk-sel" style="flex:1"><option value="">Vincular contacto…</option>'+visibleContacts().filter(ct=>!cts.some(x=>x.contact.id===ct.id)).map(ct=>'<option value="'+ct.id+'">'+esc(fullName(ct))+'</option>').join('')+'</select><input id="lk-rol" placeholder="Rol" style="max-width:120px"><button class="b bg bs" id="lk-btn">Vincular</button></div>'+
@@ -2970,14 +2991,17 @@ function mCompanyModal(){
         const m2=memberById(a.memberId);
         const tipo=(m2&&m2.tipoCompensacion)||'porCliente';
         const esCom=a.modo==='comision';
-        const esMixto=tipo==='mixto';
+        const esSoloEquipo=esAsignacionSoloEquipo(a);
+        const esMixto=tipo==='mixto'&&!esSoloEquipo;
         const modoCom=esMixto || esCom;
+        const puedeElegirModo=tipo!=='sueldo';
         return '<div class="assoc" style="cursor:default;flex-wrap:wrap" data-ai="'+i+'">'+av(m2?m2.nombre:'?','s',1)+
         '<select class="as-m" style="flex:1;min-width:145px"><option value="">— Elegir —</option>'+
-        S.members.filter(x=>x.activo&&x.tipoCompensacion!=='sueldo').map(x=>'<option value="'+x.id+'"'+(a.memberId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+(x.tipoCompensacion==='mixto'?'Mixto':'Por cliente')+'</option>').join('')+'</select>'+
-        (esMixto?'<span class="p p-i">Comisión %</span>': '<span class="p p-i">Monto mensual</span>')+
+        S.members.filter(x=>x.activo).map(x=>'<option value="'+x.id+'"'+(a.memberId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+(x.tipoCompensacion==='mixto'?'Mixto':x.tipoCompensacion==='sueldo'?'Sueldo fijo':x.tipoCompensacion==='garantizado'?'Garantizado':'Por cliente')+'</option>').join('')+'</select>'+
+        (esSoloEquipo?'<span class="p p-g" title="Su sueldo ya está en la nómina fija">Solo equipo</span>':esMixto?'<span class="p p-i">Comisión %</span>':'<span class="p p-i">Monto mensual</span>')+
         '<label style="display:flex;align-items:center;gap:4px;font-size:11px"><input class="as-on" type="checkbox" '+(a.activo!==false?'checked':'')+'> Activo</label>'+
-        (esMixto?'<input class="as-pct" type="number" step="0.1" min="0" max="100" value="'+(a.comisionPct||'')+'" placeholder="% comisión" style="max-width:105px">':'<input class="as-v" type="number" step="0.01" min="0" value="'+(a.monto||'')+'" placeholder="0.00" style="max-width:110px">')+
+        (puedeElegirModo?'<label style="display:flex;align-items:center;gap:4px;font-size:11px" title="Marca quién trabaja en el cliente sin imputarle costo"><input class="as-se" type="checkbox" '+(esSoloEquipo?'checked':'')+'> Sin costo</label>':'')+
+        (esSoloEquipo?'<span style="font-size:11.5px;color:var(--tx3);max-width:150px">no suma al costo del cliente</span>':esMixto?'<input class="as-pct" type="number" step="0.1" min="0" max="100" value="'+(a.comisionPct||'')+'" placeholder="% comisión" style="max-width:105px">':'<input class="as-v" type="number" step="0.01" min="0" value="'+(a.monto||'')+'" placeholder="0.00" style="max-width:110px">')+
         '<button class="ib dg as-x" type="button"><i class="ti ti-x"></i></button></div>'}).join('')
         ||'<div style="font-size:12.5px;color:var(--tx3)">Nadie asignado. La agencia se queda con todo.</div>';
       ael.querySelectorAll('[data-ai]').forEach(row=>{
@@ -2985,9 +3009,20 @@ function mCompanyModal(){
         row.querySelector('.as-m').onchange=e=>{
           const nm=memberById(e.target.value);
           asigs[i].memberId=e.target.value;
-          if(nm&&nm.tipoCompensacion==='mixto'){asigs[i].modo='comision';asigs[i].comisionPct=Number(asigs[i].comisionPct)||0;delete asigs[i].monto}
-          else if(nm&&nm.tipoCompensacion==='porCliente'){delete asigs[i].modo;delete asigs[i].comisionPct;asigs[i].monto=Number(asigs[i].monto)||0}
+          if(nm&&nm.tipoCompensacion==='sueldo'){asigs[i].modo='equipo';delete asigs[i].monto;delete asigs[i].comisionPct}
+          else if(nm&&nm.tipoCompensacion==='mixto'){asigs[i].modo='comision';asigs[i].comisionPct=Number(asigs[i].comisionPct)||0;delete asigs[i].monto}
+          else if(nm){delete asigs[i].modo;delete asigs[i].comisionPct;asigs[i].monto=Number(asigs[i].monto)||0}
           else {asigs.splice(i,1)}
+          drawAsig();drawSim();
+        };
+        const se=row.querySelector('.as-se');
+        if(se)se.onchange=e=>{
+          if(e.target.checked){asigs[i].modo='equipo';delete asigs[i].monto;delete asigs[i].comisionPct}
+          else{
+            const nm2=memberById(asigs[i].memberId);
+            if(nm2&&nm2.tipoCompensacion==='mixto'){asigs[i].modo='comision';asigs[i].comisionPct=0}
+            else{delete asigs[i].modo;asigs[i].monto=0}
+          }
           drawAsig();drawSim();
         };
         const vv=row.querySelector('.as-v'); if(vv)vv.oninput=e=>{asigs[i].monto=Number(e.target.value)||0;drawSim()};
@@ -3057,16 +3092,22 @@ function mCompanyModal(){
         ultimaFechaPago:c.ultimaFechaPago||'',proximaFechaPago:'',
         asignaciones:asigs.filter(a=>{
           const mm=memberById(a.memberId);
-          if(!mm||mm.tipoCompensacion==='sueldo'||a.memberId==='')return false;
+          if(!mm||a.memberId==='')return false;
+          /* Las de solo equipo se conservan aunque no tengan monto: su valor
+             es dejar constancia de quién trabaja en el cliente. */
+          if(esAsignacionSoloEquipo(a))return true;
+          if(mm.tipoCompensacion==='sueldo')return false;
           if(mm.tipoCompensacion==='mixto')return a.modo==='comision'&&(Number(a.comisionPct)||0)>0;
           return (Number(a.monto)||0)>0;
         }).map(a=>{
           const x={memberId:a.memberId,activo:a.activo!==false};
-          if(a.modo==='comision'){x.modo='comision';x.comisionPct=Number(a.comisionPct)||0}
+          if(esAsignacionSoloEquipo(a)){x.modo='equipo'}
+          else if(a.modo==='comision'){x.modo='comision';x.comisionPct=Number(a.comisionPct)||0}
           else{x.monto=Number(a.monto)||0}
           return x;
         }),
-        equipoIds:asigs.filter(a=>{const mm=memberById(a.memberId);return mm&&mm.tipoCompensacion!=='sueldo'&&a.memberId&&montoAsignacionMensual(c,a)>0}).map(a=>a.memberId)};
+        equipoIds:asigs.filter(a=>{const mm=memberById(a.memberId);
+          return mm&&a.memberId&&a.activo!==false&&(esAsignacionSoloEquipo(a)||montoAsignacionMensual(c,a)>0)}).map(a=>a.memberId)};
       const estadoElegido=document.getElementById('e-est').value;
       const fechaCambio=document.getElementById('e-est-fe')?.value||today();
       const motivoCambio=document.getElementById('e-est-mo')?.value||'';
