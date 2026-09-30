@@ -384,15 +384,22 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
   .xl-global .xl-txt{display:none}
 }
 
-/* Reparto manual del cobro entre quincenas */
-.qrow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--ln2);border-radius:var(--r);margin-bottom:7px;background:var(--card);transition:.15s}
+/* Reparto manual del cobro entre quincenas: lista vertical, una fila por quincena */
+.qlista{display:flex;flex-direction:column;gap:7px}
+.qrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--ln2);border-radius:var(--r);background:var(--card);transition:.15s}
 .qrow.on{border-color:var(--lav);background:var(--lav2)}
-.qsel{display:flex;align-items:flex-start;gap:8px;flex:1;cursor:pointer;font-size:13px;min-width:0}
-.qsel input{width:auto;margin:2px 0 0;flex-shrink:0}
-.qsub{font-size:11px;color:var(--tx3);margin-top:1px}
-.qmo{max-width:110px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px}
-.qmo:disabled{opacity:.35}
-.qresumen{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:var(--r);background:var(--card2);font-size:13px;margin-top:4px}
+.qsel{display:flex;align-items:center;gap:9px;flex:1;cursor:pointer;min-width:0}
+.qsel input[type=checkbox]{width:auto;margin:0;flex-shrink:0}
+.qtxt{display:flex;flex-direction:column;min-width:0;gap:2px}
+.qnom{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.qsub{font-size:11px;color:var(--tx3);line-height:1.3}
+.qmo{width:110px;flex-shrink:0;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px;margin:0}
+.qmo:disabled{opacity:.35;background:var(--card2)}
+.qresumen{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;border-radius:var(--r);background:var(--card2);font-size:13px;margin-top:10px;font-weight:600}
+@media(max-width:560px){
+  .qrow{flex-wrap:wrap}
+  .qmo{width:100%}
+}
 </style>
 
 <style>
@@ -1757,8 +1764,8 @@ function filaQuincena(q,c,attr,on,excluirId,monto){
     : '<span class="p p-g" style="font-size:9px">libre</span>';
   return '<div class="qrow'+(on?' on':'')+'" '+attr+'="'+q.key+'" data-ya="'+ya.toFixed(2)+'" data-tope="'+tope.toFixed(2)+'" data-falta="'+falta.toFixed(2)+'">'+
     '<label class="qsel"><input type="checkbox" class="qck" '+(on?'checked':'')+'>'+
-      '<span><strong>'+esc(labelQuincena(q))+'</strong> '+estado+
-      '<div class="qsub">cuota '+money(tope)+(ya>0.005?' · ya cobrado '+money(ya):'')+'</div></span></label>'+
+      '<span class="qtxt"><span class="qnom">'+esc(labelQuincena(q))+' '+estado+'</span>'+
+      '<span class="qsub">cuota '+money(tope)+(ya>0.005?' · ya cobrado '+money(ya):'')+'</span></span></label>'+
     '<input type="number" class="qmo" step="0.01" min="0" value="'+(monto!=null?Number(monto).toFixed(2):'')+'" placeholder="0.00"'+(on?'':' disabled')+'>'+
     '</div>';
 }
@@ -2376,16 +2383,19 @@ function editarCobroModal(id){
   mc.onclick=()=>setMode('cliente');meb.onclick=()=>setMode('externo');
   const qCandidates=(fecha)=>{const d=new Date((fecha||today())+'T12:00:00'),all=[];for(let y=d.getFullYear()-1;y<=d.getFullYear()+1;y++)all.push(...quincenasAnio(y));const idx=all.findIndex(q=>fecha>=q.inicio&&fecha<=q.fin);return all.slice(Math.max(0,(idx<0?0:idx)-3),Math.max(0,(idx<0?0:idx)-3)+8)};
   function renderAlloc(){if(!alloc)return;const c=companyById(md.querySelector('#ec-co').value);const fecha=md.querySelector('#ec-fe').value||today();if(!c)return;const cand=qCandidates(fecha);let selected=(p.aplicaciones||[]).map(a=>a.quincenaKey);if(!selected.length){const q=quincenasAnio(Number(fecha.slice(0,4))).find(x=>fecha>=x.inicio&&fecha<=x.fin);selected=q?[q.key]:[]}const prev={};(p.aplicaciones||[]).forEach(a=>{prev[a.quincenaKey]=Number(a.monto)||0});
-    alloc.innerHTML=cand.map(q=>filaQuincena(q,c,'data-eq',selected.includes(q.key),p.id,prev[q.key])).join('')+
-      '<div class="qresumen"><span>Sin asignar</span><span class="mono" id="ec-resto"></span></div>'+
+    alloc.className='qlista';
+    alloc.innerHTML=cand.map(q=>filaQuincena(q,c,'data-eq',selected.includes(q.key),p.id,prev[q.key])).join('');
+    let ex=document.getElementById('ec-alloc-extra');
+    if(!ex){ex=document.createElement('div');ex.id='ec-alloc-extra';alloc.parentElement.insertBefore(ex,alloc.nextSibling)}
+    ex.innerHTML='<div class="qresumen"><span>Sin asignar</span><span class="mono" id="ec-resto"></span></div>'+
       '<div class="chips" style="margin:8px 0 0"><button type="button" class="chip" id="ec-auto">Repartir automático</button>'+
       '<button type="button" class="chip" id="ec-limpiar">Poner todo en cero</button></div>'+
       '<div id="ec-solape"></div>';
     const tot=()=>r2(Number(md.querySelector('#ec-mo').value)||0);
     cablearAlloc(alloc,tot,'ec-resto','ec-solape');
     resumenAlloc(alloc,tot,'ec-resto','ec-solape');
-    alloc.parentElement.querySelector('#ec-auto').onclick=()=>{repartirAuto(alloc,tot());resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
-    alloc.parentElement.querySelector('#ec-limpiar').onclick=()=>{alloc.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
+    document.getElementById('ec-auto').onclick=()=>{repartirAuto(alloc,tot());resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
+    document.getElementById('ec-limpiar').onclick=()=>{alloc.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
   }
   function refreshAlloc(){const total=r2(Number(md.querySelector('#ec-mo').value)||0),c=companyById(md.querySelector('#ec-co').value);if(!c)return;
     if(alloc)resumenAlloc(alloc,()=>total,'ec-resto','ec-solape');
@@ -4244,15 +4254,42 @@ function vCobros(v){
   modeC.onclick=()=>setMode('cliente');modeE.onclick=()=>setMode('externo');
   const co=document.getElementById('k-co'),mo=document.getElementById('k-mo'),me=document.getElementById('k-me'),fe=document.getElementById('k-fe'),allocBox=document.getElementById('k-alloc');
   function qCandidates(fecha){return ventanaQuincenas(fecha)}
-  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today(),cand=qCandidates(fecha);let selected=[];if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){const current=cand.find(q=>fecha>=q.inicio&&fecha<=q.fin)||cand[0];if(current)selected=[current]}else{const monthQs=quincenasAnio(Number(fecha.slice(0,4))).filter(q=>q.mes===Number(fecha.slice(5,7)));cand.splice(0,cand.length,...monthQs);selected=(Math.abs(total-Number(c.tarifaBruta||0))<=0.01?monthQs:monthQs.filter(q=>q.inicio<=fecha).slice(-1));if(!selected.length&&monthQs.length)selected=[monthQs[0]]}allocBox.innerHTML=cand.map(q=>filaQuincena(q,c,'data-aq',selected.some(x=>x.key===q.key),null,null)).join('')+
-      '<div class="qresumen"><span>Sin asignar</span><span class="mono" id="k-resto">'+money(total)+'</span></div>'+
+  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today();
+    /* Siempre las 5 de la ventana. Antes, para clientes mensuales, se
+       reemplazaban por las dos quincenas del mes del cobro, así que no había
+       forma de registrar un pago adelantado del mes siguiente. */
+    const cand=qCandidates(fecha);
+    const quincenal=(!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal';
+    /* Sugerencia por defecto: se mira DESDE la quincena de la fecha del cobro
+       hacia adelante, no desde la más antigua de la ventana. Si pagas el 29 de
+       septiembre y septiembre ya está cobrado, lo natural es proponer octubre,
+       no una quincena vieja de agosto. Solo si no queda nada libre hacia
+       adelante se ofrecen las anteriores sin cobrar. */
+    const cuota=r2(Number(c.tarifaBruta||0)*0.5);
+    const libre=q=>montoYaCubierto(c.id,q.key,null)<cuota-0.005;
+    let iAct=cand.findIndex(q=>fecha>=q.inicio&&fecha<=q.fin);
+    if(iAct<0)iAct=0;
+    const adelante=cand.slice(iAct).filter(libre);
+    const atras=cand.slice(0,iAct).filter(libre);
+    const cola=adelante.length?adelante:atras;
+    let selected=[];
+    if(cola.length){
+      selected=[cola[0]];
+      if(!quincenal&&cuota>0&&total>=cuota*2-0.01&&cola[1])selected.push(cola[1]);
+    } else {
+      selected=[cand[iAct]];
+    }allocBox.className='qlista';
+    allocBox.innerHTML=cand.map(q=>filaQuincena(q,c,'data-aq',selected.some(x=>x.key===q.key),null,null)).join('');
+    let extra=document.getElementById('k-alloc-extra');
+    if(!extra){extra=document.createElement('div');extra.id='k-alloc-extra';allocBox.parentElement.insertBefore(extra,allocBox.nextSibling)}
+    extra.innerHTML='<div class="qresumen"><span>Sin asignar</span><span class="mono" id="k-resto">'+money(total)+'</span></div>'+
       '<div class="chips" style="margin:8px 0 0"><button type="button" class="chip" id="k-auto">Repartir automático</button>'+
       '<button type="button" class="chip" id="k-limpiar">Poner todo en cero</button></div>';
     cablearAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape');
     repartirAuto(allocBox,r2(Number(mo.value)||0));
     resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape');
-    allocBox.parentElement.querySelector('#k-auto').onclick=()=>{repartirAuto(allocBox,r2(Number(mo.value)||0));resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
-    allocBox.parentElement.querySelector('#k-limpiar').onclick=()=>{allocBox.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
+    document.getElementById('k-auto').onclick=()=>{repartirAuto(allocBox,r2(Number(mo.value)||0));resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
+    document.getElementById('k-limpiar').onclick=()=>{allocBox.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
   }
   function qBaseForClient(c){return r2(Number(c.tarifaBruta||0)*0.5)}
   function refreshAllocAmounts(){if(!allocBox)return;resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')}
