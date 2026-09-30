@@ -383,6 +383,16 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
   .hd-acc{width:100%;justify-content:flex-start}
   .xl-global .xl-txt{display:none}
 }
+
+/* Reparto manual del cobro entre quincenas */
+.qrow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--ln2);border-radius:var(--r);margin-bottom:7px;background:var(--card);transition:.15s}
+.qrow.on{border-color:var(--lav);background:var(--lav2)}
+.qsel{display:flex;align-items:flex-start;gap:8px;flex:1;cursor:pointer;font-size:13px;min-width:0}
+.qsel input{width:auto;margin:2px 0 0;flex-shrink:0}
+.qsub{font-size:11px;color:var(--tx3);margin-top:1px}
+.qmo{max-width:110px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px}
+.qmo:disabled{opacity:.35}
+.qresumen{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:var(--r);background:var(--card2);font-size:13px;margin-top:4px}
 </style>
 
 <style>
@@ -1586,6 +1596,18 @@ function linkContact(contactId,companyId,rol){
   S.links.push({id:uid(),contactId,companyId,rol:rol||'Contacto'});}
 function teamOf(companyId){const c=companyById(companyId);return (c&&c.equipoIds||[]).map(memberById).filter(m=>m&&m.tipoCompensacion!=='sueldo')}
 function clientsOf(memberId){return S.companies.filter(c=>asigDeMiembro(c,memberId)>0)}
+/* Un cliente pausado o perdido no genera pago para nadie: deja de sumar al
+   ingreso del miembro, aunque la asignación siga guardada por si vuelve. */
+function ingresoMensualMiembro(m){
+  if(!m)return{clientes:0,fijo:0,total:0,activos:[],inactivos:[]};
+  const todos=clientsOf(m.id);
+  const activos=todos.filter(c=>c.estado==='activo');
+  const inactivos=todos.filter(c=>c.estado!=='activo');
+  const clientes=r2(activos.reduce((x,c)=>x+asigDeMiembro(c,m.id),0));
+  const fijo=(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')?r2(Number(m.sueldoMensual)||0)
+    :(m.tipoCompensacion==='garantizado')?complementoMensualDe(m):0;
+  return{clientes,fijo,total:r2(clientes+fijo),activos,inactivos};
+}
 
 /* ═══════════ ALCANCE DE DATOS POR USUARIO ═══════════
    Admin ve todo. Los demás usuarios solo ven sus clientes asignados
@@ -1694,6 +1716,119 @@ function serieCartera(meses){
       churnPct:base>0?r2((mv.perdidos.length+mv.pausados.length)/base*100):0});
     m--;if(m<1){m=12;y--}
   }
+  return out;
+}
+/* ─────────── QUINCENAS QUE CUBRE UN COBRO ───────────
+   Ventana de 5: las 2 anteriores, la de la fecha del cobro y las 2 siguientes.
+   Si una ya está cubierta por otro cobro se avisa, pero se deja cambiar:
+   a veces se marcan por error y hay que poder corregirlo. */
+function labelQuincena(q){
+  const m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return (q.mitad===1?'1–15':'16–'+q.fin.slice(8))+' '+m[q.mes-1]+' '+String(q.year).slice(2);
+}
+function ventanaQuincenas(fecha){
+  const f=fecha||today();
+  const y=Number(f.slice(0,4));
+  const all=[];
+  for(let yy=y-1;yy<=y+1;yy++)all.push(...quincenasAnio(yy));
+  let idx=all.findIndex(q=>f>=q.inicio&&f<=q.fin);
+  if(idx<0)idx=all.findIndex(q=>q.inicio>=f);
+  if(idx<0)idx=all.length-1;
+  const ini=Math.max(0,idx-2);
+  return all.slice(ini,Math.min(all.length,ini+5));
+}
+function cobrosQueCubren(companyId,qKey,excluirId){
+  return (S.cobros||[]).filter(p=>p.companyId===companyId&&p.id!==excluirId&&p.tipoIngreso!=='externo'
+    &&Array.isArray(p.aplicaciones)&&p.aplicaciones.some(a=>a.quincenaKey===qKey&&(Number(a.monto)||0)>0));
+}
+function montoYaCubierto(companyId,qKey,excluirId){
+  return r2(cobrosQueCubren(companyId,qKey,excluirId)
+    .reduce((x,p)=>x+p.aplicaciones.filter(a=>a.quincenaKey===qKey).reduce((y,a)=>y+(Number(a.monto)||0),0),0));
+}
+/* Cada quincena es una fila con su propio monto editable: el usuario decide
+   cuánto de este cobro va a cada período, no un reparto automático. */
+function filaQuincena(q,c,attr,on,excluirId,monto){
+  const ya=montoYaCubierto(c.id,q.key,excluirId);
+  const tope=r2(Number(c.tarifaBruta||0)*0.5);
+  const falta=r2(Math.max(0,tope-ya));
+  const lleno=ya>=tope-0.005;
+  const estado=ya>0.005
+    ? '<span class="p '+(lleno?'p-ok':'p-w')+'" style="font-size:9px">'+(lleno?'ya cobrada':'faltan '+money(falta))+'</span>'
+    : '<span class="p p-g" style="font-size:9px">libre</span>';
+  return '<div class="qrow'+(on?' on':'')+'" '+attr+'="'+q.key+'" data-ya="'+ya.toFixed(2)+'" data-tope="'+tope.toFixed(2)+'" data-falta="'+falta.toFixed(2)+'">'+
+    '<label class="qsel"><input type="checkbox" class="qck" '+(on?'checked':'')+'>'+
+      '<span><strong>'+esc(labelQuincena(q))+'</strong> '+estado+
+      '<div class="qsub">cuota '+money(tope)+(ya>0.005?' · ya cobrado '+money(ya):'')+'</div></span></label>'+
+    '<input type="number" class="qmo" step="0.01" min="0" value="'+(monto!=null?Number(monto).toFixed(2):'')+'" placeholder="0.00"'+(on?'':' disabled')+'>'+
+    '</div>';
+}
+function confirmarSolape(btn){
+  const ya=Number(btn.dataset.ya)||0;
+  if(btn.classList.contains('on')||ya<=0.005)return true;
+  return confirm('Esta quincena ya está cubierta por otro cobro ('+money(ya)+').\n\n¿Marcarla igual? Hazlo solo si el cobro anterior se registró por error o si este completa lo que faltaba.');
+}
+/* Lógica compartida del reparto manual entre quincenas. */
+function cablearAlloc(box,getTotal,idResto,idAviso){
+  box.querySelectorAll('.qrow').forEach(row=>{
+    const ck=row.querySelector('.qck'), mo=row.querySelector('.qmo');
+    ck.onchange=()=>{
+      if(ck.checked&&!confirmarSolapeFila(row)){ck.checked=false;return}
+      row.classList.toggle('on',ck.checked);
+      mo.disabled=!ck.checked;
+      if(!ck.checked)mo.value='';
+      else if(!mo.value){
+        const falta=r2(Number(row.dataset.falta)||0);
+        const resto=r2(Math.max(0,getTotal()-totalAsignado(box)));
+        mo.value=r2(Math.min(falta||resto,resto)).toFixed(2);
+      }
+      resumenAlloc(box,getTotal,idResto,idAviso);
+    };
+    mo.oninput=()=>resumenAlloc(box,getTotal,idResto,idAviso);
+  });
+}
+function confirmarSolapeFila(row){
+  const ya=Number(row.dataset.ya)||0;
+  if(ya<=0.005)return true;
+  return confirm('Esta quincena ya está cubierta por otro cobro ('+money(ya)+').\n\n¿Marcarla igual? Hazlo solo si el cobro anterior se registró por error o si este completa lo que faltaba.');
+}
+function totalAsignado(box){
+  return r2([...box.querySelectorAll('.qrow.on .qmo')].reduce((s,i)=>s+(Number(i.value)||0),0));
+}
+function repartirAuto(box,total){
+  let resto=r2(total);
+  box.querySelectorAll('.qrow.on').forEach(row=>{
+    const falta=r2(Number(row.dataset.falta)||0)||r2(Number(row.dataset.tope)||0);
+    const v=r2(Math.min(falta,Math.max(0,resto)));
+    resto=r2(resto-v);
+    row.querySelector('.qmo').value=v.toFixed(2);
+  });
+}
+function resumenAlloc(box,getTotal,idResto,idAviso){
+  const total=getTotal(), asig=totalAsignado(box), resto=r2(total-asig);
+  const el=document.getElementById(idResto);
+  if(el){
+    el.textContent=(resto<0?'sobra '+money(Math.abs(resto)):money(resto));
+    el.style.color=Math.abs(resto)<0.005?'var(--lime)':resto<0?'var(--red)':'var(--amb)';
+    const cont=el.parentElement;
+    if(cont)cont.querySelector('span').textContent=Math.abs(resto)<0.005?'Todo asignado':resto<0?'Asignaste de más':'Sin asignar';
+  }
+  const av=document.getElementById(idAviso);
+  if(av){
+    const d=[...box.querySelectorAll('.qrow.on')].filter(r=>(Number(r.dataset.ya)||0)>0.005);
+    const partes=[];
+    if(d.length)partes.push('<i class="ti ti-alert-triangle"></i> '+d.length+' quincena'+(d.length===1?'':'s')+' ya tenía otro cobro.');
+    if(resto>0.005)partes.push('Quedan '+money(resto)+' sin asignar a ninguna quincena: ese monto no contará para la nómina.');
+    if(resto<-0.005)partes.push('Asignaste '+money(Math.abs(resto))+' más de lo que entró.');
+    av.innerHTML=partes.length?'<div style="color:'+(resto<-0.005?'var(--red)':'var(--amb)')+';font-size:12.5px;margin-top:8px">'+partes.join(' ')+'</div>':'';
+  }
+}
+function leerAlloc(box,attr){
+  if(!box)return[];
+  const out=[];
+  box.querySelectorAll('.qrow.on').forEach(row=>{
+    const qk=row.getAttribute(attr), m=r2(Math.max(0,Number(row.querySelector('.qmo').value)||0));
+    if(qk&&m>0)out.push({quincenaKey:qk,monto:m});
+  });
   return out;
 }
 function estadoCobroMes(companyId,ym){
@@ -2240,12 +2375,25 @@ function editarCobroModal(id){
   function setMode(m){mode=m;const c=m==='cliente';cbox.style.display=c?'block':'none';ebox.style.display=c?'none':'block';mc.classList.toggle('on',c);meb.classList.toggle('on',!c);draw();if(c)renderAlloc()}
   mc.onclick=()=>setMode('cliente');meb.onclick=()=>setMode('externo');
   const qCandidates=(fecha)=>{const d=new Date((fecha||today())+'T12:00:00'),all=[];for(let y=d.getFullYear()-1;y<=d.getFullYear()+1;y++)all.push(...quincenasAnio(y));const idx=all.findIndex(q=>fecha>=q.inicio&&fecha<=q.fin);return all.slice(Math.max(0,(idx<0?0:idx)-3),Math.max(0,(idx<0?0:idx)-3)+8)};
-  function renderAlloc(){if(!alloc)return;const c=companyById(md.querySelector('#ec-co').value);const fecha=md.querySelector('#ec-fe').value||today();if(!c)return;const cand=qCandidates(fecha);let selected=(p.aplicaciones||[]).map(a=>a.quincenaKey);if(!selected.length){const q=quincenasAnio(Number(fecha.slice(0,4))).find(x=>fecha>=x.inicio&&fecha<=x.fin);selected=q?[q.key]:[]}alloc.innerHTML=cand.map(q=>'<button type="button" class="qopt '+(selected.includes(q.key)?'on':'')+'" data-eq="'+q.key+'"><span>'+esc(labelQ(q))+'</span><span class="mono">'+money(r2(Number(c.tarifaBruta||0)*0.5))+'</span></button>').join('');alloc.querySelectorAll('[data-eq]').forEach(b=>b.onclick=()=>{b.classList.toggle('on');refreshAlloc()});refreshAlloc()}
-  function refreshAlloc(){const total=r2(Number(md.querySelector('#ec-mo').value)||0),c=companyById(md.querySelector('#ec-co').value);if(!c)return;const btns=[...alloc.querySelectorAll('.qopt.on')];let rem=total;btns.forEach(b=>{const cap=r2(Number(c.tarifaBruta||0)*0.5),v=r2(Math.min(cap,Math.max(0,rem)));rem=r2(rem-v);b.dataset.amount=v.toFixed(2);b.querySelector('.mono').textContent=money(v)});prev.innerHTML='<div class="simrow"><span>Monto bruto</span><span class="v">'+money(total)+'</span></div><div class="simrow tot"><span>Quincenas seleccionadas</span><span class="v">'+btns.length+'</span></div>'}
+  function renderAlloc(){if(!alloc)return;const c=companyById(md.querySelector('#ec-co').value);const fecha=md.querySelector('#ec-fe').value||today();if(!c)return;const cand=qCandidates(fecha);let selected=(p.aplicaciones||[]).map(a=>a.quincenaKey);if(!selected.length){const q=quincenasAnio(Number(fecha.slice(0,4))).find(x=>fecha>=x.inicio&&fecha<=x.fin);selected=q?[q.key]:[]}const prev={};(p.aplicaciones||[]).forEach(a=>{prev[a.quincenaKey]=Number(a.monto)||0});
+    alloc.innerHTML=cand.map(q=>filaQuincena(q,c,'data-eq',selected.includes(q.key),p.id,prev[q.key])).join('')+
+      '<div class="qresumen"><span>Sin asignar</span><span class="mono" id="ec-resto"></span></div>'+
+      '<div class="chips" style="margin:8px 0 0"><button type="button" class="chip" id="ec-auto">Repartir automático</button>'+
+      '<button type="button" class="chip" id="ec-limpiar">Poner todo en cero</button></div>'+
+      '<div id="ec-solape"></div>';
+    const tot=()=>r2(Number(md.querySelector('#ec-mo').value)||0);
+    cablearAlloc(alloc,tot,'ec-resto','ec-solape');
+    resumenAlloc(alloc,tot,'ec-resto','ec-solape');
+    alloc.parentElement.querySelector('#ec-auto').onclick=()=>{repartirAuto(alloc,tot());resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
+    alloc.parentElement.querySelector('#ec-limpiar').onclick=()=>{alloc.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(alloc,tot,'ec-resto','ec-solape')};
+  }
+  function refreshAlloc(){const total=r2(Number(md.querySelector('#ec-mo').value)||0),c=companyById(md.querySelector('#ec-co').value);if(!c)return;
+    if(alloc)resumenAlloc(alloc,()=>total,'ec-resto','ec-solape');
+    prev.innerHTML='<div class="simrow"><span>Monto bruto</span><span class="v">'+money(total)+'</span></div><div class="simrow tot"><span>Quincenas seleccionadas</span><span class="v">'+btns.length+'</span></div>'}
   function draw(){if(mode==='externo'){const b=Number(md.querySelector('#ec-emo').value)||0,m2=S.metodos.find(x=>x.id===md.querySelector('#ec-eme').value),cp=m2?m2.comisionPct:0;prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(r2(b*cp/100))+'</span></div><div class="simrow tot"><span>Neto a wallet</span><span class="v">'+money(r2(b-r2(b*cp/100)))+'</span></div>'}else refreshAlloc()}
   md.querySelector('#ec-mo').oninput=refreshAlloc;md.querySelector('#ec-co').onchange=renderAlloc;md.querySelector('#ec-fe').oninput=renderAlloc;md.querySelector('#ec-emo').oninput=draw;md.querySelector('#ec-eme').onchange=draw;
   md.querySelector('#ec-x').onclick=()=>cerrarModalEdicion(ov);md.querySelector('#ec-cancel').onclick=()=>cerrarModalEdicion(ov);if(mode==='cliente')renderAlloc();else draw();
-  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.reajuste=!!(md.querySelector('#ec-erea')&&md.querySelector('#ec-erea').checked);p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=[...alloc.querySelectorAll('.qopt.on')].map(bn=>({quincenaKey:bn.dataset.eq,monto:r2(Number(bn.dataset.amount)||0)})).filter(a=>a.monto>0);if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){alert('El reparto de quincenas no coincide con el cobro.');return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await saveUI('cobros');await saveUI('companies');toast('Cobro actualizado');ov.remove();render()}
+  md.querySelector('#ec-save').onclick=async()=>{if(mode==='externo'){const b=r2(Number(md.querySelector('#ec-emo').value)||0),con=md.querySelector('#ec-con').value.trim();if(b<=0||!con){alert('Completa concepto y monto.');return}p.tipoIngreso='externo';delete p.companyId;p.concepto=con;p.montoBruto=b;p.reajuste=!!(md.querySelector('#ec-erea')&&md.querySelector('#ec-erea').checked);p.metodoPagoId=md.querySelector('#ec-eme').value;p.fecha=md.querySelector('#ec-efe').value||today();p.nota=md.querySelector('#ec-no').value.trim();delete p.aplicaciones}else{const b=r2(Number(md.querySelector('#ec-mo').value)||0),aps=leerAlloc(alloc,'data-eq');if(b<=0){alert('El monto debe ser mayor de 0.');return}if(!aps.length){alert('Selecciona al menos una quincena.');return}const suma=r2(aps.reduce((a,x)=>a+x.monto,0));if(Math.abs(suma-b)>0.01){if(!confirm('El reparto suma '+money(suma)+' y el cobro es '+money(b)+'.\n\n'+(suma<b?'Quedan '+money(r2(b-suma))+' sin asignar a ninguna quincena.':'Estás asignando '+money(r2(suma-b))+' de más.')+'\n\n¿Guardar así de todos modos?'))return}const c=companyById(md.querySelector('#ec-co').value);if(!c)return;p.tipoIngreso='cliente';p.companyId=c.id;delete p.concepto;p.montoBruto=b;p.metodoPagoId=md.querySelector('#ec-me').value;p.fecha=md.querySelector('#ec-fe').value||today();p.aplicaciones=aps;registrarFechaPagoCliente(c,p.fecha)}await saveUI('cobros');await saveUI('companies');toast('Cobro actualizado');ov.remove();render()}
 }
 function editarPagoModal(id){
   const p=S.payouts.find(x=>x.id===id);if(!p||!visiblePayouts().some(x=>x.id===id))return;const m=memberById(p.memberId);if(!m)return;
@@ -4080,7 +4228,7 @@ function vCobros(v){
   const pre=S.presetCompany;S.presetCompany=null;
   const act=visibleCompanies().filter(c=>c.estado==='activo');
   const f=document.createElement('div');f.className='card';
-  f.innerHTML='<div class="ctitle">Registrar ingreso</div>'+    '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip on" id="k-client-mode"><i class="ti ti-building-store"></i> Cobro de cliente</button><button type="button" class="chip" id="k-ext-mode"><i class="ti ti-cash-banknote"></i> Ingreso externo</button></div>'+    '<div id="k-client-fields">'+      '<div class="row"><div class="f"><label>Cliente</label><select id="k-co">'+act.map(c=>'<option value="'+c.id+'"'+(pre===c.id?' selected':'')+'>'+esc(c.negocio)+' · '+money(montoFacturaCliente(c))+' / período · '+money(c.tarifaBruta)+' mensual</option>').join('')+'</select></div>'+      '<div class="f"><label>Monto bruto</label><input id="k-mo" type="number" step="0.01"></div>'+      '<div class="f"><label>¿Dónde entró?</label><select id="k-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="msec"><div class="mstitle">¿Qué quincenas cubre este cobro?</div><div class="hint" style="margin-bottom:8px">Puedes elegir varias quincenas dentro de un rango amplio (anteriores, actual y próximas). El sistema repartirá el cobro entre las seleccionadas y nómina usará esa aplicación.</div><div id="k-alloc" class="qgrid"></div></div>'+    '</div>'+    '<div id="k-external-fields" style="display:none">'+      '<div class="row"><div class="f"><label>Concepto / origen</label><input id="k-ex-con" placeholder="Diferencia al cuadrar, saldo omitido, venta, reintegro, préstamo…"></div>'+      '<div class="f"><label>Monto</label><input id="k-ex-mo" type="number" step="0.01" min="0" placeholder="0.00"></div></div>'+      '<div class="row"><div class="f"><label>¿Dónde entró?</label><select id="k-ex-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-ex-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="f"><label>Nota</label><textarea id="k-ex-no" placeholder="Detalle opcional"></textarea></div>'+
+  f.innerHTML='<div class="ctitle">Registrar ingreso</div>'+    '<div class="chips" style="margin-bottom:14px"><button type="button" class="chip on" id="k-client-mode"><i class="ti ti-building-store"></i> Cobro de cliente</button><button type="button" class="chip" id="k-ext-mode"><i class="ti ti-cash-banknote"></i> Ingreso externo</button></div>'+    '<div id="k-client-fields">'+      '<div class="row"><div class="f"><label>Cliente</label><select id="k-co">'+act.map(c=>'<option value="'+c.id+'"'+(pre===c.id?' selected':'')+'>'+esc(c.negocio)+' · '+money(montoFacturaCliente(c))+' / período · '+money(c.tarifaBruta)+' mensual</option>').join('')+'</select></div>'+      '<div class="f"><label>Monto bruto</label><input id="k-mo" type="number" step="0.01"></div>'+      '<div class="f"><label>¿Dónde entró?</label><select id="k-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="msec"><div class="mstitle">¿Qué quincenas cubre este cobro?</div><div class="hint" style="margin-bottom:8px">Las dos quincenas anteriores, la de la fecha del cobro y las dos siguientes. Marca las que cubre este pago; si alguna ya está cobrada te avisa, pero puedes cambiarla igual.</div><div id="k-alloc" class="qgrid"></div><div id="k-solape"></div></div>'+    '</div>'+    '<div id="k-external-fields" style="display:none">'+      '<div class="row"><div class="f"><label>Concepto / origen</label><input id="k-ex-con" placeholder="Diferencia al cuadrar, saldo omitido, venta, reintegro, préstamo…"></div>'+      '<div class="f"><label>Monto</label><input id="k-ex-mo" type="number" step="0.01" min="0" placeholder="0.00"></div></div>'+      '<div class="row"><div class="f"><label>¿Dónde entró?</label><select id="k-ex-me">'+S.metodos.map(m=>'<option value="'+m.id+'">'+esc(walletLabel(m))+' · '+pct(m.comisionPct)+'</option>').join('')+'</select></div>'+      '<div class="f"><label>Fecha</label><input id="k-ex-fe" type="date" value="'+today()+'"></div></div>'+      '<div class="f"><label>Nota</label><textarea id="k-ex-no" placeholder="Detalle opcional"></textarea></div>'+
       '<label class="chk-reajuste" style="display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border:1px solid var(--ln2);border-radius:var(--r);background:var(--card2);cursor:pointer;margin-top:4px">'+
         '<input type="checkbox" id="k-ex-rea" style="width:auto;margin:3px 0 0">'+
         '<span><strong style="font-size:13px">Es un reajuste de la agencia</strong>'+
@@ -4095,11 +4243,20 @@ function vCobros(v){
   function setMode(next){mode=next;const isC=next==='cliente';clientBox.style.display=isC?'block':'none';extBox.style.display=isC?'none':'block';modeC.classList.toggle('on',isC);modeE.classList.toggle('on',!isC);document.getElementById('k-add').innerHTML=isC?'<i class="ti ti-circle-plus"></i>Registrar cobro':'<i class="ti ti-circle-plus"></i>Registrar ingreso';draw()}
   modeC.onclick=()=>setMode('cliente');modeE.onclick=()=>setMode('externo');
   const co=document.getElementById('k-co'),mo=document.getElementById('k-mo'),me=document.getElementById('k-me'),fe=document.getElementById('k-fe'),allocBox=document.getElementById('k-alloc');
-  function qCandidates(fecha){const d=new Date((fecha||today())+'T12:00:00');const all=[];for(let yy=d.getFullYear()-1;yy<=d.getFullYear()+1;yy++)all.push(...quincenasAnio(yy));const idx=all.findIndex(q=>d.toISOString().slice(0,10)>=q.inicio&&d.toISOString().slice(0,10)<=q.fin);const base=idx>=0?idx:all.findIndex(q=>q.inicio>=d.toISOString().slice(0,10));const start=Math.max(0,(base<0?0:base)-3);return all.slice(start,start+8)}
-  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today(),cand=qCandidates(fecha);let selected=[];if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){const current=cand.find(q=>fecha>=q.inicio&&fecha<=q.fin)||cand[0];if(current)selected=[current]}else{const monthQs=quincenasAnio(Number(fecha.slice(0,4))).filter(q=>q.mes===Number(fecha.slice(5,7)));cand.splice(0,cand.length,...monthQs);selected=(Math.abs(total-Number(c.tarifaBruta||0))<=0.01?monthQs:monthQs.filter(q=>q.inicio<=fecha).slice(-1));if(!selected.length&&monthQs.length)selected=[monthQs[0]]}allocBox.innerHTML=cand.map(q=>{const on=selected.some(x=>x.key===q.key);return '<button type="button" class="qopt '+(on?'on':'')+'" data-aq="'+q.key+'"><span>'+esc(labelQ(q))+'</span><span class="mono">'+money(qBaseForClient(c))+'</span></button>'}).join('');allocBox.querySelectorAll('[data-aq]').forEach(b=>b.onclick=()=>{b.classList.toggle('on');refreshAllocAmounts()});refreshAllocAmounts()}
+  function qCandidates(fecha){return ventanaQuincenas(fecha)}
+  function renderAlloc(){const c=companyById(co.value);if(!c||!allocBox)return;const total=r2(Number(mo.value)||0),fecha=fe.value||today(),cand=qCandidates(fecha);let selected=[];if((!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal'){const current=cand.find(q=>fecha>=q.inicio&&fecha<=q.fin)||cand[0];if(current)selected=[current]}else{const monthQs=quincenasAnio(Number(fecha.slice(0,4))).filter(q=>q.mes===Number(fecha.slice(5,7)));cand.splice(0,cand.length,...monthQs);selected=(Math.abs(total-Number(c.tarifaBruta||0))<=0.01?monthQs:monthQs.filter(q=>q.inicio<=fecha).slice(-1));if(!selected.length&&monthQs.length)selected=[monthQs[0]]}allocBox.innerHTML=cand.map(q=>filaQuincena(q,c,'data-aq',selected.some(x=>x.key===q.key),null,null)).join('')+
+      '<div class="qresumen"><span>Sin asignar</span><span class="mono" id="k-resto">'+money(total)+'</span></div>'+
+      '<div class="chips" style="margin:8px 0 0"><button type="button" class="chip" id="k-auto">Repartir automático</button>'+
+      '<button type="button" class="chip" id="k-limpiar">Poner todo en cero</button></div>';
+    cablearAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape');
+    repartirAuto(allocBox,r2(Number(mo.value)||0));
+    resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape');
+    allocBox.parentElement.querySelector('#k-auto').onclick=()=>{repartirAuto(allocBox,r2(Number(mo.value)||0));resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
+    allocBox.parentElement.querySelector('#k-limpiar').onclick=()=>{allocBox.querySelectorAll('.qmo').forEach(i=>i.value='');resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')};
+  }
   function qBaseForClient(c){return r2(Number(c.tarifaBruta||0)*0.5)}
-  function refreshAllocAmounts(){const c=companyById(co.value),total=r2(Number(mo.value)||0);if(!c||!allocBox)return;const btns=[...allocBox.querySelectorAll('.qopt.on')];let remaining=total;btns.forEach(b=>{const cap=qBaseForClient(c);const val=r2(Math.min(cap,Math.max(0,remaining)));remaining=r2(remaining-val);b.dataset.amount=val.toFixed(2);b.querySelector('.mono').textContent=money(val)})}
-  function allocationPayload(){const c=companyById(co.value);if(!c||!allocBox)return[];const out=[];allocBox.querySelectorAll('.qopt.on').forEach(b=>{const qk=b.dataset.aq;const q=quincenasAnio(Number(qk.slice(0,4))).find(x=>x.key===qk);const m=Math.max(0,Number(b.dataset.amount)||0);if(q&&m>0)out.push({quincenaKey:q.key,monto:r2(m)})});return out}
+  function refreshAllocAmounts(){if(!allocBox)return;resumenAlloc(allocBox,()=>r2(Number(mo.value)||0),'k-resto','k-solape')}
+  function allocationPayload(){return leerAlloc(allocBox,'data-aq')}
   function sync(){const c=companyById(co.value);if(c){mo.value=montoFacturaCliente(c);me.value=c.metodoPagoId||me.value}renderAlloc();draw()}
   function draw(){
     if(mode==='externo'){const b=Number(document.getElementById('k-ex-mo').value)||0,m2=S.metodos.find(x=>x.id===document.getElementById('k-ex-me').value),cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);const esRea=!!(document.getElementById('k-ex-rea')&&document.getElementById('k-ex-rea').checked);prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow tot"><span>Entra a la wallet</span><span class="v">'+money(neto)+'</span></div>'+(esRea?'<div class="simrow"><span style="color:var(--lime)">Suma a los recursos de la agencia</span><span class="v" style="color:var(--lime)">+'+money(neto)+'</span></div>':'<div class="simrow"><span style="color:var(--tx3)">No entra en Rentabilidad real</span><span class="v" style="color:var(--tx3)">—</span></div>');return}
@@ -4663,6 +4820,103 @@ function mWalletModal(){
 
 /* ─────────── EQUIPO ─────────── */
 /* ═══════════ CAPACIDAD ═══════════ */
+/* ═══════════ TRANSFERIR CLIENTES ENTRE MIEMBROS ═══════════ */
+function transferirClientesModal(origenId){
+  const origen=memberById(origenId);
+  if(!origen){alert('Miembro no encontrado.');return}
+  const suyos=clientsOf(origenId).concat(
+    (S.companies||[]).filter(c=>(c.asignaciones||[]).some(a=>a.memberId===origenId&&a.activo!==false&&esAsignacionSoloEquipo(a))))
+    .filter((c,i,arr)=>arr.findIndex(x=>x.id===c.id)===i);
+  if(!suyos.length){alert(origen.nombre+' no tiene clientes asignados.');return}
+  const destinos=(S.members||[]).filter(m=>m.activo!==false&&m.id!==origenId);
+  if(!destinos.length){alert('No hay otro miembro activo al que transferir.');return}
+
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl wide';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Transferir clientes</div><div class="esub">De '+esc(origen.nombre)+' a otro miembro del equipo.</div></div><button class="ib" id="tr-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="row"><div class="f"><label>Pasar a</label><select id="tr-dest">'+
+      destinos.map(m=>'<option value="'+m.id+'">'+esc(m.nombre)+' · '+esc(areaDe(m).nombre)+'</option>').join('')+
+      '</select><div class="hint" id="tr-cap"></div></div>'+
+    '<div class="f"><label>Qué hacer con el pago</label><select id="tr-modo">'+
+      '<option value="igual">Mantener el mismo monto o comisión</option>'+
+      '<option value="equipo">Pasar como solo equipo, sin costo</option>'+
+      '</select><div class="hint" id="tr-modo-h"></div></div></div>'+
+    '<div class="msec"><div class="mstitle">Clientes a transferir<span class="cnt" id="tr-n">0</span></div>'+
+      '<div class="chips" style="margin:0 0 10px"><button type="button" class="chip" id="tr-todos">Todos</button><button type="button" class="chip" id="tr-ninguno">Ninguno</button></div>'+
+      suyos.map(c=>{
+        const a=(c.asignaciones||[]).find(x=>x.memberId===origenId&&x.activo!==false);
+        const soloEq=esAsignacionSoloEquipo(a);
+        const monto=soloEq?0:asigDeMiembro(c,origenId);
+        return '<label class="qrow" style="cursor:pointer"><span class="qsel"><input type="checkbox" class="tr-ck" data-cid="'+c.id+'">'+
+          '<span><strong>'+esc(c.negocio)+'</strong> '+(c.estado!=='activo'?'<span class="p p-w" style="font-size:9px">'+esc(c.estado)+'</span>':'')+
+          '<div class="qsub">'+(soloEq?'solo equipo, sin costo':a&&a.modo==='comision'?pct(a.comisionPct)+' de comisión · '+money(monto)+'/mes':money(monto)+' al mes')+'</div></span></span>'+
+          '<span class="mono" style="font-size:12.5px">'+(monto?money(monto):'—')+'</span></label>';
+      }).join('')+'</div>'+
+    '<div id="tr-aviso"></div>'+
+    '<div class="brow"><button class="b bp" id="tr-ok" disabled>Transferir</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#tr-x').onclick=()=>ov.remove();
+
+  const cks=()=>[...md.querySelectorAll('.tr-ck')];
+  const elegidos=()=>cks().filter(c=>c.checked).map(c=>c.dataset.cid);
+  function refrescar(){
+    const n=elegidos().length;
+    md.querySelector('#tr-n').textContent=n;
+    md.querySelector('#tr-ok').disabled=!n;
+    md.querySelector('#tr-ok').textContent='Transferir '+(n||'')+' cliente'+(n===1?'':'s');
+    cks().forEach(c=>c.closest('.qrow').classList.toggle('on',c.checked));
+    const dest=memberById(md.querySelector('#tr-dest').value);
+    const soloEq=md.querySelector('#tr-modo').value==='equipo';
+    md.querySelector('#tr-modo-h').textContent=soloEq
+      ? 'Queda registrado que trabaja en el cliente, pero no se le imputa costo. Útil si cobra sueldo fijo.'
+      : 'Se copia tal cual la asignación que tenía el otro miembro.';
+    /* Capacidad del destino */
+    if(dest){
+      const tope=Number(dest.capacidadClientes)||0;
+      const lleva=clientesDeMiembro(dest.id).length;
+      const nuevos=elegidos().filter(id=>{const c=companyById(id);
+        return c&&c.estado==='activo'&&!(c.asignaciones||[]).some(a=>a.memberId===dest.id&&a.activo!==false)}).length;
+      md.querySelector('#tr-cap').innerHTML=tope>0
+        ? 'Lleva '+lleva+' de '+tope+'. Con esta transferencia quedaría en <strong>'+(lleva+nuevos)+'</strong>.'
+        : 'Sin tope definido. Lleva '+lleva+' cliente'+(lleva===1?'':'s')+'.';
+      const excede=tope>0&&(lleva+nuevos)>tope;
+      md.querySelector('#tr-aviso').innerHTML=excede
+        ? '<div style="color:var(--amb);font-size:12.5px;margin-top:8px"><i class="ti ti-alert-triangle"></i> '+esc(dest.nombre)+' quedaría por encima de su tope de '+tope+'. Puedes hacerlo igual, pero saldrá marcado en Capacidad.</div>'
+        : '';
+    }
+  }
+  cks().forEach(c=>c.onchange=refrescar);
+  md.querySelector('#tr-todos').onclick=()=>{cks().forEach(c=>c.checked=true);refrescar()};
+  md.querySelector('#tr-ninguno').onclick=()=>{cks().forEach(c=>c.checked=false);refrescar()};
+  md.querySelector('#tr-dest').onchange=refrescar;
+  md.querySelector('#tr-modo').onchange=refrescar;
+  refrescar();
+
+  md.querySelector('#tr-ok').onclick=async()=>{
+    const destId=md.querySelector('#tr-dest').value, dest=memberById(destId);
+    const soloEq=md.querySelector('#tr-modo').value==='equipo';
+    const ids=elegidos();
+    if(!ids.length||!dest)return;
+    if(!confirm('Vas a pasar '+ids.length+' cliente'+(ids.length===1?'':'s')+' de '+origen.nombre+' a '+dest.nombre+'.\n\nLa asignación anterior se elimina. ¿Continuar?'))return;
+    ids.forEach(cid=>{
+      const c=companyById(cid);if(!c)return;
+      const vieja=(c.asignaciones||[]).find(a=>a.memberId===origenId&&a.activo!==false);
+      if(!vieja)return;
+      c.asignaciones=(c.asignaciones||[]).filter(a=>a!==vieja);
+      const yaTiene=(c.asignaciones||[]).find(a=>a.memberId===destId);
+      const nueva=soloEq?{memberId:destId,modo:'equipo',activo:true}
+        :{...vieja,memberId:destId,activo:true};
+      if(yaTiene)Object.assign(yaTiene,nueva);else c.asignaciones.push(nueva);
+      c.equipoIds=(c.asignaciones||[]).filter(a=>a.activo!==false).map(a=>a.memberId);
+      if(!Array.isArray(c.historialEquipo))c.historialEquipo=[];
+      c.historialEquipo.push({fecha:today(),de:origenId,deNombre:origen.nombre,a:destId,aNombre:dest.nombre,
+        modo:soloEq?'equipo':(vieja.modo||'monto')});
+    });
+    if(!await saveUI('companies'))return;
+    ov.remove();toast(ids.length+' cliente'+(ids.length===1?'':'s')+' transferido'+(ids.length===1?'':'s')+' a '+dest.nombre);render();
+  };
+}
+
 function vCapacidad(v){
   const CAP=capacidadAgencia();
   head(v,'Equipo','Capacidad','Cuántos clientes puede sostener el equipo y cuánto de eso ya está ocupado. El techo lo marca el área más apretada entre community y diseñador; el filmmaker limita solo a Venezuela.',
@@ -4756,10 +5010,8 @@ function vEquipo(v){
   else{
     const g=document.createElement('div');g.className='grid';
     S.members.forEach(m=>{
-      const cls=clientsOf(m.id);
-      let mes=0;
-      cls.forEach(c=>{mes+=asigDeMiembro(c,m.id)});
-      if(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')mes+=Number(m.sueldoMensual)||0;
+      const im=ingresoMensualMiembro(m);
+      const cls=im.activos, mes=im.total;
       const card=document.createElement('div');card.className='ecard';
       card.innerHTML='<div class="etop">'+av(m.nombre,'',1,m.foto)+'<div style="min-width:0;flex:1"><div class="ename">'+esc(m.nombre)+'</div><div class="esub">'+esc((S.roles.find(r=>r.id===m.roleId)||{}).nombre||'Sin rol')+'</div></div></div>'+
         '<div style="display:flex;gap:6px;flex-wrap:wrap">'+(m.activo?'<span class="p p-ok">Activo</span>':'<span class="p p-g">Inactivo</span>')+
@@ -4800,16 +5052,19 @@ function mMemberModal(){
       '<div class="f"><label>Estado</label><select id="m-a"><option value="1"'+(m.activo?' selected':'')+'>Activo</option><option value="0"'+(!m.activo?' selected':'')+'>Inactivo</option></select></div></div>'+
       '<div class="brow"><button class="b bp" id="m-save">'+(isNew?'Crear':'Guardar')+'</button><button class="b bg" id="m-cancel">Cancelar</button></div>';
   }else{
-    const cls=clientsOf(m.id);
-    let mes=0;const filas=cls.map(c=>{const mm=asigDeMiembro(c,m.id);if(mm<=0)return'';mes+=mm;
+    const im=ingresoMensualMiembro(m);
+    const cls=im.activos, mes=im.total;
+    const filas=cls.map(c=>{const mm=asigDeMiembro(c,m.id);if(mm<=0)return'';
       const aa=asigDeMiembroRaw(c,m.id);
       return '<div class="assoc" data-co="'+c.id+'">'+av(c.negocio,'s',0,c.foto)+'<div class="ai"><div class="an">'+esc(c.negocio)+'</div><div class="as">'+money(c.tarifaBruta)+' bruto · '+(aa&&aa.modo==='comision'?pct(aa.comisionPct)+' comisión · ':'')+money(r2(mm/2))+' por quincena</div></div><span class="mono" style="font-weight:600">'+money(mm)+'</span></div>'}).join('');
-    if(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto')mes+=Number(m.sueldoMensual)||0;
     const pays=S.payouts.filter(p=>p.memberId===m.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
     md.className='mdl wide';
     md.innerHTML='<div class="mhd"><div class="mid">'+av(m.nombre,'l',1,m.foto)+'<div><div class="mtitle">'+esc(m.nombre)+'</div><div class="esub">'+esc((S.roles.find(r=>r.id===m.roleId)||{}).nombre||'')+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
-      '<div class="brow"><button class="b bg bs" id="m-edit"><i class="ti ti-edit"></i>Editar</button><button class="b bg bs bd" id="m-del"><i class="ti ti-trash"></i>Eliminar</button></div>'+
-      '<div class="mets" style="margin:16px 0 0"><div class="met"><div class="mlab">Al mes</div><div class="mval">'+money(r2(mes))+'</div></div>'+
+      '<div class="brow"><button class="b bg bs" id="m-edit"><i class="ti ti-edit"></i>Editar</button>'+
+      (cls.length||im.inactivos.length?'<button class="b bg bs" id="m-transfer"><i class="ti ti-arrows-exchange"></i>Transferir clientes</button>':'')+
+      '<button class="b bg bs bd" id="m-del"><i class="ti ti-trash"></i>Eliminar</button></div>'+
+      (im.inactivos.length?'<div class="sub" style="font-size:12.5px;margin-top:12px;color:var(--amb)"><strong>'+im.inactivos.length+' cliente'+(im.inactivos.length===1?'':'s')+' fuera de cuenta:</strong> '+im.inactivos.map(c=>esc(c.negocio)+' ('+esc(c.estado)+')').join(', ')+'. No suman a su pago mientras no estén activos.</div>':'')+
+      '<div class="mets" style="margin:16px 0 0"><div class="met"><div class="mlab">Al mes</div><div class="mval">'+money(r2(mes))+'</div><div class="msub">'+money(im.clientes)+' por clientes'+(im.fijo?' + '+money(im.fijo)+(m.tipoCompensacion==='garantizado'?' de complemento':' de sueldo'):'')+'</div></div>'+
       '<div class="met"><div class="mlab">Por quincena</div><div class="mval">'+money(r2(mes/2))+'</div></div>'+
       '<div class="met"><div class="mlab">Clientes</div><div class="mval">'+cls.length+'</div></div></div>'+
       '<div class="msec"><div class="mstitle">Sus clientes<span class="cnt">'+cls.length+'</span></div>'+(filas||'<div style="font-size:12.5px;color:var(--tx3)">Sin clientes asignados.</div>')+'</div>'+
@@ -4883,6 +5138,7 @@ function mMemberModal(){
     return;
   }
   document.getElementById('m-edit').onclick=()=>{S.eMember=m.id;render()};
+  const bt=document.getElementById('m-transfer');if(bt)bt.onclick=()=>transferirClientesModal(m.id);
   document.getElementById('m-del').onclick=async()=>{if(!confirm('¿Eliminar a '+m.nombre+'?'))return;
     S.companies.forEach(c=>{c.equipoIds=(c.equipoIds||[]).filter(x=>x!==m.id);if(c.pesos)delete c.pesos[m.id]});
     S.members=S.members.filter(x=>x.id!==m.id);S.mMember=null;
