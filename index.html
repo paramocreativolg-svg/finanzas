@@ -6196,42 +6196,34 @@ function comprobantePDF(p){
   });
   d.setTextColor(40,36,47);
   if(Number(p.adelantosDescontados)>0){d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=24;d.setTextColor(145,70,88);d.text('(-) Adelantos descontados',M+14,y);d.text('−'+money(p.adelantosDescontados),R-14,y,{align:'right'});y+=26}
-  /* ── Lo que le corresponde en una quincena completa ── */
+  /* ── Cierre de lo que SÍ se paga ── */
+  if(p.walletParts&&p.walletParts.length){d.setTextColor(110,103,118);d.setFontSize(8.5);
+    d.text('Pagado desde: '+payoutWalletsLabel(p),M+14,y,{maxWidth:R-M-28});y+=20}
+  y+=6;
+  d.setFillColor(246,243,250);d.roundedRect(M,y,R-M,62,13,13,'F');
+  d.setTextColor(95,89,102);d.setFont('helvetica','normal');d.setFontSize(9);
+  d.text('TOTAL PAGADO',M+16,y+23);
+  d.setTextColor(110,75,198);d.setFont('helvetica','bold');d.setFontSize(19);
+  d.text(money(p.monto),R-16,y+45,{align:'right'});
+  d.setFont('helvetica','normal');
+  y+=72;
+
+  /* Referencia compacta: cuánto le toca por quincena, en una sola línea. */
   const teo=p.teorico||null;
   if(teo&&(Number(teo.total)||0)>0.005){
-    d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=18;
-    const hayCli=(Number(teo.clientes)||0)>0.005||teo.numClientes>0;
-    const hayBase=(Number(teo.base)||0)>0.005;
-    const altoCaja=34+(hayCli?17:0)+(hayBase?17:0)+22;
-    d.setFillColor(246,244,248);d.roundedRect(M,y,R-M,altoCaja,10,10,'F');
-    d.setFont('helvetica','bold');d.setFontSize(9);d.setTextColor(95,88,108);
-    d.text('LE CORRESPONDE POR QUINCENA',M+14,y+17);
-    d.setFont('helvetica','normal');d.setFontSize(9.5);d.setTextColor(80,74,92);
-    let yy=y+34;
-    if(hayCli){
-      d.text('Clientes que lleva'+(teo.numClientes?' ('+teo.numClientes+')':''),M+14,yy);
-      d.text(money(teo.clientes),R-14,yy,{align:'right'});yy+=17;
-    }
-    if(hayBase){
-      d.text(teo.tipo==='garantizado'?'Complemento de la agencia':'Sueldo base',M+14,yy);
-      d.text(money(teo.base),R-14,yy,{align:'right'});yy+=17;
-    }
-    d.setFont('helvetica','bold');d.setTextColor(50,45,62);
-    d.text(teo.tipo==='garantizado'?'Total garantizado':'Total de la quincena',M+14,yy);
-    d.text(money(teo.total),R-14,yy,{align:'right'});
-    d.setFont('helvetica','normal');
-    y+=altoCaja+16;
-    /* Comparación contra lo que realmente se paga en este comprobante */
-    const pagado=r2(Number(p.monto)||0)+r2(Number(p.adelantosDescontados)||0);
-    const dif=r2((Number(teo.total)||0)-pagado);
-    d.setFontSize(8.5);d.setTextColor(150,143,160);
-    d.text(Math.abs(dif)<0.01
-      ? 'Este pago cubre la quincena completa.'
-      : dif>0
-        ? 'Este comprobante cubre '+money(pagado)+'. Diferencia con la quincena completa: '+money(dif)+'.'
-        : 'Este comprobante cubre '+money(pagado)+', '+money(Math.abs(dif))+' por encima de la quincena (incluye extras o quincenas anteriores).',
-      M+14,y,{maxWidth:R-M-28});
-    y+=20;
+    const partes=[];
+    if((Number(teo.clientes)||0)>0.005)partes.push('clientes '+money(teo.clientes));
+    if((Number(teo.base)||0)>0.005)partes.push((teo.tipo==='garantizado'?'complemento ':'sueldo ')+money(teo.base));
+    d.setTextColor(120,114,126);d.setFontSize(8.5);
+    d.text((teo.tipo==='garantizado'?'Garantizado por quincena: ':'Le corresponde por quincena: ')+money(teo.total)+
+      (partes.length>1?'  ('+partes.join(' + ')+')':''),M+14,y);
+    y+=14;
+    const cubierto=r2((Number(p.monto)||0)+(Number(p.adelantosDescontados)||0));
+    const dif=r2((Number(teo.total)||0)-cubierto);
+    d.text(Math.abs(dif)<0.01?'Este pago cubre la quincena completa.'
+      :dif>0?'Faltan '+money(dif)+' de la quincena, detallados abajo.'
+      :money(Math.abs(dif))+' por encima de la quincena: incluye extras o períodos anteriores.',M+14,y);
+    y+=22;
   }
 
   /* ── Lo que NO se paga ── */
@@ -6281,9 +6273,7 @@ function comprobantePDF(p){
     if(sueldoQueda>0.005){d.text('Sueldo base por pagar en esta quincena',M+14,yy);d.text(money(sueldoQueda),R-14,yy,{align:'right'})}
     y+=((advQueda>0.005&&sueldoQueda>0.005)?56:38)+16;
   }
-  if(p.walletParts&&p.walletParts.length){d.setTextColor(110,103,118);d.setFontSize(8.5);d.text('Pagado desde: '+payoutWalletsLabel(p),M+14,y,{maxWidth:R-M-28});y+=24}
   if(p.nota){d.setTextColor(110,103,118);d.setFontSize(9);d.text('Nota: '+p.nota,M+14,y,{maxWidth:R-M-28});y+=30}
-  y+=8;d.setFillColor(246,243,250);d.roundedRect(M,y,R-M,72,14,14,'F');d.setTextColor(95,89,102);d.setFontSize(9);d.text('TOTAL PAGADO',M+16,y+24);d.setTextColor(110,75,198);d.setFont('helvetica','bold');d.setFontSize(19);d.text(money(p.monto),R-16,y+50,{align:'right'});
   d.setTextColor(120,114,126);d.setFont('helvetica','normal');d.setFontSize(8.5);d.text('Páramo Creativo · Comprobante generado automáticamente',M,H-52);
   savePDF(d,'Comprobante_'+(m?m.nombre.replace(/\s+/g,'_'):'')+'_'+(p.quincenaKey||'')+'.pdf');
 }
