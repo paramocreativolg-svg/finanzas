@@ -5398,7 +5398,9 @@ function payModal(memberId,q){
     '<div class="simrow"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento a pagar ahora':'Sueldo base a pagar ahora')+'</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+ 
     '<div class="simrow"><span>Pagos liberados por clientes</span><span class="v" id="pay-liberado">'+money(pm.pagableClientes)+'</span></div>'+ 
     '<div class="simrow"><span>Cobertura manual</span><span class="v" id="pay-cubierto">$0.00</span></div>'+
-    '<div class="simrow"><span>Bonificaciones y descuentos</span><span class="v" id="pay-extras">$0.00</span></div>'+ 
+    '<div class="simrow"><span>Bonificaciones y descuentos</span><span class="v" id="pay-extras">$0.00</span></div>'+
+    '<div class="simrow"><span>Queda pendiente</span><span class="v" id="pay-pend">$0.00</span></div>'+
+    '<div class="simrow"><span>Le corresponde en la quincena</span><span class="v" id="pay-teorico">$0.00</span></div>'+ 
     '<div class="simrow neg"><span>Adelantos pendientes</span><span class="v" id="pay-adelantos">−'+money(adelPend)+'</span></div>'+ 
     '<div class="simrow tot"><span>Total en efectivo a pagar</span><span class="v" id="pay-total">'+money(Math.max(0,pm.totalAntesAdelantos-adelPend))+'</span></div></div>'+ 
     '<div class="msec"><div class="mstitle">Qué quieres cubrir de cada cliente</div>'+ 
@@ -5462,6 +5464,22 @@ function payModal(memberId,q){
     const elSue=document.getElementById('pay-sueldo');if(elSue)elSue.textContent=money(sb);
     const elComp=document.getElementById('pay-complemento');if(elComp)elComp.textContent=money(complementoAgencia());
     const elEx=document.getElementById('pay-extras');if(elEx)elEx.textContent=(ex<0?'−':'')+money(Math.abs(ex));
+    const elTe=document.getElementById('pay-teorico');
+    if(elTe){
+      const base=esGarantizado?complementoAgencia():sueldoQuincena();
+      elTe.textContent=money(r2(base+pm.devengadoClientes));
+    }
+    const elPd=document.getElementById('pay-pend');
+    if(elPd){
+      const pend=r2(pm.detalle.reduce((acc,d,i)=>{
+        const row=clientRows[i];
+        const mx=Number(row&&row.querySelector('.pay-client-mo')&&row.querySelector('.pay-client-mo').dataset.max)||0;
+        const sel=row?Math.max(0,Math.min(mx,Number(row.querySelector('.pay-client-mo').value)||0)):0;
+        return acc+Math.max(0,d.montoQuincena-d.yaPagadoCliente-sel);
+      },0));
+      elPd.textContent=money(pend);
+      elPd.style.color=pend>0.005?'var(--amb)':'var(--tx2)';
+    }
     const elExT=document.getElementById('p-extras-total');if(elExT)elExT.textContent=(ex<0?'−':'')+money(Math.abs(ex));
     document.getElementById('pay-liberado').textContent=money(liberadas);
     document.getElementById('pay-cubierto').textContent=money(cubierto);
@@ -5521,7 +5539,24 @@ function payModal(memberId,q){
   }
   syncTotal();syncWalletTotal();document.getElementById('p-desc-adv').oninput=syncTotal;document.getElementById('x').onclick=()=>{ov.remove();render()};
   async function doPay(gen){
-    const detalle=pm.detalle.map((d,i)=>{const row=clientRows[i];const maxSel=Number(row?.querySelector('.pay-client-mo')?.dataset.max)||0;const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;return{companyId:d.companyId,negocio:d.negocio,monto:d.montoQuincena,pagable:r2(montoSel),liberado:r2(d.ganado),retenido:r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel)),cobrado:d.clientePago,coberturaManual:r2(Math.max(0,montoSel-(Number(d.ganado)||0)))};}).filter(d=>d.pagable>0||d.coberturaManual>0);
+    const detalle=pm.detalle.map((d,i)=>{const row=clientRows[i];const maxSel=Number(row?.querySelector('.pay-client-mo')?.dataset.max)||0;const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;return{companyId:d.companyId,negocio:d.negocio,monto:d.montoQuincena,pagable:r2(montoSel),liberado:r2(d.ganado),retenido:r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel)),cobrado:d.clientePago,coberturaManual:r2(Math.max(0,montoSel-(Number(d.ganado)||0))),
+        yaPagadoAntes:r2(d.yaPagadoCliente),pctCobrado:d.porcentajeCobrado};}).filter(d=>d.pagable>0||d.coberturaManual>0);
+    /* Lo que NO se paga también se guarda, para que el comprobante lo explique.
+       Sin esto el empleado solo ve lo que cobró y no por qué le falta el resto. */
+    const pendientes=pm.detalle.map((d,i)=>{
+      const row=clientRows[i];
+      const maxSel=Number(row&&row.querySelector('.pay-client-mo')&&row.querySelector('.pay-client-mo').dataset.max)||0;
+      const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;
+      const retenido=r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel));
+      if(retenido<=0.005)return null;
+      const frac=Number(d.porcentajeCobrado)||0;
+      const motivo=frac<0.995
+        ? (frac<=0.005?'El cliente aun no ha pagado esta quincena'
+           :'El cliente pago '+pct(r2(frac*100))+' de la quincena')
+        : 'Se abono solo una parte en este pago';
+      return{companyId:d.companyId,negocio:d.negocio,montoQuincena:r2(d.montoQuincena),
+        pagadoAhora:r2(montoSel),yaPagadoAntes:r2(d.yaPagadoCliente),retenido,pctCobrado:frac,motivo};
+    }).filter(Boolean);
     const sumaClientes=r2(detalle.reduce((s,d)=>s+d.pagable,0));
     const sueldoAhora=sueldoElegido();
     const extras=extrasList(), extrasMonto=r2(extras.reduce((s,x)=>s+x.monto,0));
@@ -5535,7 +5570,19 @@ function payModal(memberId,q){
     const walletTotal=r2(walletParts.reduce((s,x)=>s+x.monto,0));
     if(Math.abs(walletTotal-total)>0.005){alert('La suma de las wallets debe ser exactamente '+money(total)+'. Actualmente está distribuido '+money(walletTotal)+'.');return}
     for(const part of walletParts){const sw=saldoWallet(part.walletId);if(part.monto>sw.saldo+0.005){alert('La wallet '+walletLabel(walletById(part.walletId))+' no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}}
-    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,sueldoBase:sueldoAhora,
+    const p={id:uid(),memberId,quincenaKey:q.key,monto:total,fecha:document.getElementById('p-fe').value||today(),tipo:'pago',general:false,descuentoAdelantos:plan.descontado>0,adelantosDescontados:plan.descontado,advanceAplicados:plan.aplicados,nota:document.getElementById('p-no').value.trim(),walletId:walletParts[0]?.walletId||null,walletParts,detalle,pendientes,
+      /* Lo que esta persona debería ganar en una quincena completa con sus
+         clientes y condiciones de hoy. Es la referencia contra la que se mide
+         lo que efectivamente se le pagó. */
+      teorico:{
+        clientes:r2(pm.devengadoClientes),
+        base:r2(esGarantizado?pm.complementoQuincena:sueldoQuincena()),
+        piso:esGarantizado?r2(pm.pisoQuincena):0,
+        tipo:pm.tipoCompensacion||'cliente',
+        total:r2((esGarantizado?pm.complementoQuincena:sueldoQuincena())+pm.devengadoClientes),
+        numClientes:(pm.detalle||[]).length
+      },
+      sueldoBase:sueldoAhora,
       sueldoBaseQuincena:esGarantizado?pisoQuincena():sueldoQuincena(),
       pisoGarantizado:esGarantizado?pisoQuincena():null,
       complementoAgencia:esGarantizado?complementoAgencia():null,
@@ -6149,6 +6196,73 @@ function comprobantePDF(p){
   });
   d.setTextColor(40,36,47);
   if(Number(p.adelantosDescontados)>0){d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=24;d.setTextColor(145,70,88);d.text('(-) Adelantos descontados',M+14,y);d.text('−'+money(p.adelantosDescontados),R-14,y,{align:'right'});y+=26}
+  /* ── Lo que le corresponde en una quincena completa ── */
+  const teo=p.teorico||null;
+  if(teo&&(Number(teo.total)||0)>0.005){
+    d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=18;
+    const hayCli=(Number(teo.clientes)||0)>0.005||teo.numClientes>0;
+    const hayBase=(Number(teo.base)||0)>0.005;
+    const altoCaja=34+(hayCli?17:0)+(hayBase?17:0)+22;
+    d.setFillColor(246,244,248);d.roundedRect(M,y,R-M,altoCaja,10,10,'F');
+    d.setFont('helvetica','bold');d.setFontSize(9);d.setTextColor(95,88,108);
+    d.text('LE CORRESPONDE POR QUINCENA',M+14,y+17);
+    d.setFont('helvetica','normal');d.setFontSize(9.5);d.setTextColor(80,74,92);
+    let yy=y+34;
+    if(hayCli){
+      d.text('Clientes que lleva'+(teo.numClientes?' ('+teo.numClientes+')':''),M+14,yy);
+      d.text(money(teo.clientes),R-14,yy,{align:'right'});yy+=17;
+    }
+    if(hayBase){
+      d.text(teo.tipo==='garantizado'?'Complemento de la agencia':'Sueldo base',M+14,yy);
+      d.text(money(teo.base),R-14,yy,{align:'right'});yy+=17;
+    }
+    d.setFont('helvetica','bold');d.setTextColor(50,45,62);
+    d.text(teo.tipo==='garantizado'?'Total garantizado':'Total de la quincena',M+14,yy);
+    d.text(money(teo.total),R-14,yy,{align:'right'});
+    d.setFont('helvetica','normal');
+    y+=altoCaja+16;
+    /* Comparación contra lo que realmente se paga en este comprobante */
+    const pagado=r2(Number(p.monto)||0)+r2(Number(p.adelantosDescontados)||0);
+    const dif=r2((Number(teo.total)||0)-pagado);
+    d.setFontSize(8.5);d.setTextColor(150,143,160);
+    d.text(Math.abs(dif)<0.01
+      ? 'Este pago cubre la quincena completa.'
+      : dif>0
+        ? 'Este comprobante cubre '+money(pagado)+'. Diferencia con la quincena completa: '+money(dif)+'.'
+        : 'Este comprobante cubre '+money(pagado)+', '+money(Math.abs(dif))+' por encima de la quincena (incluye extras o quincenas anteriores).',
+      M+14,y,{maxWidth:R-M-28});
+    y+=20;
+  }
+
+  /* ── Lo que NO se paga ── */
+  const pend=(p.pendientes||[]).filter(x=>(Number(x.retenido)||0)>0.005);
+  if(pend.length){
+    d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=18;
+    d.setFont('helvetica','bold');d.setFontSize(9);d.setTextColor(120,110,130);
+    d.text('NO SE PAGA EN ESTA QUINCENA',M+14,y+10);
+    d.setFont('helvetica','normal');d.setFontSize(8);d.setTextColor(150,143,160);
+    d.text('Queda registrado y se paga cuando el cliente cubra su parte.',M+14,y+22);
+    y+=34;
+    let totalPend=0;
+    pend.forEach(x=>{
+      const mo=r2(Number(x.retenido)||0);totalPend+=mo;
+      d.setTextColor(60,55,70);d.setFontSize(9.5);
+      d.text(String(x.negocio||'').slice(0,34),M+14,y+10);
+      d.text(money(mo),R-14,y+10,{align:'right'});
+      d.setTextColor(150,143,160);d.setFontSize(8);
+      const det=String(x.motivo||'')+(Number(x.pagadoAhora)>0.005?' · se abonó '+money(x.pagadoAhora)+' de '+money(x.montoQuincena):'');
+      d.text(det.slice(0,70),M+14,y+21);
+      y+=30;
+      if(y>H-220){d.addPage();d.setFillColor(255,255,255);d.roundedRect(34,34,W-68,H-68,18,18,'F');y=70}
+    });
+    d.setDrawColor(227,222,231);d.line(M+14,y,R-14,y);y+=16;
+    d.setFont('helvetica','bold');d.setFontSize(9.5);d.setTextColor(120,110,130);
+    d.text('Total que queda pendiente',M+14,y);
+    d.text(money(r2(totalPend)),R-14,y,{align:'right'});
+    d.setFont('helvetica','normal');
+    y+=22;
+  }
+
   /* Saldos que quedan abiertos tras este pago: adelanto no descontado y
      sueldo pagado solo en parte. Se calculan en el momento de pagar y se
      guardan en el registro, pero si es un pago antiguo se recalculan. */
@@ -6160,7 +6274,7 @@ function comprobantePDF(p){
     d.setDrawColor(227,222,231);d.line(M+12,y,R-12,y);y+=20;
     d.setFillColor(255,247,232);d.roundedRect(M,y,R-M,(advQueda>0.005&&sueldoQueda>0.005)?56:38,10,10,'F');
     d.setTextColor(150,100,20);d.setFont('helvetica','bold');d.setFontSize(9);
-    d.text('PENDIENTE DESPUES DE ESTE PAGO',M+14,y+16);
+    d.text('OTROS SALDOS ABIERTOS',M+14,y+16);
     d.setFont('helvetica','normal');d.setFontSize(9.5);d.setTextColor(120,88,30);
     let yy=y+32;
     if(advQueda>0.005){d.text('Adelanto sin descontar',M+14,yy);d.text(money(advQueda),R-14,yy,{align:'right'});yy+=18}
