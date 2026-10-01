@@ -1242,6 +1242,15 @@ function qDesplazada(key,pasos){
 }
 /* La quincena que toca pagar hoy según el esquema configurado. */
 function qAPagar(){return qDesplazada(qActualGlobal().key,desfaseNomina())}
+/* Una quincena se puede liquidar cuando ya empezó o cuando el esquema de pago
+   es adelantado y le toca. Sin esto, pagar por adelantado era imposible: la
+   quincena siguiente se consideraba no disponible y todo salía en cero. */
+function quincenaLiquidable(q){
+  if(!q)return false;
+  if(q.inicio<=today())return true;
+  const off=qOffsetActual(q.key);
+  return off!==null&&off<=Math.max(0,-desfaseNomina());
+}
 /* ─────────── VENTANA DE REGISTRO DE NÓMINA ───────────
    Los clientes a veces pagan tarde, así que hace falta poder registrar pagos
    de quincenas ya cerradas, y a veces adelantar la siguiente. La ventana es
@@ -1409,7 +1418,7 @@ function distribuirDescuentoAdelantos(memberId,untilDate,monto){
 }
 function calcularNomina(q){
   const porMiembro=(isAdminUser()?S.members:S.members.filter(m=>m.id===linkedMemberId())).filter(m=>m.activo).map(m=>{
-    const rol=S.roles.find(x=>x.id===m.roleId),det=[],quincenaDisponible=q.inicio<=today();
+    const rol=S.roles.find(x=>x.id===m.roleId),det=[],quincenaDisponible=quincenaLiquidable(q);
     let sueldoBase=(quincenaDisponible&&(m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto'))?sueldoBaseDeQuincena(m.id,q):0;
     S.companies.filter(c=>c.estado==='activo').forEach(c=>{
       const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;const mq=r2(mensual*0.5),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*0.5);
@@ -1432,11 +1441,39 @@ function calcularNomina(q){
     const sueldoYaPagado=sueldoYaPagadoEnQ(m.id,q), sueldoPendiente=r2(Math.max(0,sueldoBase-sueldoYaPagado));
     const totalAntesAdelantos=r2(sueldoPendiente+pc), adelantosSueltos=adelantosPendientesMiembro(m.id,q.fin);
     const totalPagable=r2(Math.max(0,totalAntesAdelantos));
+    /* Si no hay nada que pagarle, se explica por qué. "Al día" a secas hacía
+       imposible distinguir entre alguien que ya cobró y alguien mal configurado. */
+    const todasSus=(S.companies||[]).filter(c=>(c.asignaciones||[]).some(a=>a.memberId===m.id&&a.activo!==false));
+    const activasSuyas=todasSus.filter(c=>c.estado==='activo');
+    /* Se lee la asignación cruda del cliente, no asigDeMiembroRaw, que ya
+       descarta las de solo equipo y las que están en cero: justo las dos que
+       queremos poder nombrar. */
+    const asigCruda=c=>(c.asignaciones||[]).find(a=>a.memberId===m.id&&a.activo!==false);
+    const soloEquipo=activasSuyas.filter(c=>{const a=asigCruda(c);return a&&esAsignacionSoloEquipo(a)});
+    const sinMonto=activasSuyas.filter(c=>{const a=asigCruda(c);return a&&!esAsignacionSoloEquipo(a)&&asigDeMiembro(c,m.id)<=0});
+    const esFijo=m.tipoCompensacion==='sueldo'||m.tipoCompensacion==='mixto';
+    let motivoSinPago=null;
+    if(!det.length&&sueldoBase<=0&&(!pisoQuincena||complementoQuincena<=0)){
+      if(!quincenaDisponible)motivoSinPago='Esta quincena todavía no empieza';
+      else if(esFijo&&(Number(m.sueldoMensual)||0)<=0)motivoSinPago='Tiene sueldo fijo pero el monto está en cero. Ponlo en su ficha.';
+      else if(m.tipoCompensacion==='garantizado'&&(Number(m.ingresoGarantizado)||0)<=0)motivoSinPago='Tiene ingreso garantizado pero el monto está en cero. Ponlo en su ficha.';
+      else if(!todasSus.length&&!esFijo)motivoSinPago='No tiene clientes asignados';
+      else if(todasSus.length&&!activasSuyas.length)motivoSinPago='Sus '+todasSus.length+' cliente'+(todasSus.length===1?'':'s')+' están pausados o perdidos';
+      else if(soloEquipo.length===activasSuyas.length&&activasSuyas.length)motivoSinPago='Solo participa como equipo, sin monto imputado ('+soloEquipo.map(c=>c.negocio).join(', ')+')';
+      else if(sinMonto.length)motivoSinPago='Sus asignaciones están en cero: '+sinMonto.map(c=>c.negocio).join(', ');
+      else motivoSinPago='No hay nada que pagarle en esta quincena';
+    }
     return{memberId:m.id,nombre:m.nombre,rol:rol?rol.nombre:'',tipoCompensacion:m.tipoCompensacion,
+      motivoSinPago,clientesActivos:activasSuyas.length,numSoloEquipo:soloEquipo.length,
       pisoQuincena,complementoQuincena,comisionTeoricaQuincena:dc,
-      sueldoBase,sueldoYaPagado,sueldoPendiente,detalle:det,devengadoClientes:dc,pagableClientes:pc,retenido:rt,adelantosClientes:0,adelantosSueltos,totalDevengado:r2(sueldoBase+dc),totalAntesAdelantos,totalPagable,porPagar:totalPagable,numClientes:det.length,quincenaDisponible};
+      sueldoBase,sueldoYaPagado,sueldoPendiente,detalle:det,devengadoClientes:dc,pagableClientes:pc,retenido:rt,adelantosClientes:0,adelantosSueltos,totalDevengado:r2(sueldoBase+dc),totalAntesAdelantos,totalPagable,porPagar:totalPagable,numClientes:det.length,quincenaDisponible,
+      /* Lo ya liquidado de esta quincena y lo que falta del período completo.
+         Antes "Falta pagar" repetía "Pagable ahora", así que con todo retenido
+         ambos daban cero y parecía que no se debía nada. */
+      yaPagadoQuincena:r2(sueldoYaPagado+det.reduce((x,d)=>x+(Number(d.yaPagadoCliente)||0),0)),
+      faltaQuincena:r2(Math.max(0,(sueldoBase+dc)-(sueldoYaPagado+det.reduce((x,d)=>x+(Number(d.yaPagadoCliente)||0),0))))};
   });
-  return{quincena:q,porMiembro,totales:{devengado:r2(porMiembro.reduce((s,x)=>s+x.totalDevengado,0)),pagable:r2(porMiembro.reduce((s,x)=>s+x.totalAntesAdelantos,0)),retenido:r2(porMiembro.reduce((s,x)=>s+x.retenido,0)),yaPagado:r2(porMiembro.reduce((s,x)=>s+x.sueldoYaPagado,0)),porPagar:r2(porMiembro.reduce((s,x)=>s+x.totalAntesAdelantos,0))}}}
+  return{quincena:q,porMiembro,totales:{devengado:r2(porMiembro.reduce((s,x)=>s+x.totalDevengado,0)),pagable:r2(porMiembro.reduce((s,x)=>s+x.totalAntesAdelantos,0)),retenido:r2(porMiembro.reduce((s,x)=>s+x.retenido,0)),yaPagado:r2(porMiembro.reduce((s,x)=>s+x.yaPagadoQuincena,0)),porPagar:r2(porMiembro.reduce((s,x)=>s+x.faltaQuincena,0))}}}
 
 /* Bloque de solo lectura con los datos de marketing del cliente.
    Solo dibuja lo que está lleno, para no ensuciar la ficha. */
@@ -5298,10 +5335,11 @@ function vNomina(v){
     '<span class="p '+(abiertaSel?'p-ok':'p-g')+'" style="float:right">'+(abiertaSel?'Abierta para registro':'Solo lectura')+(offSel!==null?' · '+esc(qEtiquetaVentana(q.key)):'')+'</span></div>'+
     (abiertaSel?'':'<div class="sub" style="font-size:12.5px;margin-bottom:10px;color:var(--amb)">Esta quincena está fuera de la ventana de ±'+VENTANA_QUINCENAS+'. Se muestra como histórico y no admite registrar pagos.</div>')+
     '<div class="mets" style="margin-bottom:16px">'+
-    '<div class="met met-ctx"><div class="mlab">Devengado</div><div class="mval">'+money(nom.totales.devengado)+'</div></div>'+
-    '<div class="met"><div class="mlab">Pagable ahora</div><div class="mval">'+money(nom.totales.pagable)+'</div></div>'+
-    '<div class="met met-ctx"><div class="mlab">Retenido</div><div class="mval" style="color:var(--amb)">'+money(nom.totales.retenido)+'</div></div>'+
-    '<div class="met met-crit tone-red"><div class="mlab">Falta pagar</div><div class="mval" style="color:var(--pink)">'+money(nom.totales.porPagar)+'</div></div></div>';
+    '<div class="met met-ctx"><div class="mlab">Devengado</div><div class="mval">'+money(nom.totales.devengado)+'</div><div class="msub">le toca al equipo por esta quincena</div></div>'+
+    '<div class="met met-crit '+(nom.totales.pagable>0.005?'tone-lime':'tone-amb')+'"><div class="mlab">Pagable ahora</div><div class="mval">'+money(nom.totales.pagable)+'</div><div class="msub">'+(nom.totales.pagable>0.005?'listo para liquidar':'nada liberado todavía')+'</div></div>'+
+    '<div class="met"><div class="mlab">Retenido</div><div class="mval" style="color:var(--amb)">'+money(nom.totales.retenido)+'</div><div class="msub">espera a que el cliente pague</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Ya pagado</div><div class="mval">'+money(nom.totales.yaPagado)+'</div><div class="msub">liquidado en esta quincena</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Falta del período</div><div class="mval" style="color:'+(nom.totales.porPagar>0.005?'var(--pink)':'var(--lime)')+'">'+money(nom.totales.porPagar)+'</div><div class="msub">devengado menos lo ya pagado</div></div></div>';
   if(!nom.porMiembro.length)dc.innerHTML+=mt('ti-users','Agrega miembros al equipo.');
   nom.porMiembro.forEach(pm=>{
     const box=document.createElement('div');box.className='ndet';
@@ -5309,10 +5347,25 @@ function vNomina(v){
       '<i class="ti ti-chevron-right chev2"></i>'+av(pm.nombre,'s',1)+
       '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px">'+esc(pm.nombre)+'</div>'+
       '<div style="font-size:11.5px;color:var(--tx3)">'+pm.numClientes+' cliente'+(pm.numClientes===1?'':'s')+
+      (pm.numSoloEquipo?' · '+pm.numSoloEquipo+' sin costo':'')+
       (pm.sueldoBase>0?' · sueldo '+money(pm.sueldoBase):'')+(pm.retenido>0?' · <span style="color:var(--amb)">'+money(pm.retenido)+' retenido</span>':'')+'</div></div>'+
-      '<div style="text-align:right"><div class="mono" style="font-weight:600;font-size:15px">'+money(pm.porPagar)+'</div>'+
-      (pm.yaPagado>0?'<div style="font-size:11px;color:var(--tx3)">pagado '+money(pm.yaPagado)+'</div>':'')+'</div>'+
-      (qPermitida(q.key)&&(pm.porPagar>0.005||pm.sueldoBase>0||pm.detalle.some(d=>r2((Number(d.montoQuincena)||0)-(Number(d.yaPagadoCliente)||0))>0.005))?'<button class="b bp bs" data-pay="'+pm.memberId+'">Pagar</button>':(!qPermitida(q.key)?'<span class="p p-g">Fuera de ventana</span>':'<span class="p p-ok">Al día</span>'))+'</div>';
+      (()=>{
+        /* El monto de la fila es lo PAGABLE AHORA, no un total teórico.
+           Antes mostraba pm.porPagar y pm.yaPagado: el primero daba 0 cuando
+           todo estaba retenido y el segundo ni siquiera existía en el objeto. */
+        const pagableAhora=r2(pm.totalAntesAdelantos||0);
+        const puedePagar=pagableAhora>0.005||pm.sueldoPendiente>0.005;
+        const puedeAdelantar=!puedePagar&&pm.retenido>0.005;
+        return '<div style="text-align:right"><div class="mono" style="font-weight:600;font-size:15px;color:'+(pagableAhora>0.005?'var(--tx)':'var(--tx3)')+'">'+money(pagableAhora)+'</div>'+
+        (pm.yaPagadoQuincena>0.005?'<div style="font-size:11px;color:var(--tx3)">pagado '+money(pm.yaPagadoQuincena)+' de '+money(pm.totalDevengado)+'</div>'
+          :pagableAhora<=0.005&&pm.retenido>0.005?'<div style="font-size:11px;color:var(--amb)">nada liberado aún</div>':'')+'</div>'+
+        (!qPermitida(q.key)?'<span class="p p-g">Fuera de ventana</span>'
+          :puedePagar?'<button class="b bp bs" data-pay="'+pm.memberId+'">Pagar</button>'
+          :puedeAdelantar?'<button class="b bg bs" data-pay="'+pm.memberId+'" title="Sus clientes aún no han pagado. Puedes adelantarle de todas formas.">Adelantar</button>'
+          :pm.motivoSinPago?'<span class="p p-w" title="'+esc(pm.motivoSinPago)+'">Nada que pagar</span>'
+          :'<span class="p p-ok">Al día</span>')+'</div>';
+      })()+
+      (pm.motivoSinPago?'<div style="font-size:11.5px;color:var(--amb);margin-top:4px">'+esc(pm.motivoSinPago)+'</div>':'');
     if(pm.detalle.length){
       const bd=document.createElement('div');bd.className='nbody';
       bd.innerHTML='<table class="t" style="font-size:12.5px"><thead><tr><th>Cliente</th><th>Estado</th><th>Se paga</th><th></th></tr></thead><tbody>'+
