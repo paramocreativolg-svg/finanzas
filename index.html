@@ -1225,6 +1225,23 @@ function cobroNominaCliente(c,q){
 function porcentajeCobradoCliente(c,q){const base=montoFacturaCliente(c);if(!base)return 0;return Math.max(0,Math.min(1,cobroNominaCliente(c,q).totalBruto/base))}
 function qActualGlobal(){const t=today();const y=Number(t.slice(0,4));const qs=quincenasAnio(y);return qs.find(x=>t>=x.inicio&&t<=x.fin)||qs[0]}
 function nominaDesdeKey(){return S.nominaInicioKey||qActualGlobal().key}
+/* ─────────── ESQUEMA DE PAGO ───────────
+   La app define períodos (1–15 y 16–fin), no días de pago: la fecha la eliges
+   al registrar. Lo único que depende del esquema es qué quincena conviene
+   abrir por defecto.
+     desfase -1 → pagas por adelantado el período siguiente: el 30 pagas el
+                  1–15 de octubre, el 15 pagas el 16–fin de ese mismo mes.
+     desfase  0 → pagas el período en curso.
+     desfase  1 → pagas vencido el período anterior. */
+function desfaseNomina(){const n=Number(S.desfaseNomina);return Math.max(-2,Math.min(2,isNaN(n)?-1:n))}
+function qDesplazada(key,pasos){
+  const i=qIndexGlobal(key);
+  if(i===null)return key;
+  const j=i-pasos, y=Math.floor(j/24), r=j-y*24;
+  return y+'-'+String(Math.floor(r/2)+1).padStart(2,'0')+'-Q'+((r%2)+1);
+}
+/* La quincena que toca pagar hoy según el esquema configurado. */
+function qAPagar(){return qDesplazada(qActualGlobal().key,desfaseNomina())}
 /* ─────────── VENTANA DE REGISTRO DE NÓMINA ───────────
    Los clientes a veces pagan tarde, así que hace falta poder registrar pagos
    de quincenas ya cerradas, y a veces adelantar la siguiente. La ventana es
@@ -1485,7 +1502,7 @@ const DB={
     return{key:k,deleted:true};
   }
 };
-const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos'];
+const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina'];
 /* Toda colección (array u objeto) queda protegida, no solo un subconjunto.
    Antes contacts, links, members, roles, users y gastosFijos no tenían red. */
 const COLLECTION_KEYS=new Set(['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','nominaSaldosIniciales','proyeccionGastosFijos','gastosFijos']);
@@ -1585,7 +1602,7 @@ async function verifyDataIntegrity(){
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
-  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],
+  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,
   mCompany:null,mContact:null,mProspect:null,lead:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
@@ -5193,7 +5210,12 @@ function vNomina(v){
   const qs=quincenasAnio(yr);
   const t=today();
   const cur=qs.find(q=>t>=q.inicio&&t<=q.fin);
-  if(!S.nomQ)S.nomQ=(cur||qs[0]).key;
+  if(!S.nomQ){
+    const sug=qAPagar();
+    const enEsteAnio=qs.find(x=>x.key===sug);
+    S.nomQ=enEsteAnio?sug:(cur||qs[0]).key;
+    if(enEsteAnio===undefined&&sug&&Number(sug.slice(0,4))!==yr)S.nomYear=Number(sug.slice(0,4));
+  }
   const q=qs.find(x=>x.key===S.nomQ)||qs[0];
   head(v,'Equipo','Nómina','Las 24 quincenas del año. El control financiero comienza en '+labelQ(qActualGlobal())+' '+qActualGlobal().year+'. Los períodos anteriores quedan solo como histórico.',
     '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><button class="b bg bs" id="reset-control"><i class="ti ti-refresh"></i>Reiniciar control</button><button class="b bg bs" id="y-"><i class="ti ti-chevron-left"></i></button><span class="mono" style="font-weight:600;font-size:15px">'+yr+'</span><button class="b bg bs" id="y+"><i class="ti ti-chevron-right"></i></button></div>');
@@ -5208,17 +5230,35 @@ function vNomina(v){
     ventanaKeys.push(yy+'-'+String(Math.floor(rest/2)+1).padStart(2,'0')+'-Q'+((rest%2)+1));
   }
   const venNote=document.createElement('div');venNote.className='card';venNote.style.cssText='margin-bottom:14px;border-left:3px solid var(--lime)';
+  const qPaga=qs.find(x=>x.key===qAPagar());
   venNote.innerHTML='<div class="ctitle">Ventana de registro <span class="cnt">'+VENTANA_QUINCENAS+' atrás · actual · '+VENTANA_QUINCENAS+' adelante</span></div>'+
     '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Puedes registrar y editar pagos en estas 5 quincenas. Si un cliente paga tarde, entras a la quincena que corresponde y lo registras ahí — el pago se imputa al período correcto, no al de hoy.</div>'+
+    '<div class="f" style="margin-bottom:10px"><label>Cuándo pagas la nómina</label><select id="nom-desfase">'+
+      [[-1,'Adelantada · el 30 pago el 1–15 que viene'],
+       [-2,'Adelantada dos períodos'],
+       [0,'Del período en curso · el 15 pago del 1 al 15'],
+       [1,'Vencida · el 30 pago el 1–15 que pasó'],
+       [2,'Vencida dos períodos']]
+      .map(([k,l])=>'<option value="'+k+'"'+(desfaseNomina()===k?' selected':'')+'>'+l+'</option>').join('')+
+      '</select><div class="hint">Solo decide en qué quincena abre esta pantalla. La fecha real del pago la eliges al registrarlo.'+
+      (qPaga?' Hoy te tocaría pagar <strong>'+esc(labelQ(qPaga))+' de '+qPaga.year+'</strong>.':'')+'</div></div>'+
     '<div class="chips">'+ventanaKeys.map(k=>{
       const parts=k.split('-'),yy=Number(parts[0]),mm=Number(parts[1]);
       const qq=quincenasAnio(yy).find(x=>x.key===k);
       const on=k===q.key, off=qOffsetActual(k);
-      return '<button type="button" class="chip'+(on?' on':'')+'" data-vq="'+k+'" title="'+esc(qEtiquetaVentana(k))+'">'+
-        (off===0?'<i class="ti ti-point-filled"></i> ':'')+esc(qq?labelQ(qq)+' '+String(mm).padStart(2,'0')+'/'+yy:k)+'</button>';
+      const toca=k===qAPagar();
+      return '<button type="button" class="chip'+(on?' on':'')+'" data-vq="'+k+'" title="'+esc(qEtiquetaVentana(k))+(toca?' · es la que toca pagar hoy':'')+'">'+
+        (toca?'<i class="ti ti-cash"></i> ':off===0?'<i class="ti ti-point-filled"></i> ':'')+esc(qq?labelQ(qq)+' '+String(mm).padStart(2,'0')+'/'+yy:k)+'</button>';
     }).join('')+'</div>';
   v.appendChild(venNote);
   venNote.querySelectorAll('[data-vq]').forEach(b=>b.onclick=()=>{S.nomYear=Number(b.dataset.vq.slice(0,4));S.nomQ=b.dataset.vq;render()});
+  const selDes=venNote.querySelector('#nom-desfase');
+  if(selDes)selDes.onchange=async()=>{
+    S.desfaseNomina=Number(selDes.value);
+    if(!await saveUI('desfaseNomina'))return;
+    S.nomQ=null;S.nomYear=Number(qAPagar().slice(0,4));
+    toast('Esquema guardado');render();
+  };
 
   // Selector de quincenas agrupado por mes
   const gc=document.createElement('div');gc.className='card';
