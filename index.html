@@ -901,6 +901,7 @@ function asigsDe(c){
     if(!m)return false;
     // Las asignaciones por comisión pueden existir para cualquier tipo de empleado.
     // En sueldo fijo se suman al sueldo; en mixto también.
+    if(a.modo==='proporcional')return montoProporcional(c,a)>0;
     if(a.modo==='comision')return (Number(a.comisionPct)||0)>0;
     // Un sueldo fijo no se imputa por monto a clientes; solo puede tener su sueldo base
     // y, opcionalmente, comisiones porcentuales.
@@ -909,12 +910,57 @@ function asigsDe(c){
     return (Number(a.monto)||0)>0;
   })
 }
+/* ═══════════ REPARTO PROPORCIONAL ═══════════
+   En este modo defines, por cliente, qué porcentaje de la tarifa se queda la
+   agencia. Lo que sobra es la bolsa del equipo y se divide entre quienes lo
+   llevan, según el peso de cada uno (por defecto, partes iguales). */
+/* Porcentaje por defecto de la agencia. Ya no se usan comisiones fijas por
+   cliente: todo cliente nuevo nace con reparto proporcional y este corte. */
+function pctAgenciaDefecto(){const n=Number(S.pctAgenciaDefecto);return isNaN(n)?40:Math.max(0,Math.min(100,n))}
+function pctAgenciaDe(c){const n=Number(c&&c.pctAgencia);return isNaN(n)?pctAgenciaDefecto():Math.max(0,Math.min(100,n))}
+function pesoAsignacion(a){const p=Number(a&&a.peso);return (isNaN(p)||p<=0)?1:p}
+function esProporcional(c){return !!(c&&c.repartoProporcional)}
+function asigsProporcionales(c){
+  return (c&&c.asignaciones||[]).filter(a=>a.memberId&&a.activo!==false&&a.modo==='proporcional');
+}
+/* Lo que queda para repartir entre el equipo después del corte de la agencia. */
+function bolsaEquipo(c){return r2((Number(c&&c.tarifaBruta)||0)*(1-pctAgenciaDe(c)/100))}
+function montoProporcional(c,a){
+  if(!a||a.modo!=='proporcional')return 0;
+  const lista=asigsProporcionales(c);
+  if(!lista.length)return 0;
+  const totalPesos=lista.reduce((s2,x)=>s2+pesoAsignacion(x),0)||1;
+  return r2(bolsaEquipo(c)*pesoAsignacion(a)/totalPesos);
+}
+/* Vista de verificación: cómo queda repartido un cliente, peso por peso. */
+function repartoCliente(c){
+  const bruto=r2(Number(c&&c.tarifaBruta)||0);
+  const cp=comisionDe(c), comision=r2(bruto*(cp/100)), neto=r2(bruto-comision);
+  const filas=(c&&c.asignaciones||[]).filter(a=>a.memberId&&a.activo!==false).map(a=>{
+    const m=memberById(a.memberId);
+    const soloEq=esAsignacionSoloEquipo(a);
+    const monto=soloEq?0:montoAsignacionMensual(c,a);
+    return{a,m,nombre:m?m.nombre:'(sin miembro)',soloEquipo:soloEq,monto,
+      peso:pesoAsignacion(a),
+      modo:soloEq?'Sin costo':a.modo==='proporcional'?'Proporcional':a.modo==='comision'?pct(a.comisionPct)+' de comisión':'Monto fijo',
+      pctSobreBruto:bruto>0?r2(monto/bruto*100):0};
+  });
+  const equipo=r2(filas.reduce((s2,f)=>s2+f.monto,0));
+  const agencia=r2(neto-equipo);
+  return{bruto,comisionPct:cp,comision,neto,filas,equipo,agencia,
+    pctEquipo:bruto>0?r2(equipo/bruto*100):0,
+    pctAgencia:bruto>0?r2(agencia/bruto*100):0,
+    proporcional:esProporcional(c),pctAgenciaConfig:pctAgenciaDe(c),bolsa:bolsaEquipo(c),
+    alcanza:equipo<=neto+0.005,
+    descuadre:esProporcional(c)?r2(bolsaEquipo(c)-equipo):0};
+}
 function comisionAsignacionDe(c,a){
   if(!a||a.modo!=='comision')return 0;
   return r2((Number(c.tarifaBruta)||0)*(Number(a.comisionPct)||0)/100);
 }
 function montoAsignacionMensual(c,a){
   if(!a)return 0;
+  if(a.modo==='proporcional')return montoProporcional(c,a);
   return a.modo==='comision'?comisionAsignacionDe(c,a):r2(Number(a.monto)||0);
 }
 function costoEquipoDe(c){return r2(asigsDe(c).reduce((s,a)=>s+montoAsignacionMensual(c,a),0))}
@@ -1539,7 +1585,7 @@ const DB={
     return{key:k,deleted:true};
   }
 };
-const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina'];
+const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina','fondoDesde','fondoMovs','pctAgenciaDefecto'];
 /* Toda colección (array u objeto) queda protegida, no solo un subconjunto.
    Antes contacts, links, members, roles, users y gastosFijos no tenían red. */
 const COLLECTION_KEYS=new Set(['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','nominaSaldosIniciales','proyeccionGastosFijos','gastosFijos']);
@@ -1639,7 +1685,7 @@ async function verifyDataIntegrity(){
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
-  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,
+  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,fondoDesde:null,fondoMovs:[],pctAgenciaDefecto:40,
   mCompany:null,mContact:null,mProspect:null,lead:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
@@ -1892,6 +1938,70 @@ function leerAlloc(box,attr){
   });
   return out;
 }
+/* ═══════════ FONDO DE LA AGENCIA ═══════════
+   No es una wallet: las wallets siguen mostrando el dinero real. El fondo es
+   una MARCA sobre ese dinero que dice cuánto ya es ganancia y no debe usarse
+   para nómina. De ahí sale "disponible para operar" = wallets − fondo.
+
+   Entra:  la ganancia de cada cobro (neto − equipo devengado) y los reajustes.
+   Sale:   los gastos de la agencia.
+   Ajusta: movimientos manuales en los dos sentidos.
+   Solo cuenta desde la fecha de activación: nada retroactivo. */
+function fondoActivo(){return !!S.fondoDesde}
+function desdeFondo(){return S.fondoDesde||null}
+function enRangoFondo(fecha){const d=desdeFondo();return !!d&&String(fecha||'')>=d}
+
+function aporteDeCobro(p){
+  if(!p||p.tipoIngreso==='devolucionAdelanto')return 0;
+  if(p.tipoIngreso==='externo')return esReajuste(p)?netoDeReajuste(p).neto:0;
+  const w=walletDeCobro(p);
+  return r2(w.agencia);
+}
+function movimientosFondo(){
+  if(!fondoActivo())return[];
+  const out=[];
+  (S.cobros||[]).forEach(p=>{
+    if(!enRangoFondo(p.fecha))return;
+    const monto=aporteDeCobro(p);
+    if(Math.abs(monto)<=0.005)return;
+    const c=companyById(p.companyId);
+    out.push({id:p.id,fecha:p.fecha,tipo:'cobro',signo:1,monto,
+      concepto:c?c.negocio:(p.concepto||'Reajuste'),
+      detalle:c?'ganancia del cobro de '+money(p.montoBruto):'reajuste de la agencia'});
+  });
+  (S.egresos||[]).forEach(e=>{
+    if(!enRangoFondo(e.fecha))return;
+    const monto=r2(Number(e.monto)||0);
+    if(monto<=0.005)return;
+    out.push({id:e.id,fecha:e.fecha,tipo:'gasto',signo:-1,monto,
+      concepto:e.descripcion||e.categoria||'Gasto',
+      detalle:(e.categoria||'General')+(e.esGastoFijo?' · fijo':'')});
+  });
+  (S.fondoMovs||[]).forEach(m=>{
+    const monto=r2(Number(m.monto)||0);
+    if(monto<=0.005)return;
+    const w=walletById(m.walletId);
+    out.push({id:m.id,fecha:m.fecha,tipo:m.tipo==='retiro'?'retiro':'aporte',
+      signo:m.tipo==='retiro'?-1:1,monto,
+      concepto:m.nota||(m.tipo==='retiro'?'Retiro al operativo':'Aporte manual'),
+      detalle:(w?w.nombre+' · ':'')+'ajuste manual',manual:true});
+  });
+  return out.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+}
+function resumenFondo(){
+  const movs=movimientosFondo();
+  const suma=f=>r2(movs.filter(f).reduce((s2,m)=>s2+m.monto,0));
+  const cobros=suma(m=>m.tipo==='cobro');
+  const gastos=suma(m=>m.tipo==='gasto');
+  const aportes=suma(m=>m.tipo==='aporte');
+  const retiros=suma(m=>m.tipo==='retiro');
+  const saldo=r2(cobros+aportes-gastos-retiros);
+  const enWallets=r2((S.metodos||[]).reduce((s2,w)=>s2+saldoWallet(w.id).saldo,0));
+  return{movs,cobros,gastos,aportes,retiros,saldo,enWallets,
+    disponible:r2(enWallets-saldo),
+    desde:desdeFondo(),activo:fondoActivo(),
+    numCobros:movs.filter(m=>m.tipo==='cobro').length};
+}
 function estadoCobroMes(companyId,ym){
   const c=companyById(companyId);if(!c)return'na';
   const ud=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7)),0).getDate();
@@ -1904,7 +2014,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['rentabilidad','Rentabilidad real'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -2164,6 +2274,7 @@ function renderNav(){
            ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length],
            ['captacion','ti-radar','Captación',null]]],
     ['n3',[['rentabilidad','ti-coin','Rentabilidad real',null],
+           ['fondo','ti-pig-money','Fondo agencia',null],
            ['wallets','ti-wallet','Wallets',S.metodos.length],
            ['fechas-pago','ti-calendar-event','Fechas de pago',null],
            ['estado-cuenta','ti-file-description','Estado de cuenta',null],
@@ -2216,7 +2327,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -3832,11 +3943,32 @@ function mCompanyModal(){
   document.getElementById('x').onclick=()=>{S.mCompany=null;S.eCompany=null;render()};
 
   if(editing){
-    let asigs=JSON.parse(JSON.stringify(asigsDe(c)));
+    /* Se conservan TODAS las asignaciones activas, no solo las que generan
+       costo: asigsDe descarta las de solo equipo y las que están en cero, y
+       editarlas las habría borrado sin aviso. */
+    let asigs=JSON.parse(JSON.stringify((c.asignaciones||[]).filter(a=>a.memberId)));
+    /* Objeto espejo del cliente con lo que hay en el formulario ahora mismo.
+       El reparto proporcional depende de la tarifa, así que tiene que leerse
+       en vivo y no del registro guardado. */
+    const borrador={
+      get tarifaBruta(){const el=document.getElementById('e-tar');return r2(Number(el?el.value:c.tarifaBruta)||0)},
+      pctAgencia:(c.pctAgencia!=null?c.pctAgencia:pctAgenciaDefecto()),
+      repartoProporcional:(c.repartoProporcional!=null?!!c.repartoProporcional:!c.id),
+      get asignaciones(){return asigs}
+    };
     const ael=document.getElementById('asig');
     function drawAsig(){
       if(!S.members.length){ael.innerHTML='<div style="font-size:12.5px;color:var(--tx3)">Agrega miembros primero en Equipo.</div>';return}
-      ael.innerHTML=asigs.map((a,i)=>{
+      const prop=!!borrador.repartoProporcional;
+      ael.innerHTML='<div class="f" style="margin-bottom:12px"><label>Cómo se reparte este cliente</label>'+
+        '<div class="chips" style="margin:0 0 8px">'+
+        '<button type="button" class="chip'+(prop?'':' on')+'" data-rep="fijo">Montos por persona</button>'+
+        '<button type="button" class="chip'+(prop?' on':'')+'" data-rep="prop">Proporcional</button></div>'+
+        (prop
+          ? '<div class="row" style="margin:0"><div class="f"><label>% para la agencia</label><input id="as-pctag" type="number" min="0" max="100" step="0.1" value="'+pctAgenciaDe(borrador)+'"><div class="hint">El resto se divide entre quienes lo llevan, según el peso de cada uno.</div></div></div>'
+          : '<div class="hint">Cada persona cobra un monto fijo o una comisión que defines tú.</div>')+
+        '</div>'+
+      asigs.map((a,i)=>{
         const m2=memberById(a.memberId);
         const tipo=(m2&&m2.tipoCompensacion)||'porCliente';
         const esCom=a.modo==='comision';
@@ -3847,18 +3979,36 @@ function mCompanyModal(){
         return '<div class="assoc" style="cursor:default;flex-wrap:wrap" data-ai="'+i+'">'+av(m2?m2.nombre:'?','s',1)+
         '<select class="as-m" style="flex:1;min-width:145px"><option value="">— Elegir —</option>'+
         S.members.filter(x=>x.activo).map(x=>'<option value="'+x.id+'"'+(a.memberId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+(x.tipoCompensacion==='mixto'?'Mixto':x.tipoCompensacion==='sueldo'?'Sueldo fijo':x.tipoCompensacion==='garantizado'?'Garantizado':'Por cliente')+'</option>').join('')+'</select>'+
-        (esSoloEquipo?'<span class="p p-g" title="Su sueldo ya está en la nómina fija">Solo equipo</span>':esMixto?'<span class="p p-i">Comisión %</span>':'<span class="p p-i">Monto mensual</span>')+
+        (esSoloEquipo?'<span class="p p-g" title="Su sueldo ya está en la nómina fija">Solo equipo</span>':a.modo==='proporcional'?'<span class="p p-i">Peso</span>':esMixto?'<span class="p p-i">Comisión %</span>':'<span class="p p-i">Monto mensual</span>')+
         '<label style="display:flex;align-items:center;gap:4px;font-size:11px"><input class="as-on" type="checkbox" '+(a.activo!==false?'checked':'')+'> Activo</label>'+
         (puedeElegirModo?'<label style="display:flex;align-items:center;gap:4px;font-size:11px" title="Marca quién trabaja en el cliente sin imputarle costo"><input class="as-se" type="checkbox" '+(esSoloEquipo?'checked':'')+'> Sin costo</label>':'')+
-        (esSoloEquipo?'<span style="font-size:11.5px;color:var(--tx3);max-width:150px">no suma al costo del cliente</span>':esMixto?'<input class="as-pct" type="number" step="0.1" min="0" max="100" value="'+(a.comisionPct||'')+'" placeholder="% comisión" style="max-width:105px">':'<input class="as-v" type="number" step="0.01" min="0" value="'+(a.monto||'')+'" placeholder="0.00" style="max-width:110px">')+
+        (esSoloEquipo?'<span style="font-size:11.5px;color:var(--tx3);max-width:150px">no suma al costo del cliente</span>'
+          :a.modo==='proporcional'?'<input class="as-peso" type="number" step="0.5" min="0.5" value="'+pesoAsignacion(a)+'" title="Peso en el reparto" style="max-width:72px"><span class="mono" style="font-size:12.5px;min-width:78px;text-align:right">'+money(montoProporcional(borrador,a))+'</span>'
+          :esMixto?'<input class="as-pct" type="number" step="0.1" min="0" max="100" value="'+(a.comisionPct||'')+'" placeholder="% comisión" style="max-width:105px">'
+          :'<input class="as-v" type="number" step="0.01" min="0" value="'+(a.monto||'')+'" placeholder="0.00" style="max-width:110px">')+
         '<button class="ib dg as-x" type="button"><i class="ti ti-x"></i></button></div>'}).join('')
         ||'<div style="font-size:12.5px;color:var(--tx3)">Nadie asignado. La agencia se queda con todo.</div>';
+      ael.querySelectorAll('[data-rep]').forEach(b=>b.onclick=()=>{
+        const quiere=b.dataset.rep==='prop';
+        borrador.repartoProporcional=quiere;
+        asigs.forEach(a=>{
+          if(esAsignacionSoloEquipo(a))return;
+          if(quiere){a.modo='proporcional';a.peso=pesoAsignacion(a);delete a.monto;delete a.comisionPct}
+          else if(a.modo==='proporcional'){delete a.modo;delete a.peso;a.monto=0}
+        });
+        drawAsig();drawSim();
+      });
+      const inPct=ael.querySelector('#as-pctag');
+      if(inPct)inPct.oninput=e=>{borrador.pctAgencia=Math.max(0,Math.min(100,Number(e.target.value)||0));drawAsig();drawSim()};
       ael.querySelectorAll('[data-ai]').forEach(row=>{
+        const pw=row.querySelector('.as-peso');
+        if(pw)pw.oninput=e=>{asigs[Number(row.dataset.ai)].peso=Math.max(0.5,Number(e.target.value)||1);drawAsig();drawSim()};
         const i=Number(row.dataset.ai);
         row.querySelector('.as-m').onchange=e=>{
           const nm=memberById(e.target.value);
           asigs[i].memberId=e.target.value;
-          if(nm&&nm.tipoCompensacion==='sueldo'){asigs[i].modo='equipo';delete asigs[i].monto;delete asigs[i].comisionPct}
+          if(nm&&nm.tipoCompensacion==='sueldo'){asigs[i].modo='equipo';delete asigs[i].monto;delete asigs[i].comisionPct;delete asigs[i].peso}
+          else if(nm&&borrador.repartoProporcional){asigs[i].modo='proporcional';asigs[i].peso=pesoAsignacion(asigs[i]);delete asigs[i].monto;delete asigs[i].comisionPct}
           else if(nm&&nm.tipoCompensacion==='mixto'){asigs[i].modo='comision';asigs[i].comisionPct=Number(asigs[i].comisionPct)||0;delete asigs[i].monto}
           else if(nm){delete asigs[i].modo;delete asigs[i].comisionPct;asigs[i].monto=Number(asigs[i].monto)||0}
           else {asigs.splice(i,1)}
@@ -3886,21 +4036,42 @@ function mCompanyModal(){
       const met=S.metodos.find(x=>x.id===document.getElementById('e-met').value);
       const cp=cm!==''?Number(cm)||0:(met?met.comisionPct:0);
       const com=r2(bruto*cp/100),neto=r2(bruto-com);
-      const eq=r2(asigs.reduce((s,a)=>s+montoAsignacionMensual(c,{...a,memberId:a.memberId}),0));
+      /* El reparto se calcula contra el BORRADOR, no contra el cliente guardado:
+         si cambias la tarifa o el porcentaje, el desglose se recalcula al vuelo. */
+      const eq=r2(asigs.filter(a=>a.memberId&&!esAsignacionSoloEquipo(a))
+        .reduce((s,a)=>s+montoAsignacionMensual(borrador,a),0));
       const ag=r2(neto-eq);
       let h='<div class="simrow"><span>Bruto del cliente</span><span class="v">'+money(bruto)+'</span></div>'+
         '<div class="simrow neg"><span>Comisión '+pct(cp)+(cm!==''?' (manual)':'')+'</span><span class="v">−'+money(com)+'</span></div>'+
         '<div class="simrow"><span>Neto recibido</span><span class="v">'+money(neto)+'</span></div>';
-      asigs.filter(a=>a.memberId&&montoAsignacionMensual(c,a)>0).forEach(a=>{
+      if(borrador.repartoProporcional){
+        h+='<div class="simrow"><span style="color:var(--tx3);font-size:12px">Bolsa del equipo · '+pct(r2(100-pctAgenciaDe(borrador)))+' de la tarifa</span><span class="v" style="color:var(--tx2)">'+money(bolsaEquipo(borrador))+'</span></div>';
+      }
+      asigs.filter(a=>a.memberId&&!esAsignacionSoloEquipo(a)&&montoAsignacionMensual(borrador,a)>0).forEach(a=>{
         const m2=memberById(a.memberId);
-        const etiqueta=a.modo==='comision'?pct(a.comisionPct)+' comisión':'monto mensual';
-        h+='<div class="simrow neg"><span style="padding-left:12px">'+esc(m2?m2.nombre:'?')+' · '+etiqueta+'</span><span class="v">−'+money(montoAsignacionMensual(c,a))+'</span></div>'});
+        const mo=montoAsignacionMensual(borrador,a);
+        const totalPesos=asigsProporcionales(borrador).reduce((x,y)=>x+pesoAsignacion(y),0)||1;
+        const etiqueta=a.modo==='proporcional'
+          ? 'peso '+pesoAsignacion(a)+' de '+r2(totalPesos)+' · '+(bruto>0?pct(r2(mo/bruto*100)):'—')+' del bruto'
+          : a.modo==='comision'?pct(a.comisionPct)+' comisión':'monto mensual';
+        h+='<div class="simrow neg"><span style="padding-left:12px">'+esc(m2?m2.nombre:'?')+' · '+etiqueta+'</span><span class="v">−'+money(mo)+'</span></div>'});
+      const sinCosto=asigs.filter(a=>a.memberId&&esAsignacionSoloEquipo(a));
+      sinCosto.forEach(a=>{const m3=memberById(a.memberId);
+        h+='<div class="simrow"><span style="padding-left:12px;color:var(--tx3)">'+esc(m3?m3.nombre:'?')+' · participa sin costo</span><span class="v" style="color:var(--tx3)">—</span></div>'});
       h+='<div class="simrow tot '+(ag<0?'neg':'pos')+'"><span>Margen bruto de agencia</span><span class="v">'+money(ag)+'</span></div>';
       if(ag<0)h+='<div class="simrow"><span style="color:var(--red);font-size:12px">Estás repartiendo más de lo que entra</span><span></span></div>';
       else h+='<div class="simrow"><span style="color:var(--tx3)">Margen de agencia sobre el bruto</span><span class="v" style="color:var(--tx2)">'+(bruto>0?pct(r2(ag/bruto*100)):'—')+'</span></div>';
+      /* Verificación: en modo proporcional, lo repartido debe cuadrar con la bolsa. */
+      if(borrador.repartoProporcional){
+        const desc=r2(bolsaEquipo(borrador)-eq);
+        if(Math.abs(desc)>0.01)h+='<div class="simrow"><span style="color:var(--amb);font-size:12px">La bolsa es '+money(bolsaEquipo(borrador))+' y lo repartido suma '+money(eq)+'</span><span></span></div>';
+        else h+='<div class="simrow"><span style="color:var(--lime);font-size:12px">Reparto cuadrado con la bolsa</span><span></span></div>';
+      }
       document.getElementById('sim').innerHTML=h;
     }
-    document.getElementById('asig-add').onclick=()=>{asigs.push({memberId:'',monto:0});drawAsig();drawSim()};
+    document.getElementById('asig-add').onclick=()=>{
+      asigs.push(borrador.repartoProporcional?{memberId:'',modo:'proporcional',peso:1}:{memberId:'',monto:0});
+      drawAsig();drawSim()};
     ['e-tar','e-com'].forEach(id=>document.getElementById(id).oninput=drawSim);
     document.getElementById('e-met').onchange=drawSim;
     drawAsig();drawSim();
@@ -3928,6 +4099,8 @@ function mCompanyModal(){
         carpetaDrive:gv('e-drive'),tono:gv('e-tono'),publico:gv('e-publico'),
         notasInternas:gv('e-notas'),
         tarifaBruta:Number(document.getElementById('e-tar').value)||0,
+        repartoProporcional:!!borrador.repartoProporcional,
+        pctAgencia:pctAgenciaDe(borrador),
         descuentoPredeterminadoPct:Math.max(0,Math.min(100,Number(document.getElementById('e-desc').value)||0)),
         metodoPagoId:document.getElementById('e-met').value,
         comisionPct:cm===''?null:Number(cm)||0,
@@ -3945,12 +4118,14 @@ function mCompanyModal(){
           /* Las de solo equipo se conservan aunque no tengan monto: su valor
              es dejar constancia de quién trabaja en el cliente. */
           if(esAsignacionSoloEquipo(a))return true;
+          if(a.modo==='proporcional')return true;
           if(mm.tipoCompensacion==='sueldo')return false;
           if(mm.tipoCompensacion==='mixto')return a.modo==='comision'&&(Number(a.comisionPct)||0)>0;
           return (Number(a.monto)||0)>0;
         }).map(a=>{
           const x={memberId:a.memberId,activo:a.activo!==false};
           if(esAsignacionSoloEquipo(a)){x.modo='equipo'}
+          else if(a.modo==='proporcional'){x.modo='proporcional';x.peso=pesoAsignacion(a)}
           else if(a.modo==='comision'){x.modo='comision';x.comisionPct=Number(a.comisionPct)||0}
           else{x.monto=Number(a.monto)||0}
           return x;
@@ -3961,7 +4136,7 @@ function mCompanyModal(){
       const fechaCambio=document.getElementById('e-est-fe')?.value||today();
       const motivoCambio=document.getElementById('e-est-mo')?.value||'';
       if(isNew){
-        const nc={id:uid(),...patch,estado:estadoElegido,notas:[],historialEstado:[]};
+        const nc={id:uid(),repartoProporcional:true,pctAgencia:pctAgenciaDefecto(),...patch,estado:estadoElegido,notas:[],historialEstado:[]};
         nc.proximaFechaPago=proximaFechaConfigurada(nc);
         S.companies.push(nc);S.mCompany=nc.id;toast('Empresa creada')
       }
@@ -4431,6 +4606,89 @@ function vRentabilidad(v){
 
   const t=rentabilidadRealTotal(desde,hasta);
 
+  /* ── Convertir clientes al reparto proporcional ── */
+  {
+    const act=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
+    const fijos=act.filter(c=>!esProporcional(c));
+    if(fijos.length){
+      const cv=document.createElement('div');cv.className='card';cv.style.cssText='margin-top:16px;border-left:3px solid var(--lav)';
+      cv.innerHTML='<div class="ctitle">Pasar a reparto proporcional <span class="cnt">'+fijos.length+' cliente'+(fijos.length===1?'':'s')+' con montos fijos</span></div>'+
+        '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Fija un porcentaje para la agencia y el resto se reparte entre quienes llevan cada cliente, en partes iguales. Los montos fijos actuales se reemplazan.</div>'+
+        '<div class="row"><div class="f"><label>% para la agencia</label><input id="cv-pct" type="number" min="0" max="100" step="0.5" value="'+pctAgenciaDefecto()+'"><div class="hint">También queda como valor por defecto para los clientes nuevos.</div></div>'+
+        '<div class="f"><label>A quiénes</label><select id="cv-cuales"><option value="todos">Los '+fijos.length+' con montos fijos</option><option value="conEquipo">Solo los que ya tienen equipo asignado</option></select></div></div>'+
+        '<div id="cv-prev"></div>'+
+        '<div class="brow"><button class="b bp" id="cv-ok"><i class="ti ti-arrows-shuffle"></i>Convertir</button></div>';
+      v.appendChild(cv);
+      const elegidos=()=>cv.querySelector('#cv-cuales').value==='conEquipo'
+        ? fijos.filter(c=>(c.asignaciones||[]).some(a=>a.activo!==false&&!esAsignacionSoloEquipo(a)))
+        : fijos;
+      const dibujar=()=>{
+        const p2=Math.max(0,Math.min(100,Number(cv.querySelector('#cv-pct').value)||0));
+        const lista=elegidos();
+        cv.querySelector('#cv-prev').innerHTML=lista.length
+          ? '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Equipo hoy</th><th>Equipo después</th><th>Queda a la agencia</th></tr></thead><tbody>'+
+            lista.slice(0,10).map(c=>{
+              const antes=costoEquipoDe(c);
+              const bolsa=r2((Number(c.tarifaBruta)||0)*(1-p2/100));
+              const reparten=(c.asignaciones||[]).filter(a=>a.activo!==false&&!esAsignacionSoloEquipo(a)).length;
+              return '<tr><td><strong>'+esc(c.negocio)+'</strong><div style="font-size:11px;color:var(--tx3)">'+money(c.tarifaBruta)+' · '+(reparten||'nadie')+(reparten===1?' persona':reparten?' personas':'')+'</div></td>'+
+                '<td class="n">'+money(antes)+'</td>'+
+                '<td class="n" style="color:'+(bolsa>antes?'var(--amb)':'var(--lime)')+'">'+money(reparten?bolsa:0)+'</td>'+
+                '<td class="n" style="font-weight:700">'+money(r2((Number(c.tarifaBruta)||0)-(reparten?bolsa:0)))+'</td></tr>';
+            }).join('')+'</tbody></table></div>'+
+            (lista.length>10?'<div class="sub" style="font-size:12px;margin-top:6px">y '+(lista.length-10)+' más…</div>':'')
+          : '<div class="sub" style="font-size:12.5px;color:var(--amb)">Ninguno cumple ese criterio.</div>';
+        cv.querySelector('#cv-ok').disabled=!lista.length;
+      };
+      cv.querySelector('#cv-pct').oninput=dibujar;
+      cv.querySelector('#cv-cuales').onchange=dibujar;
+      dibujar();
+      cv.querySelector('#cv-ok').onclick=async()=>{
+        const p2=Math.max(0,Math.min(100,Number(cv.querySelector('#cv-pct').value)||0));
+        const lista=elegidos();
+        if(!lista.length)return;
+        if(!confirm('Vas a pasar '+lista.length+' cliente'+(lista.length===1?'':'s')+' a reparto proporcional con '+p2+'% para la agencia.\n\nLos montos fijos actuales se reemplazan. ¿Continuar?'))return;
+        lista.forEach(c=>{
+          c.repartoProporcional=true;c.pctAgencia=p2;
+          (c.asignaciones||[]).forEach(a=>{
+            if(esAsignacionSoloEquipo(a))return;
+            a.modo='proporcional';a.peso=pesoAsignacion(a);delete a.monto;delete a.comisionPct;
+          });
+        });
+        S.pctAgenciaDefecto=p2;
+        if(!await saveUI('companies'))return;
+        await saveUI('pctAgenciaDefecto');
+        toast(lista.length+' cliente'+(lista.length===1?'':'s')+' convertido'+(lista.length===1?'':'s'));render();
+      };
+    }
+  }
+
+  /* ── Verificación del reparto equipo / agencia ── */
+  {
+    const act=(visibleCompanies()||[]).filter(c=>c.estado==='activo');
+    const reps=act.map(c=>({c,r:repartoCliente(c)}));
+    const problemas=reps.filter(x=>!x.r.alcanza||Math.abs(x.r.descuadre)>0.01);
+    const vc=document.createElement('div');vc.className='card';vc.style.cssText='margin-top:16px;border-left:3px solid '+(problemas.length?'var(--amb)':'var(--lime)');
+    vc.innerHTML='<div class="ctitle">Reparto equipo / agencia <span class="cnt">'+act.length+' clientes'+(problemas.length?' · '+problemas.length+' a revisar':'')+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Cuánto de cada cliente se va al equipo y cuánto queda. Toca una fila para abrirlo y corregir.</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Tarifa</th><th>Comisión</th><th>Neto</th><th>Equipo</th><th>Queda</th><th>% agencia</th><th>Modo</th></tr></thead><tbody>'+
+      reps.slice().sort((a,b)=>a.r.pctAgencia-b.r.pctAgencia).map(x=>{const c=x.c,r=x.r;return '<tr data-emp="'+c.id+'" style="cursor:pointer">'+
+        '<td><strong>'+esc(c.negocio)+'</strong><div style="font-size:11px;color:var(--tx3)">'+
+          (r.filas.length?r.filas.map(f=>esc(f.nombre)+(f.soloEquipo?' (sin costo)':' '+money(f.monto))).join(' · '):'sin equipo')+'</div></td>'+
+        '<td class="n">'+money(r.bruto)+'</td>'+
+        '<td class="n" style="color:var(--tx3)">'+(r.comision>0.005?money(r.comision):'—')+'</td>'+
+        '<td class="n">'+money(r.neto)+'</td>'+
+        '<td class="n" style="color:var(--tx2)">'+money(r.equipo)+'</td>'+
+        '<td class="n" style="font-weight:700;color:'+(r.agencia<0?'var(--red)':'var(--lime)')+'">'+money(r.agencia)+'</td>'+
+        '<td class="n">'+(r.agencia<0?'<span class="p p-d">'+pct(r.pctAgencia)+'</span>':'<span class="p '+(r.pctAgencia>=50?'p-ok':r.pctAgencia>=30?'p-w':'p-g')+'">'+pct(r.pctAgencia)+'</span>')+'</td>'+
+        '<td style="font-size:12px">'+(r.proporcional?'<span class="p p-i">Proporcional '+pct(r.pctAgenciaConfig)+'</span>':'<span style="color:var(--tx3)">Montos fijos</span>')+'</td></tr>'}).join('')+
+      '</tbody></table></div>'+
+      (problemas.length?'<div class="sub" style="font-size:12.5px;margin-top:10px;color:var(--amb)">'+
+        problemas.map(x=>esc(x.c.negocio)+': '+(!x.r.alcanza?'el equipo se lleva más de lo que entra':'el reparto no cuadra con la bolsa por '+money(Math.abs(x.r.descuadre)))).join(' · ')+'</div>':'');
+    v.appendChild(vc);
+    vc.querySelectorAll('tr[data-emp]').forEach(tr=>tr.onclick=()=>{S.tab='empresas';S.mCompany=tr.dataset.emp;S.eCompany=tr.dataset.emp;render()});
+  }
+
   if(!t.clientes&&!t.reajustes.num&&!t.gastos.num){
     v.appendChild(frag(mt('ti-coin','No hay cobros registrados en este período.')));
     v.querySelectorAll('[data-per]').forEach(b=>b.onclick=()=>{S.rentPeriodo=b.dataset.per;render()});
@@ -4722,9 +4980,134 @@ function importarRespaldo(){
   };fr.readAsText(f)};input.click();
 }
 
+function movimientoFondoModal(tipo){
+  const esRetiro=tipo==='retiro';
+  const R=resumenFondo();
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">'+(esRetiro?'Sacar del fondo':'Apartar al fondo')+'</div>'+
+    '<div class="esub">'+(esRetiro
+      ? 'Libera dinero reservado para volver a usarlo en la operación.'
+      : 'Reserva dinero que ya está en tus wallets como ganancia de la agencia. Útil para meter a mano lo que corresponde a meses anteriores.')+
+    '</div></div><button class="ib" id="fm-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="sim" style="margin-bottom:14px">'+
+      '<div class="simrow"><span>En el fondo ahora</span><span class="v">'+money(R.saldo)+'</span></div>'+
+      '<div class="simrow"><span>Disponible para operar</span><span class="v">'+money(R.disponible)+'</span></div>'+
+    '</div>'+
+    '<div class="row"><div class="f"><label>Monto</label><input id="fm-mo" type="number" min="0" step="0.01"></div>'+
+    '<div class="f"><label>Fecha</label><input id="fm-fe" type="date" value="'+today()+'"></div></div>'+
+    '<div class="f"><label>Wallet de referencia</label><select id="fm-wa"><option value="">Sin especificar</option>'+
+      (S.metodos||[]).map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · '+money(saldoWallet(w.id).saldo)+'</option>').join('')+
+      '</select><div class="hint">Solo para dejar constancia de dónde está ese dinero. No mueve el saldo de la wallet.</div></div>'+
+    '<div class="f"><label>Nota</label><input id="fm-no" placeholder="'+(esRetiro?'Para cubrir la quincena':'Ganancia de agosto y septiembre')+'"></div>'+
+    '<div id="fm-prev"></div>'+
+    '<div class="brow"><button class="b bp" id="fm-ok">'+(esRetiro?'Sacar del fondo':'Apartar al fondo')+'</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#fm-x').onclick=()=>ov.remove();
+  const inp=md.querySelector('#fm-mo');
+  const dibujar=()=>{
+    const mo=r2(Math.max(0,Number(inp.value)||0));
+    const nuevo=r2(esRetiro?R.saldo-mo:R.saldo+mo);
+    const disp=r2(R.enWallets-nuevo);
+    md.querySelector('#fm-prev').innerHTML=mo>0.005
+      ? '<div class="sim"><div class="simrow"><span>El fondo quedaría en</span><span class="v">'+money(nuevo)+'</span></div>'+
+        '<div class="simrow tot"><span>Disponible para operar</span><span class="v" style="color:'+(disp<0?'var(--red)':'var(--lime)')+'">'+money(disp)+'</span></div></div>'+
+        (nuevo<0?'<div style="color:var(--red);font-size:12.5px;margin-top:8px">El fondo quedaría en negativo.</div>':'')+
+        (disp<0?'<div style="color:var(--amb);font-size:12.5px;margin-top:8px">Estarías reservando más de lo que hay en las wallets.</div>':'')
+      : '';
+  };
+  inp.oninput=dibujar;dibujar();
+  md.querySelector('#fm-ok').onclick=async()=>{
+    const mo=r2(Math.max(0,Number(inp.value)||0));
+    if(mo<=0){alert('Escribe un monto.');return}
+    if(!Array.isArray(S.fondoMovs))S.fondoMovs=[];
+    S.fondoMovs.push({id:uid(),fecha:md.querySelector('#fm-fe').value||today(),tipo:esRetiro?'retiro':'aporte',
+      monto:mo,walletId:md.querySelector('#fm-wa').value||null,nota:md.querySelector('#fm-no').value.trim()});
+    if(!await saveUI('fondoMovs'))return;
+    ov.remove();toast(esRetiro?'Dinero liberado al operativo':'Dinero apartado al fondo');render();
+  };
+}
+
+function vFondo(v){
+  const R=resumenFondo();
+  head(v,'Dinero','Fondo de la agencia',
+    'La ganancia de cada cobro se reserva aquí. No es una cuenta aparte: el dinero sigue en tus wallets, pero marcado para que no se use en nómina.',
+    (R.activo?'<button class="b bg" id="fo-ap"><i class="ti ti-arrow-down-to-arc"></i>Apartar</button>'+
+      '<button class="b bg" id="fo-re"><i class="ti ti-arrow-up-from-arc"></i>Sacar</button>':''));
+
+  if(!R.activo){
+    const c=document.createElement('div');c.className='card';
+    c.innerHTML='<div class="ctitle">Todavía no está activo</div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Al activarlo, cada cobro que registres desde hoy aparta su ganancia aquí: lo cobrado menos la comisión de la wallet menos lo que le toca al equipo. Los gastos de la agencia se descuentan de este fondo. '+
+      '<strong>Los cobros anteriores no se tocan</strong> — si quieres sumar lo de meses pasados, lo haces a mano con el botón Apartar.</div>'+
+      '<div class="row"><div class="f"><label>Empezar a contar desde</label><input id="fo-fe" type="date" value="'+today()+'"><div class="hint">Los cobros con fecha anterior quedan fuera.</div></div></div>'+
+      '<div class="brow"><button class="b bp" id="fo-on"><i class="ti ti-pig-money"></i>Activar el fondo</button></div>';
+    v.appendChild(c);
+    c.querySelector('#fo-on').onclick=async()=>{
+      S.fondoDesde=c.querySelector('#fo-fe').value||today();
+      if(!await saveUI('fondoDesde'))return;
+      toast('Fondo activo desde '+fdate(S.fondoDesde));render();
+    };
+    return;
+  }
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit '+(R.saldo>=0?'tone-lime':'tone-red')+'"><div class="mlab">En el fondo</div><div class="mval">'+money(R.saldo)+'</div><div class="msub">ganancia reservada desde '+fdate(R.desde)+'</div></div>'+
+    '<div class="met"><div class="mlab">Disponible para operar</div><div class="mval" style="color:'+(R.disponible<0?'var(--red)':'var(--tx)')+'">'+money(R.disponible)+'</div><div class="msub">en wallets menos lo reservado</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Entró por cobros</div><div class="mval">'+money(R.cobros)+'</div><div class="msub">'+R.numCobros+' cobro'+(R.numCobros===1?'':'s')+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Salió en gastos</div><div class="mval" style="color:var(--pink)">'+money(R.gastos)+'</div><div class="msub">gastos de la agencia</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Ajustes manuales</div><div class="mval">'+money(r2(R.aportes-R.retiros))+'</div><div class="msub">'+money(R.aportes)+' apartado · '+money(R.retiros)+' sacado</div></div>'+
+    '</div>'));
+
+  if(R.disponible<0){
+    v.appendChild(frag('<div class="card" style="margin-bottom:16px;border-left:3px solid var(--red)">'+
+      '<div class="ctitle">Estás usando dinero reservado</div>'+
+      '<div class="sub" style="font-size:12.5px">Hay '+money(R.saldo)+' marcados como ganancia pero solo '+money(R.enWallets)+' en las wallets. '+
+      'O sacas '+money(Math.abs(R.disponible))+' del fondo, o esa diferencia ya se gastó en operación.</div></div>'));
+  }
+
+  const casc=document.createElement('div');casc.className='card';casc.style.marginBottom='16px';
+  casc.innerHTML='<div class="ctitle">Cómo se formó</div><div class="sim">'+
+    '<div class="simrow"><span>Ganancia de los cobros</span><span class="v">'+money(R.cobros)+'</span></div>'+
+    (R.aportes>0.005?'<div class="simrow"><span>Apartado a mano</span><span class="v">'+money(R.aportes)+'</span></div>':'')+
+    '<div class="simrow"><span>− Gastos de la agencia</span><span class="v" style="color:var(--pink)">'+money(R.gastos)+'</span></div>'+
+    (R.retiros>0.005?'<div class="simrow"><span>− Sacado al operativo</span><span class="v" style="color:var(--pink)">'+money(R.retiros)+'</span></div>':'')+
+    '<div class="simrow tot"><span>En el fondo</span><span class="v" style="color:'+(R.saldo>=0?'var(--lime)':'var(--red)')+'">'+money(R.saldo)+'</span></div>'+
+    '</div>';
+  v.appendChild(casc);
+
+  const tabla=document.createElement('div');tabla.className='card';
+  tabla.innerHTML='<div class="ctitle">Movimientos <span class="cnt">'+R.movs.length+'</span></div>'+
+    (R.movs.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Tipo</th><th>Monto</th></tr></thead><tbody>'+
+      R.movs.slice(0,120).map(m=>'<tr><td class="n">'+fdate(m.fecha)+'</td>'+
+        '<td><strong>'+esc(m.concepto)+'</strong><div style="font-size:11px;color:var(--tx3)">'+esc(m.detalle)+'</div></td>'+
+        '<td>'+(m.tipo==='cobro'?'<span class="p p-ok">Cobro</span>':m.tipo==='gasto'?'<span class="p p-d">Gasto</span>'
+          :m.tipo==='aporte'?'<span class="p p-i">Apartado</span>':'<span class="p p-w">Sacado</span>')+'</td>'+
+        '<td class="n" style="font-weight:700;color:'+(m.signo>0?'var(--lime)':'var(--pink)')+'">'+(m.signo>0?'+':'−')+money(m.monto)+'</td></tr>').join('')+
+      '</tbody></table></div>'+(R.movs.length>120?'<div class="sub" style="font-size:12px;margin-top:8px">Mostrando 120 de '+R.movs.length+'.</div>':'')
+      :'<div style="font-size:12.5px;color:var(--tx3)">Sin movimientos desde '+fdate(R.desde)+'. Registra un cobro y su ganancia aparecerá aquí.</div>');
+  v.appendChild(tabla);
+
+  const ba=document.getElementById('fo-ap');if(ba)ba.onclick=()=>movimientoFondoModal('aporte');
+  const br=document.getElementById('fo-re');if(br)br.onclick=()=>movimientoFondoModal('retiro');
+}
+
 function vWallets(v){
   head(v,'Dinero','Wallets','Cada medio de cobro con su comisión y su saldo real.',
     '<button class="b bp" id="nw"><i class="ti ti-plus"></i>Nueva wallet</button>');
+  /* Con el fondo activo, el saldo de las wallets no es todo gastable:
+     una parte ya está reservada como ganancia de la agencia. */
+  if(fondoActivo()){
+    const R=resumenFondo();
+    v.appendChild(frag('<div class="card" style="margin-bottom:16px;border-left:3px solid '+(R.disponible<0?'var(--red)':'var(--lime)')+'">'+
+      '<div class="ctitle">Cuánto puedes usar <span class="cnt">fondo activo desde '+fdate(R.desde)+'</span></div>'+
+      '<div class="sim">'+
+      '<div class="simrow"><span>Total en wallets</span><span class="v">'+money(R.enWallets)+'</span></div>'+
+      '<div class="simrow"><span>− Reservado para la agencia</span><span class="v" style="color:var(--amb)">'+money(R.saldo)+'</span></div>'+
+      '<div class="simrow tot"><span>Disponible para operar</span><span class="v" style="color:'+(R.disponible<0?'var(--red)':'var(--lime)')+'">'+money(R.disponible)+'</span></div>'+
+      '</div>'+
+      '<div class="sub" style="font-size:12.5px;margin-top:10px">Los saldos de abajo son el dinero real de cada wallet. El fondo no mueve ese dinero, solo marca cuánto es ganancia.</div></div>'));
+  }
   if(!S.metodos.length){
     v.appendChild(frag('<div class="card"><div class="ctitle">No hay wallets registradas</div><p class="sub">La app no crea ni reemplaza wallets automáticamente. Crea tus wallets aquí o restaúralas desde un respaldo JSON.</p><div class="brow"><button class="b bp" id="nw-empty"><i class="ti ti-plus"></i>Nueva wallet</button><button class="b bg" id="imp-wallets"><i class="ti ti-upload"></i>Importar respaldo</button></div></div>'));
     const ne=document.getElementById('nw-empty');if(ne)ne.onclick=()=>{S.mWallet='new';render()};
@@ -5783,13 +6166,7 @@ function vPagosEquipo(v){
     if(ic)ic.className='ti ti-chevron-'+(abierto?'down':'up');
   });
 
-  const dc=document.createElement('div');dc.className='card';
-  dc.innerHTML='<div class="ctitle">Deuda pendiente al equipo <span class="cnt">'+deudas.length+'</span></div>'+
-    (deudas.length?'<p class="sub" style="font-size:12px;margin:-4px 0 12px">Aquí queda registrado lo que todavía se le debe a cada persona porque el cliente no ha completado el pago. Los adelantos y pagos ya hechos se descuentan automáticamente.</p>'+
-    '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Miembro</th><th>Cliente</th><th>Quincena</th><th>Estado cliente</th><th>% cobrado</th><th>Adelanto</th><th>Se debe</th></tr></thead><tbody>'+
-    deudas.map(d=>{const m=memberById(d.memberId);return '<tr><td>'+esc(m?m.nombre:'—')+'</td><td>'+esc(d.negocio)+'</td><td class="n">'+esc(d.periodo)+'</td><td>'+(d.clientePago?'<span class="p p-w">Cobro registrado</span>':'<span class="p p-d">Sin cobrar</span>')+'</td><td class="n">'+pct(d.porcentajeCobrado*100)+'</td><td class="n">'+money(d.adelanto)+'</td><td class="n" style="font-weight:700;color:var(--red)">'+money(d.monto)+'</td></tr>'}).join('')+
-    '</tbody></table></div>':'<div class="empty" style="padding:25px"><i class="ti ti-circle-check"></i>No hay dinero pendiente al equipo por clientes en este momento.</div>');
-  v.appendChild(dc);
+
   const c=document.createElement('div');c.className='card';
   c.innerHTML='<div class="ctitle">Historial de pagos <span class="cnt">'+pagos.length+'</span></div>';
   if(!pagos.length){c.innerHTML+=mt('ti-receipt','Todavía no hay pagos registrados desde Nómina.');v.appendChild(c);const na=document.getElementById('new-adv-general');if(na)na.onclick=()=>adelantoGeneralModal();const nd=document.getElementById('new-devolucion');if(nd)nd.onclick=()=>devolucionAdelantoModal();return}
