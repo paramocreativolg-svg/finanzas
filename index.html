@@ -400,6 +400,10 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
   .qrow{flex-wrap:wrap}
   .qmo{width:100%}
 }
+
+/* Barra de los tres cortes de la tarifa */
+.cortes{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--card2);margin:2px 0 4px}
+.corte{height:100%}
 </style>
 
 <style>
@@ -923,8 +927,24 @@ function esProporcional(c){return !!(c&&c.repartoProporcional)}
 function asigsProporcionales(c){
   return (c&&c.asignaciones||[]).filter(a=>a.memberId&&a.activo!==false&&a.modo==='proporcional');
 }
-/* Lo que queda para repartir entre el equipo después del corte de la agencia. */
-function bolsaEquipo(c){return r2((Number(c&&c.tarifaBruta)||0)*(1-pctAgenciaDe(c)/100))}
+/* ─────────── LOS TRES CORTES DE LA TARIFA ───────────
+   Cada cliente se parte en tres porcentajes que suman 100:
+     comisión · solo aplica a clientes de afuera, se fija a mano por cliente
+                (si no se fija, se hereda la de la wallet)
+     agencia  · lo que se queda la casa
+     equipo   · el resto, repartido entre quienes llevan el cliente
+   Antes la bolsa del equipo no descontaba la comisión, así que en los
+   clientes de afuera el reparto se hacía sobre dinero que nunca llegó. */
+function pctComisionDe(c){return Math.max(0,Math.min(100,Number(comisionDe(c))||0))}
+function pctEquipoDe(c){return r2(Math.max(0,100-pctComisionDe(c)-pctAgenciaDe(c)))}
+function cortesCliente(c){
+  const bruto=r2(Number(c&&c.tarifaBruta)||0);
+  const pCom=pctComisionDe(c), pAg=pctAgenciaDe(c), pEq=pctEquipoDe(c);
+  return{bruto,pctComision:pCom,pctAgencia:pAg,pctEquipo:pEq,
+    comision:r2(bruto*pCom/100),agencia:r2(bruto*pAg/100),equipo:r2(bruto*pEq/100),
+    suma:r2(pCom+pAg),excede:r2(pCom+pAg)>100.001};
+}
+function bolsaEquipo(c){return cortesCliente(c).equipo}
 function montoProporcional(c,a){
   if(!a||a.modo!=='proporcional')return 0;
   const lista=asigsProporcionales(c);
@@ -934,8 +954,8 @@ function montoProporcional(c,a){
 }
 /* Vista de verificación: cómo queda repartido un cliente, peso por peso. */
 function repartoCliente(c){
-  const bruto=r2(Number(c&&c.tarifaBruta)||0);
-  const cp=comisionDe(c), comision=r2(bruto*(cp/100)), neto=r2(bruto-comision);
+  const K=cortesCliente(c);
+  const bruto=K.bruto, cp=K.pctComision, comision=K.comision, neto=r2(bruto-comision);
   const filas=(c&&c.asignaciones||[]).filter(a=>a.memberId&&a.activo!==false).map(a=>{
     const m=memberById(a.memberId);
     const soloEq=esAsignacionSoloEquipo(a);
@@ -947,12 +967,14 @@ function repartoCliente(c){
   });
   const equipo=r2(filas.reduce((s2,f)=>s2+f.monto,0));
   const agencia=r2(neto-equipo);
-  return{bruto,comisionPct:cp,comision,neto,filas,equipo,agencia,
+  return{bruto,comisionPct:cp,comision,neto,filas,equipo,agencia,cortes:K,
     pctEquipo:bruto>0?r2(equipo/bruto*100):0,
     pctAgencia:bruto>0?r2(agencia/bruto*100):0,
-    proporcional:esProporcional(c),pctAgenciaConfig:pctAgenciaDe(c),bolsa:bolsaEquipo(c),
+    proporcional:esProporcional(c),pctAgenciaConfig:pctAgenciaDe(c),
+    pctComisionConfig:K.pctComision,pctEquipoConfig:K.pctEquipo,
+    bolsa:K.equipo,excedePct:K.excede,
     alcanza:equipo<=neto+0.005,
-    descuadre:esProporcional(c)?r2(bolsaEquipo(c)-equipo):0};
+    descuadre:esProporcional(c)?r2(K.equipo-equipo):0};
 }
 function comisionAsignacionDe(c,a){
   if(!a||a.modo!=='comision')return 0;
@@ -1954,8 +1976,13 @@ function enRangoFondo(fecha){const d=desdeFondo();return !!d&&String(fecha||'')>
 function aporteDeCobro(p){
   if(!p||p.tipoIngreso==='devolucionAdelanto')return 0;
   if(p.tipoIngreso==='externo')return esReajuste(p)?netoDeReajuste(p).neto:0;
-  const w=walletDeCobro(p);
-  return r2(w.agencia);
+  const c=companyById(p.companyId);
+  if(!c)return 0;
+  /* Con reparto proporcional el aporte es EXACTAMENTE el porcentaje que fijaste,
+     aplicado a lo cobrado. No se deduce restando el equipo: si a un cliente le
+     falta gente asignada, el residuo sería mayor y el fondo quedaría inflado. */
+  if(esProporcional(c))return r2((Number(p.montoBruto)||0)*pctAgenciaDe(c)/100);
+  return r2(walletDeCobro(p).agencia);
 }
 function movimientosFondo(){
   if(!fondoActivo())return[];
@@ -3043,6 +3070,29 @@ function enlacesContacto(p){
 }
 
 /* ─────────── PANEL CRM DEL LEAD ─────────── */
+/* Borrado de prospectos, con el mismo criterio en todos los sitios:
+   confirmación con el nombre, y aviso si tiene historial que se perderá. */
+async function borrarProspectos(ids,{silencioso}={}){
+  const lista=(S.prospects||[]).filter(p=>ids.includes(p.id));
+  if(!lista.length)return false;
+  if(!silencioso){
+    const conHistoria=lista.filter(p=>(p.actividad||[]).length||(p.historialEtapa||[]).length);
+    const txt=lista.length===1
+      ? '¿Eliminar a '+(lista[0].negocio||'este prospecto')+'?'
+      : '¿Eliminar '+lista.length+' prospectos?';
+    const extra=conHistoria.length
+      ? '\n\n'+conHistoria.length+(conHistoria.length===1?' tiene':' tienen')+' contactos o cambios de etapa registrados que se perderán.'
+      : '';
+    if(!confirm(txt+extra+'\n\nNo se puede deshacer.'))return false;
+  }
+  S.prospects=(S.prospects||[]).filter(p=>!ids.includes(p.id));
+  if(!await saveUI('prospects'))return false;
+  if(S.lead&&ids.includes(S.lead))S.lead=null;
+  if(S.mProspect&&ids.includes(S.mProspect))S.mProspect=null;
+  if(S.bnd)S.bnd.sel=(S.bnd.sel||[]).filter(x=>!ids.includes(x));
+  toast(lista.length===1?'Prospecto eliminado':lista.length+' prospectos eliminados');
+  return true;
+}
 function vLead(v,p){
   const ev=lineaTiempoLead(p), dEtapa=diasEnEtapa(p), dContacto=diasSinContacto(p);
   const idx=STG.findIndex(x=>x[0]===p.estado);
@@ -3051,7 +3101,8 @@ function vLead(v,p){
   head(v,'Prospecto',esc(p.negocio||'(sin nombre)'),
     [p.categoria,p.ubicacion,p.fuente?'vía '+p.fuente:''].filter(Boolean).join(' · ')||'Sin datos adicionales',
     '<button class="b bg" id="ld-volver"><i class="ti ti-arrow-left"></i>Volver</button>'+
-    '<button class="b bp" id="ld-edit"><i class="ti ti-edit"></i>Editar ficha</button>');
+    '<button class="b bp" id="ld-edit"><i class="ti ti-edit"></i>Editar ficha</button>'+
+    '<button class="b bg bd" id="ld-del" title="Eliminar este prospecto"><i class="ti ti-trash"></i></button>');
 
   /* Barra de etapas */
   const bar=document.createElement('div');bar.className='card';bar.style.marginBottom='16px';
@@ -3144,6 +3195,7 @@ function vLead(v,p){
   v.appendChild(g);
 
   v.querySelector('#ld-volver').onclick=()=>{S.lead=null;render()};
+  v.querySelector('#ld-del').onclick=async()=>{if(await borrarProspectos([p.id]))render()};
   v.querySelector('#ld-edit').onclick=()=>{S.mProspect=p.id;render()};
 }
 
@@ -3218,10 +3270,7 @@ function panelBandeja(v){
     ac.querySelector('#bn-mv').onclick=conSel(p=>{p.estado=ac.querySelector('#bn-me').value});
     ac.querySelector('#bn-pg').onclick=conSel(p=>{p.proximoSeguimiento=ac.querySelector('#bn-fe').value});
     ac.querySelector('#bn-nada').onclick=()=>{B.sel=[];render()};
-    ac.querySelector('#bn-del').onclick=async()=>{
-      if(!confirm('¿Eliminar '+B.sel.length+' prospectos? No se puede deshacer.'))return;
-      S.prospects=S.prospects.filter(x=>!B.sel.includes(x.id));
-      if(!await saveUI('prospects'))return;B.sel=[];toast('Eliminados');render()};
+    ac.querySelector('#bn-del').onclick=async()=>{if(await borrarProspectos(B.sel.slice()))render()};
   }
 
   const tabla=document.createElement('div');tabla.className='card';
@@ -3343,10 +3392,14 @@ function vProspectos(v){
       card.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+av(p.negocio,'s')+
         '<div style="font-family:Fraunces,serif;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.negocio)+'</div></div>'+
         '<div style="display:flex;justify-content:space-between;align-items:center"><span class="mono" style="font-size:12px;font-weight:600">'+money(p.montoEstimado)+'</span>'+
-        (k==='ganado'?'<button class="b bp bs" style="height:24px;padding:0 9px;font-size:11px" data-cv="'+p.id+'">Convertir</button>':'')+'</div>';
+        '<span style="display:flex;gap:4px;align-items:center">'+
+        (k==='ganado'?'<button class="b bp bs" style="height:24px;padding:0 9px;font-size:11px" data-cv="'+p.id+'">Convertir</button>':'')+
+        '<button class="ib dg" style="width:24px;height:24px" data-pdel="'+p.id+'" title="Eliminar"><i class="ti ti-trash" style="font-size:13px"></i></button></span></div>';
       card.ondragstart=e=>{e.dataTransfer.setData('text/plain',p.id);card.style.opacity='.4'};
       card.ondragend=()=>card.style.opacity='1';
       card.onclick=e=>{if(e.target.closest('button'))return;S.lead=p.id;render()};
+      const bd=card.querySelector('[data-pdel]');
+      if(bd)bd.onclick=async e=>{e.stopPropagation();if(await borrarProspectos([p.id]))render()};
       w.appendChild(card);
     });
     c.ondragover=e=>{e.preventDefault();c.style.background='var(--pink2)'};
@@ -3421,8 +3474,7 @@ function mProspectModal(){
     else{const nuevaEtapa=patch.estado;delete patch.estado;Object.assign(p,patch);moverEtapa(p,nuevaEtapa)}
     S.mProspect=null;await saveUI('prospects');toast('Guardado');render()};
   const d=document.getElementById('pp-d');
-  if(d)d.onclick=async()=>{if(!confirm('¿Eliminar este prospecto?'))return;S.prospects=S.prospects.filter(x=>x.id!==p.id);
-    S.mProspect=null;await saveUI('prospects');toast('Eliminado');render()};
+  if(d)d.onclick=async()=>{if(await borrarProspectos([p.id]))render()};
 }
 
 function inferirPais(c){
@@ -3867,6 +3919,7 @@ function mCompanyModal(){
       '<div class="row"><div class="f"><label>Industria / rubro</label><input id="e-ind" value="'+esc(c.industria||'')+'" placeholder="Restaurante, clínica, retail…"></div>'+
       '<div class="f"><label>Sitio web</label><input id="e-web" value="'+esc(c.web||'')+'" placeholder="https://…"></div></div>'+
       '<div class="row"><div class="f"><label>Tarifa bruta mensual</label><input id="e-tar" type="number" step="0.01" value="'+c.tarifaBruta+'"><div class="hint">Lo que paga el cliente</div></div>'+
+      '<div class="f"><label>% que se queda la agencia</label><input id="e-pctag" type="number" min="0" max="100" step="0.1" value="'+(c.pctAgencia!=null?c.pctAgencia:pctAgenciaDefecto())+'"><div class="hint" id="e-pctag-h">Este porcentaje va directo al fondo de la agencia en cada cobro.</div></div>'+
       '<div class="f"><label>Método de pago</label><select id="e-met">'+S.metodos.map(x=>'<option value="'+x.id+'"'+(c.metodoPagoId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+pct(x.comisionPct)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Comisión manual %</label><input id="e-com" type="number" step="0.1" min="0" max="60" value="'+(c.comisionPct!=null&&c.comisionPct!==''?c.comisionPct:'')+'" placeholder="auto"><div class="hint">Vacío = usa la del método</div></div></div>'+
       '<div class="row"><div class="f"><label>Descuento predeterminado %</label><input id="e-desc" type="number" step="0.01" min="0" max="100" value="'+(c.descuentoPredeterminadoPct||0)+'"><div class="hint">Se aplicará automáticamente al crear facturas de este cliente.</div></div></div>'+
@@ -3952,7 +4005,12 @@ function mCompanyModal(){
        en vivo y no del registro guardado. */
     const borrador={
       get tarifaBruta(){const el=document.getElementById('e-tar');return r2(Number(el?el.value:c.tarifaBruta)||0)},
-      pctAgencia:(c.pctAgencia!=null?c.pctAgencia:pctAgenciaDefecto()),
+      get comisionPct(){const el=document.getElementById('e-com');
+        if(!el)return c.comisionPct;
+        return el.value===''?null:Number(el.value)||0},
+      get metodoPagoId(){const el=document.getElementById('e-met');return el?el.value:c.metodoPagoId},
+      get pctAgencia(){const el=document.getElementById('e-pctag');
+        return el?Math.max(0,Math.min(100,Number(el.value)||0)):(c.pctAgencia!=null?c.pctAgencia:pctAgenciaDefecto())},
       repartoProporcional:(c.repartoProporcional!=null?!!c.repartoProporcional:!c.id),
       get asignaciones(){return asigs}
     };
@@ -3965,7 +4023,21 @@ function mCompanyModal(){
         '<button type="button" class="chip'+(prop?'':' on')+'" data-rep="fijo">Montos por persona</button>'+
         '<button type="button" class="chip'+(prop?' on':'')+'" data-rep="prop">Proporcional</button></div>'+
         (prop
-          ? '<div class="row" style="margin:0"><div class="f"><label>% para la agencia</label><input id="as-pctag" type="number" min="0" max="100" step="0.1" value="'+pctAgenciaDe(borrador)+'"><div class="hint">El resto se divide entre quienes lo llevan, según el peso de cada uno.</div></div></div>'
+          ? (()=>{const K=cortesCliente(borrador);
+              return '<div class="row" style="margin:0"><div class="f" style="grid-column:1/-1"><label>Reparto de la tarifa</label>'+
+                '<div class="cortes">'+
+                  (K.pctComision>0.005?'<div class="corte" style="flex:'+K.pctComision+';background:var(--amb)" title="Comisión '+pct(K.pctComision)+'"></div>':'')+
+                  '<div class="corte" style="flex:'+Math.max(0.01,K.pctAgencia)+';background:var(--lime)" title="Agencia '+pct(K.pctAgencia)+'"></div>'+
+                  '<div class="corte" style="flex:'+Math.max(0.01,K.pctEquipo)+';background:var(--lav)" title="Equipo '+pct(K.pctEquipo)+'"></div>'+
+                '</div>'+
+                '<div class="hint">'+
+                  (K.pctComision>0.005?'<span style="color:var(--amb)">■</span> comisión '+pct(K.pctComision)+' · ':'')+
+                  '<span style="color:var(--lime)">■</span> agencia '+pct(K.pctAgencia)+' · '+
+                  '<span style="color:var(--lav)">■</span> equipo '+pct(K.pctEquipo)+
+                  (K.excede?'<div style="color:var(--red);margin-top:4px">Comisión y agencia suman más de 100%. El equipo quedaría en cero.</div>':'')+
+                '</div></div></div>'+
+              '<div class="hint" style="margin-top:6px">La comisión se fija arriba, en <strong>Comisión manual %</strong>, y solo aplica a los clientes de afuera. El equipo se lleva lo que sobra, repartido según el peso de cada uno.</div>';
+            })()
           : '<div class="hint">Cada persona cobra un monto fijo o una comisión que defines tú.</div>')+
         '</div>'+
       asigs.map((a,i)=>{
@@ -3998,8 +4070,17 @@ function mCompanyModal(){
         });
         drawAsig();drawSim();
       });
-      const inPct=ael.querySelector('#as-pctag');
-      if(inPct)inPct.oninput=e=>{borrador.pctAgencia=Math.max(0,Math.min(100,Number(e.target.value)||0));drawAsig();drawSim()};
+      /* La comisión y el % de la agencia viven en el bloque de arriba; si
+         cambian, el reparto completo se mueve y hay que redibujar desde allá. */
+      const inAg=document.getElementById('e-pctag');
+      if(inAg&&!inAg.dataset.ligado){inAg.dataset.ligado='1';
+        inAg.addEventListener('input',()=>{drawAsig();drawSim()})}
+      const inCom=document.getElementById('e-com');
+      if(inCom&&!inCom.dataset.ligado){inCom.dataset.ligado='1';
+        inCom.addEventListener('input',()=>{drawAsig();drawSim()})}
+      const selMp=document.getElementById('e-met');
+      if(selMp&&!selMp.dataset.ligado){selMp.dataset.ligado='1';
+        selMp.addEventListener('change',()=>{drawAsig();drawSim()})}
       ael.querySelectorAll('[data-ai]').forEach(row=>{
         const pw=row.querySelector('.as-peso');
         if(pw)pw.oninput=e=>{asigs[Number(row.dataset.ai)].peso=Math.max(0.5,Number(e.target.value)||1);drawAsig();drawSim()};
@@ -4045,7 +4126,8 @@ function mCompanyModal(){
         '<div class="simrow neg"><span>Comisión '+pct(cp)+(cm!==''?' (manual)':'')+'</span><span class="v">−'+money(com)+'</span></div>'+
         '<div class="simrow"><span>Neto recibido</span><span class="v">'+money(neto)+'</span></div>';
       if(borrador.repartoProporcional){
-        h+='<div class="simrow"><span style="color:var(--tx3);font-size:12px">Bolsa del equipo · '+pct(r2(100-pctAgenciaDe(borrador)))+' de la tarifa</span><span class="v" style="color:var(--tx2)">'+money(bolsaEquipo(borrador))+'</span></div>';
+        const K=cortesCliente(borrador);
+        h+='<div class="simrow"><span style="color:var(--tx3);font-size:12px">Bolsa del equipo · '+pct(K.pctEquipo)+' de la tarifa</span><span class="v" style="color:var(--tx2)">'+money(K.equipo)+'</span></div>';
       }
       asigs.filter(a=>a.memberId&&!esAsignacionSoloEquipo(a)&&montoAsignacionMensual(borrador,a)>0).forEach(a=>{
         const m2=memberById(a.memberId);
@@ -4061,6 +4143,9 @@ function mCompanyModal(){
       h+='<div class="simrow tot '+(ag<0?'neg':'pos')+'"><span>Margen bruto de agencia</span><span class="v">'+money(ag)+'</span></div>';
       if(ag<0)h+='<div class="simrow"><span style="color:var(--red);font-size:12px">Estás repartiendo más de lo que entra</span><span></span></div>';
       else h+='<div class="simrow"><span style="color:var(--tx3)">Margen de agencia sobre el bruto</span><span class="v" style="color:var(--tx2)">'+(bruto>0?pct(r2(ag/bruto*100)):'—')+'</span></div>';
+      if(fondoActivo()&&borrador.repartoProporcional){
+        h+='<div class="simrow"><span style="color:var(--lime)">Va al fondo de la agencia</span><span class="v" style="color:var(--lime)">'+money(r2(bruto*pctAgenciaDe(borrador)/100))+' al mes</span></div>';
+      }
       /* Verificación: en modo proporcional, lo repartido debe cuadrar con la bolsa. */
       if(borrador.repartoProporcional){
         const desc=r2(bolsaEquipo(borrador)-eq);
@@ -4526,7 +4611,12 @@ function vCobros(v){
   function sync(){const c=companyById(co.value);if(c){mo.value=montoFacturaCliente(c);me.value=c.metodoPagoId||me.value}renderAlloc();draw()}
   function draw(){
     if(mode==='externo'){const b=Number(document.getElementById('k-ex-mo').value)||0,m2=S.metodos.find(x=>x.id===document.getElementById('k-ex-me').value),cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);const esRea=!!(document.getElementById('k-ex-rea')&&document.getElementById('k-ex-rea').checked);prev.innerHTML='<div class="simrow"><span>Ingreso bruto</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow tot"><span>Entra a la wallet</span><span class="v">'+money(neto)+'</span></div>'+(esRea?'<div class="simrow"><span style="color:var(--lime)">Suma a los recursos de la agencia</span><span class="v" style="color:var(--lime)">+'+money(neto)+'</span></div>':'<div class="simrow"><span style="color:var(--tx3)">No entra en Rentabilidad real</span><span class="v" style="color:var(--tx3)">—</span></div>');return}
-    const c=companyById(co.value),m2=S.metodos.find(x=>x.id===me.value),b=Number(mo.value)||0;if(!c){prev.innerHTML='';return}const cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);prev.innerHTML='<div class="simrow"><span>Período sugerido</span><span class="v">'+money(montoFacturaCliente(c))+'</span></div><div class="simrow"><span>Cobro que registrarás</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow"><span>Neto recibido</span><span class="v">'+money(neto)+'</span></div><div class="simrow tot"><span>Cliente: '+esc(c.negocio)+'</span><span class="v">'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</span></div>';
+    const c=companyById(co.value),m2=S.metodos.find(x=>x.id===me.value),b=Number(mo.value)||0;if(!c){prev.innerHTML='';return}const cp=m2?m2.comisionPct:0,com=r2(b*cp/100),neto=r2(b-com);prev.innerHTML='<div class="simrow"><span>Período sugerido</span><span class="v">'+money(montoFacturaCliente(c))+'</span></div><div class="simrow"><span>Cobro que registrarás</span><span class="v">'+money(b)+'</span></div><div class="simrow neg"><span>Comisión '+pct(cp)+'</span><span class="v">−'+money(com)+'</span></div><div class="simrow"><span>Neto recibido</span><span class="v">'+money(neto)+'</span></div>'+
+      (fondoActivo()&&esProporcional(c)
+        ? '<div class="simrow"><span style="color:var(--lime)">Va al fondo de la agencia · '+pct(pctAgenciaDe(c))+'</span><span class="v" style="color:var(--lime)">'+money(r2(b*pctAgenciaDe(c)/100))+'</span></div>'+
+          '<div class="simrow"><span style="color:var(--tx3)">Queda disponible para el equipo</span><span class="v" style="color:var(--tx2)">'+money(r2(neto-b*pctAgenciaDe(c)/100))+'</span></div>'
+        : '')+
+      '<div class="simrow tot"><span>Cliente: '+esc(c.negocio)+'</span><span class="v">'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</span></div>';
   }
   if(co){co.onchange=sync;mo.oninput=()=>{renderAlloc();draw()};me.onchange=draw;fe.onchange=renderAlloc;sync()}
   document.getElementById('k-ex-mo').oninput=draw;document.getElementById('k-ex-me').onchange=draw;document.getElementById('k-ex-rea').onchange=draw;
@@ -4958,12 +5048,12 @@ function saldoWallet(wid,hasta){
   (S.entregas||[]).filter(e=>e.walletId===wid&&(!hasta||e.fecha<=hasta)).forEach(e=>{
     const mo=Number(e.monto)||0;sal+=mo;
     const d=e.destinoId?walletById(e.destinoId):null;
-    movs.push({fecha:e.fecha,tipo:'entrega',desc:'Entrega'+(d?' \u2192 '+d.nombre:'')+(e.nota?' \u00b7 '+e.nota:''),monto:-mo});
+    movs.push({fecha:e.fecha,tipo:'entrega',desc:'Entrega'+(d?' \u2192 '+d.nombre:'')+(e.nota?' \u00b7 '+e.nota:''),monto:-mo,entregaId:e.id});
   });
   (S.entregas||[]).filter(e=>e.destinoId===wid&&(!hasta||e.fecha<=hasta)).forEach(e=>{
     const mo=Number(e.monto)||0;ent+=mo;
     const o=walletById(e.walletId);
-    movs.push({fecha:e.fecha,tipo:'entrega',desc:'Recibido de '+(o?(o.titular||o.nombre):'otra wallet'),monto:mo});
+    movs.push({fecha:e.fecha,tipo:'entrega',desc:'Recibido de '+(o?(o.titular||o.nombre):'otra wallet'),monto:mo,entregaId:e.id});
   });
   movs.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
   return{inicial:ini,entradas:r2(ent),comisiones:r2(com),salidas:r2(sal),saldo:r2(ini+ent-sal),movs};
@@ -4978,6 +5068,122 @@ function importarRespaldo(){
       await saveUI('metodos');toast('Wallets restauradas');render();
     }catch(e){alert('El archivo de respaldo no es válido.')}
   };fr.readAsText(f)};input.click();
+}
+
+/* ── Editar o borrar una entrega entre wallets ── */
+function editarEntregaModal(id){
+  const e=(S.entregas||[]).find(x=>x.id===id);
+  if(!e){alert('No se encontró el movimiento.');return}
+  const origen=walletById(e.walletId);
+  const esPagoCambista=e.tipo==='pago-cambista';
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=ev=>{if(ev.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Corregir movimiento</div>'+
+    '<div class="esub">'+(esPagoCambista?'Pago del cambista':'Entrega entre wallets')+' · registrado el '+fdate(e.fecha)+'</div></div>'+
+    '<button class="ib" id="ee-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="row"><div class="f"><label>Sale de</label><select id="ee-wa">'+
+      (S.metodos||[]).map(w=>'<option value="'+w.id+'"'+(w.id===e.walletId?' selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+
+      '</select></div>'+
+    '<div class="f"><label>Entra en</label><select id="ee-de"><option value="">Sin destino · salida</option>'+
+      (S.metodos||[]).filter(w=>true).map(w=>'<option value="'+w.id+'"'+(w.id===e.destinoId?' selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+
+      '</select><div class="hint">Si lo dejas vacío, el dinero sale y no entra a ninguna otra wallet.</div></div></div>'+
+    '<div class="row"><div class="f"><label>Monto</label><input id="ee-mo" type="number" min="0" step="0.01" value="'+r2(Number(e.monto)||0).toFixed(2)+'"></div>'+
+    '<div class="f"><label>Fecha</label><input id="ee-fe" type="date" value="'+esc(e.fecha||today())+'"></div></div>'+
+    '<div class="f"><label>Nota</label><input id="ee-no" value="'+esc(e.nota||'')+'"></div>'+
+    '<div id="ee-prev"></div>'+
+    '<div class="brow" style="justify-content:space-between"><button class="b bg bd" id="ee-del"><i class="ti ti-trash"></i>Eliminar</button>'+
+    '<button class="b bp" id="ee-ok">Guardar cambios</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#ee-x').onclick=()=>ov.remove();
+  const dibujar=()=>{
+    const wid=md.querySelector('#ee-wa').value, dest=md.querySelector('#ee-de').value;
+    const mo=r2(Math.max(0,Number(md.querySelector('#ee-mo').value)||0));
+    const sw=wid?saldoWallet(wid):null;
+    /* Se descuenta el monto original para ver el saldo como si no existiera. */
+    const base=sw?r2(sw.saldo+(wid===e.walletId?r2(Number(e.monto)||0):0)):0;
+    const queda=r2(base-mo);
+    md.querySelector('#ee-prev').innerHTML=mo>0.005&&sw
+      ? '<div class="sim"><div class="simrow"><span>Saldo sin este movimiento</span><span class="v">'+money(base)+'</span></div>'+
+        '<div class="simrow tot"><span>Quedaría en</span><span class="v" style="color:'+(queda<0?'var(--red)':'var(--lime)')+'">'+money(queda)+'</span></div></div>'+
+        (wid&&dest&&wid===dest?'<div style="color:var(--red);font-size:12.5px;margin-top:8px">El origen y el destino son la misma wallet.</div>':'')+
+        (queda<0?'<div style="color:var(--amb);font-size:12.5px;margin-top:8px">La wallet quedaría en negativo.</div>':'')
+      : '';
+  };
+  ['#ee-wa','#ee-de','#ee-mo'].forEach(q=>{const el=md.querySelector(q);el.oninput=dibujar;el.onchange=dibujar});
+  dibujar();
+  md.querySelector('#ee-ok').onclick=async()=>{
+    const wid=md.querySelector('#ee-wa').value, dest=md.querySelector('#ee-de').value||null;
+    const mo=r2(Math.max(0,Number(md.querySelector('#ee-mo').value)||0));
+    if(mo<=0){alert('El monto debe ser mayor que cero.');return}
+    if(wid&&dest&&wid===dest){alert('El origen y el destino no pueden ser la misma wallet.');return}
+    e.walletId=wid;e.destinoId=dest;e.monto=mo;
+    e.fecha=md.querySelector('#ee-fe').value||today();
+    e.nota=md.querySelector('#ee-no').value.trim();
+    if(!await saveUI('entregas'))return;
+    ov.remove();toast('Movimiento corregido');render();
+  };
+  md.querySelector('#ee-del').onclick=async()=>{
+    if(!confirm('¿Eliminar este movimiento de '+money(e.monto)+'?\n\nLos saldos de las wallets se recalculan. No se puede deshacer.'))return;
+    S.entregas=(S.entregas||[]).filter(x=>x.id!==e.id);
+    if(!await saveUI('entregas'))return;
+    ov.remove();toast('Movimiento eliminado');render();
+  };
+}
+
+/* ── Editar o borrar un movimiento del fondo ── */
+function editarMovFondoModal(id){
+  const m=(S.fondoMovs||[]).find(x=>x.id===id);
+  if(!m){alert('No se encontró el movimiento.');return}
+  const R=resumenFondo();
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=ev=>{if(ev.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Corregir movimiento del fondo</div>'+
+    '<div class="esub">Registrado el '+fdate(m.fecha)+'</div></div><button class="ib" id="fe-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="f"><label>Tipo</label><div class="chips" style="margin:0">'+
+      [['aporte','Apartado al fondo'],['retiro','Sacado al operativo']]
+      .map(([k,l])=>'<button type="button" class="chip'+((m.tipo==='retiro'?'retiro':'aporte')===k?' on':'')+'" data-ft="'+k+'">'+l+'</button>').join('')+'</div></div>'+
+    '<div class="row"><div class="f"><label>Monto</label><input id="fe-mo" type="number" min="0" step="0.01" value="'+r2(Number(m.monto)||0).toFixed(2)+'"></div>'+
+    '<div class="f"><label>Fecha</label><input id="fe-fe" type="date" value="'+esc(m.fecha||today())+'"></div></div>'+
+    '<div class="f"><label>Wallet de referencia</label><select id="fe-wa"><option value="">Sin especificar</option>'+
+      (S.metodos||[]).map(w=>'<option value="'+w.id+'"'+(w.id===m.walletId?' selected':'')+'>'+esc(walletLabel(w))+'</option>').join('')+'</select></div>'+
+    '<div class="f"><label>Nota</label><input id="fe-no" value="'+esc(m.nota||'')+'"></div>'+
+    '<div id="fe-prev"></div>'+
+    '<div class="brow" style="justify-content:space-between"><button class="b bg bd" id="fe-del"><i class="ti ti-trash"></i>Eliminar</button>'+
+    '<button class="b bp" id="fe-ok">Guardar cambios</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#fe-x').onclick=()=>ov.remove();
+  let tipo=m.tipo==='retiro'?'retiro':'aporte';
+  const dibujar=()=>{
+    const mo=r2(Math.max(0,Number(md.querySelector('#fe-mo').value)||0));
+    /* Saldo del fondo quitando este movimiento tal como está guardado. */
+    const original=r2(Number(m.monto)||0)*((m.tipo==='retiro')?-1:1);
+    const sinEste=r2(R.saldo-original);
+    const nuevo=r2(sinEste+mo*(tipo==='retiro'?-1:1));
+    md.querySelector('#fe-prev').innerHTML=mo>0.005
+      ? '<div class="sim"><div class="simrow"><span>El fondo sin este movimiento</span><span class="v">'+money(sinEste)+'</span></div>'+
+        '<div class="simrow tot"><span>Quedaría en</span><span class="v" style="color:'+(nuevo<0?'var(--red)':'var(--lime)')+'">'+money(nuevo)+'</span></div></div>'+
+        (nuevo<0?'<div style="color:var(--red);font-size:12.5px;margin-top:8px">El fondo quedaría en negativo.</div>':'')
+      : '';
+  };
+  md.querySelectorAll('[data-ft]').forEach(b=>b.onclick=()=>{
+    tipo=b.dataset.ft;md.querySelectorAll('[data-ft]').forEach(x=>x.classList.toggle('on',x===b));dibujar()});
+  md.querySelector('#fe-mo').oninput=dibujar;dibujar();
+  md.querySelector('#fe-ok').onclick=async()=>{
+    const mo=r2(Math.max(0,Number(md.querySelector('#fe-mo').value)||0));
+    if(mo<=0){alert('El monto debe ser mayor que cero.');return}
+    m.tipo=tipo;m.monto=mo;
+    m.fecha=md.querySelector('#fe-fe').value||today();
+    m.walletId=md.querySelector('#fe-wa').value||null;
+    m.nota=md.querySelector('#fe-no').value.trim();
+    if(!await saveUI('fondoMovs'))return;
+    ov.remove();toast('Movimiento corregido');render();
+  };
+  md.querySelector('#fe-del').onclick=async()=>{
+    if(!confirm('¿Eliminar este movimiento de '+money(m.monto)+' del fondo?\n\nNo se puede deshacer.'))return;
+    S.fondoMovs=(S.fondoMovs||[]).filter(x=>x.id!==m.id);
+    if(!await saveUI('fondoMovs'))return;
+    ov.remove();toast('Movimiento eliminado');render();
+  };
 }
 
 function movimientoFondoModal(tipo){
@@ -5078,16 +5284,18 @@ function vFondo(v){
 
   const tabla=document.createElement('div');tabla.className='card';
   tabla.innerHTML='<div class="ctitle">Movimientos <span class="cnt">'+R.movs.length+'</span></div>'+
-    (R.movs.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Tipo</th><th>Monto</th></tr></thead><tbody>'+
+    (R.movs.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Tipo</th><th>Monto</th><th></th></tr></thead><tbody>'+
       R.movs.slice(0,120).map(m=>'<tr><td class="n">'+fdate(m.fecha)+'</td>'+
         '<td><strong>'+esc(m.concepto)+'</strong><div style="font-size:11px;color:var(--tx3)">'+esc(m.detalle)+'</div></td>'+
         '<td>'+(m.tipo==='cobro'?'<span class="p p-ok">Cobro</span>':m.tipo==='gasto'?'<span class="p p-d">Gasto</span>'
           :m.tipo==='aporte'?'<span class="p p-i">Apartado</span>':'<span class="p p-w">Sacado</span>')+'</td>'+
-        '<td class="n" style="font-weight:700;color:'+(m.signo>0?'var(--lime)':'var(--pink)')+'">'+(m.signo>0?'+':'−')+money(m.monto)+'</td></tr>').join('')+
+        '<td class="n" style="font-weight:700;color:'+(m.signo>0?'var(--lime)':'var(--pink)')+'">'+(m.signo>0?'+':'−')+money(m.monto)+'</td>'+
+        '<td class="ta">'+(m.manual?'<button class="ib" data-fed="'+m.id+'" title="Corregir"><i class="ti ti-edit"></i></button>':'')+'</td></tr>').join('')+
       '</tbody></table></div>'+(R.movs.length>120?'<div class="sub" style="font-size:12px;margin-top:8px">Mostrando 120 de '+R.movs.length+'.</div>':'')
       :'<div style="font-size:12.5px;color:var(--tx3)">Sin movimientos desde '+fdate(R.desde)+'. Registra un cobro y su ganancia aparecerá aquí.</div>');
   v.appendChild(tabla);
 
+  tabla.querySelectorAll('[data-fed]').forEach(b=>b.onclick=()=>editarMovFondoModal(b.dataset.fed));
   const ba=document.getElementById('fo-ap');if(ba)ba.onclick=()=>movimientoFondoModal('aporte');
   const br=document.getElementById('fo-re');if(br)br.onclick=()=>movimientoFondoModal('retiro');
 }
@@ -5254,13 +5462,15 @@ function mWalletModal(){
         '</tbody></table></div>';
       })()+
       '<div class="msec"><div class="mstitle">Movimientos<span class="cnt">'+s.movs.length+'</span></div>'+
-      (s.movs.length?'<table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Monto</th></tr></thead><tbody>'+
+      (s.movs.length?'<table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Monto</th><th></th></tr></thead><tbody>'+
       s.movs.slice(0,40).map(x=>'<tr><td class="n">'+fdate(x.fecha)+'</td><td>'+esc(x.desc)+'</td>'+
-      '<td class="n" style="font-weight:600;color:'+(x.monto>=0?'var(--lime)':'var(--red)')+'">'+(x.monto>=0?'+':'')+money(x.monto)+'</td></tr>').join('')+'</tbody></table>'
+      '<td class="n" style="font-weight:600;color:'+(x.monto>=0?'var(--lime)':'var(--red)')+'">'+(x.monto>=0?'+':'')+money(x.monto)+'</td>'+
+      '<td class="ta">'+(x.entregaId?'<button class="ib" data-eed="'+x.entregaId+'" title="Corregir este movimiento"><i class="ti ti-edit"></i></button>':'')+'</td></tr>').join('')+'</tbody></table>'
       :'<div style="font-size:12.5px;color:var(--tx3)">Sin movimientos.</div>')+'</div>';
   }
   ov.appendChild(m);document.body.appendChild(ov);
   document.getElementById('x').onclick=()=>{S.mWallet=null;S.eWallet=null;render()};
+  m.querySelectorAll('[data-eed]').forEach(b=>b.onclick=()=>{S.mWallet=null;editarEntregaModal(b.dataset.eed)});
   if(editing){
     let col=w.color||WCOL[0];
     m.querySelectorAll('#w-col button').forEach(b=>b.onclick=()=>{col=b.dataset.c;
