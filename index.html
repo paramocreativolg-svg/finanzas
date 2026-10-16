@@ -1451,8 +1451,12 @@ function estadoAdelantosTodos(untilDate){
     .sort((a,b)=>b.pendiente-a.pendiente||b.totalAdelantado-a.totalAdelantado);
 }
 function adelantosGeneralesDeMiembro(memberId){
-  const ini=fechaInicioControl();
-  return S.payouts.filter(p=>p.memberId===memberId&&p.tipo==='adelanto'&&p.general===true&&(!ini||String(p.fecha||'')>=ini)).sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||String(a.id).localeCompare(String(b.id)));
+  /* Un adelanto es dinero que ya le entregaste: se debe hasta que se devuelve,
+     sin importar cuándo empezó el control financiero. Antes se filtraba por
+     fechaInicioControl() y los adelantos anteriores desaparecían del saldo,
+     así que en nómina salía menos de lo que la persona realmente debía. */
+  return S.payouts.filter(p=>p.memberId===memberId&&p.tipo==='adelanto'&&p.general===true)
+    .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||String(a.id).localeCompare(String(b.id)));
 }
 /* Una devolución externa es dinero que la persona reintegra por fuera de su
    quincena: transferencia, efectivo, lo que sea. Entra a una wallet como
@@ -1474,7 +1478,9 @@ function adelantosAplicadosAntesDe(memberId,untilDate){
   return map;
 }
 function adelantosPendientesMiembro(memberId,untilDate){
-  const avances=adelantosGeneralesDeMiembro(memberId).filter(a=>String(a.fecha||'')<=untilDate);
+  /* Sin fecha, se mira la deuda completa de hoy. */
+  const corte=untilDate||today();
+  const avances=adelantosGeneralesDeMiembro(memberId).filter(a=>String(a.fecha||'')<=corte);
   const usados=adelantosAplicadosAntesDe(memberId,untilDate);
   return r2(avances.reduce((s,a)=>s+Math.max(0,(Number(a.monto)||0)-(usados[a.id]||0)),0));
 }
@@ -1498,7 +1504,10 @@ function calcularNomina(q){
     S.companies.filter(c=>c.estado==='activo').forEach(c=>{
       /* Un trabajo único solo cuenta dentro de su ventana. */
       if(!clienteCuentaEnQuincena(c,q))return;
-      const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;const mq=r2(mensual*0.5),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*0.5);
+      const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;
+      const fr=fraccionQuincena(c,q);
+      if(fr<=0)return;
+      const mq=r2(mensual*fr),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*fr);
       const pctCobrado=quincenaDisponible&&clientePeriodo>0?Math.max(0,Math.min(1,cb.totalBruto/clientePeriodo)):0,ganado=quincenaDisponible?r2(mq*pctCobrado):0;
       const pagosQ=pagosNominaDeMiembroEnQ(m.id,q.key);
       const yaPagadoCliente=r2(pagosQ.reduce((sum,p)=>{const z=(p.detalle||[]).find(d=>d.companyId===c.id||d.negocio===c.negocio);return sum+(z?Number(z.pagable)||0:0)},0));
@@ -1793,6 +1802,17 @@ function facturasPendientes(companyId){
     .filter(x=>x.st.estado==='pendiente'||x.st.estado==='parcial')
     .sort((a,b)=>String(a.iv.fecha||'').localeCompare(String(b.iv.fecha||'')));
 }
+/* Insignia compacta de facturas pendientes, para usar en cualquier lista. */
+function badgeFacturas(companyId){
+  const pend=facturasPendientes(companyId);
+  if(!pend.length)return '';
+  const saldo=r2(pend.reduce((s2,x)=>s2+x.st.saldo,0));
+  const vieja=pend[0];
+  const d=diasFactura(vieja.iv);
+  const col=d>=30?'p-d':d>=15?'p-w':'p-i';
+  return '<span class="p '+col+'" title="'+esc(pend.map(x=>(x.iv.orden||'Factura')+' · '+money(x.st.saldo)).join(' · '))+'">'+
+    (pend.length>1?pend.length+' facturas · ':'Factura ')+money(saldo)+(d!=null?' · '+d+' d':'')+'</span>';
+}
 function diasFactura(iv){return iv&&iv.fecha?difDiasISO(iv.fecha,today()):null}
 function visibleInvoices(){return isAdminUser()?S.invoices:S.invoices.filter(i=>canSeeCompanyId(i.companyId));}
 function visiblePayouts(){
@@ -2075,7 +2095,7 @@ function estadoCobroMes(companyId,ym){
 
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
-  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
+  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
   ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
@@ -2150,6 +2170,9 @@ function roleCan(role,key){return !!(role&&role.permisos&&role.permisos[key]===t
 function canView(key){
   const u=currentUser();
   if(!u)return false;
+  /* El administrador ve todo: si no, una sección recién creada queda invisible
+     para él mismo hasta que alguien le marque el permiso a mano. */
+  if(isAdminUser())return true;
   const r=roleById(u.roleId);
   if(!roleCan(r,key))return false;
   /* Estas vistas contienen información global de la agencia. */
@@ -2163,7 +2186,20 @@ function defaultRolePerms(name){
   return allPerms();
 }
 function ensureRolePerms(){
-  S.roles.forEach(r=>{if(!r.permisos)r.permisos=defaultRolePerms(r.nombre)});
+  /* Antes solo rellenaba el objeto si faltaba entero. Un rol guardado antes de
+     que existiera una sección se quedaba sin esa clave para siempre, así que
+     la sección nueva nunca aparecía en el menú. Ahora se completan las que
+     falten, respetando las que ya tengas puestas en false a propósito. */
+  let cambio=false;
+  const todas=TAB_PERMS.map(x=>x[0]);
+  S.roles.forEach(r=>{
+    if(!r.permisos){r.permisos=defaultRolePerms(r.nombre);cambio=true;return}
+    const esAdmin=/admin|administrador/i.test(r.nombre||'');
+    todas.forEach(k=>{
+      if(r.permisos[k]===undefined){r.permisos[k]=esAdmin;cambio=true}
+    });
+  });
+  return cambio;
 }
 function ensureUsers(){
   let changed=false;
@@ -3781,6 +3817,8 @@ function vPanel(v){
     '<div class="met"><div class="mico" style="background:var(--pink)"><i class="ti ti-building-bank"></i></div><div class="mlab">Margen bruto agencia</div><div class="mval">'+money(agenciaMes)+'</div><div class="msub">Después de comisiones/costos variables</div></div>'+
     '<div class="met met-ctx"><div class="mico" style="background:var(--lav)"><i class="ti ti-report-money"></i></div><div class="mlab">Sueldos fijos</div><div class="mval">'+money(sueldosFijosMes)+'</div><div class="msub">Costo mensual de nómina fija</div></div>'+
     '<div class="met met-crit tone-lime"><div class="mico" style="background:var(--lime)"><i class="ti ti-chart-line"></i></div><div class="mlab">Utilidad estimada</div><div class="mval">'+money(utilidadNetaMes)+'</div><div class="msub">Margen bruto − sueldos − egresos</div></div>'+
+    (()=>{const fp=facturasPendientes();const sf=r2(fp.reduce((s2,x)=>s2+x.st.saldo,0));
+      return fp.length?'<div class="met"><div class="mico" style="background:var(--amb)"><i class="ti ti-file-invoice"></i></div><div class="mlab">Facturas por cobrar</div><div class="mval" style="color:var(--amb)">'+money(sf)+'</div><div class="msub">'+fp.length+' emitida'+(fp.length===1?'':'s')+' sin cobrar</div></div>':''})()+
     '<div class="met met-crit tone-red"><div class="mico" style="background:var(--amb)"><i class="ti ti-clock-hour-4"></i></div><div class="mlab">Falta cobrar</div><div class="mval">'+money(porCobrarTotal)+'</div><div class="msub">Saldo bruto pendiente</div></div>'+
     '<div class="met"><div class="mico" style="background:var(--lav)"><i class="ti ti-calendar-dollar"></i></div><div class="mlab">Nómina quincena</div><div class="mval">'+money(nom.totales.porPagar)+'</div><div class="msub">'+labelQ(qActual)+'</div></div>'+
   '</div>'));
@@ -3859,6 +3897,18 @@ function estadoTrabajoUnico(c){
     dias:fin?difDiasISO(hoy,fin):null};
 }
 /* ¿Este cliente genera nómina en esta quincena? */
+/* Hay clientes cuyo trabajo no se reparte en quincenas: una web, una campaña,
+   una producción. Ahí al equipo se le paga el mes completo de una vez, en la
+   quincena donde cae el trabajo, en vez de media cuota cada quince días. */
+function pagaEquipoDeUnaVez(c){return !!(c&&c.pagoEquipoMensual)}
+/* Qué fracción de la asignación mensual toca en esta quincena. */
+function fraccionQuincena(c,q){
+  if(!pagaEquipoDeUnaVez(c))return 0.5;
+  /* Todo en la primera quincena en la que el cliente cuenta. */
+  const ini=inicioTrabajo(c)||c.fechaInicio;
+  if(!ini)return q.mitad===1?1:0;
+  return (ini>=q.inicio&&ini<=q.fin)?1:0;
+}
 function clienteCuentaEnQuincena(c,q){
   if(!esUnico(c))return true;
   const ini=inicioTrabajo(c);
@@ -3977,7 +4027,7 @@ function vEmpresas(v){
   fc.querySelector('#fe-clear').onclick=()=>{S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};render()};
 
   if(!list.length)v.appendChild(frag(mt('ti-building','No hay empresas con ese filtro.')));
-  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(()=>{const vv=vencimientoCliente(c),pp=proximoCobroCliente(c);return vv.vencido?'<span class="p p-d">Vencido '+vv.dias+' d</span><div style="font-size:11px;color:var(--tx3)">próximo '+(pp?fdate(pp):'—')+'</div>':(pp?fdate(pp):'—')})()+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
+  else if(vista==='list'){const card=document.createElement('div');card.className='card';card.innerHTML='<div class="ctitle">Clientes <span class="cnt">'+list.length+'</span></div><div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Cobranza</th><th>Contratación</th><th>Tarifa</th><th>Equipo variable</th><th>Margen bruto</th><th>Próximo cobro</th></tr></thead><tbody>'+list.map(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>';return '<tr data-emp="'+c.id+'" style="cursor:pointer"><td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+'<strong>'+esc(c.negocio)+'</strong></div></td><td>'+pill+'</td><td>'+(c.frecuencia==='quincenal'?'Quincenal':'Mensual')+'</td><td class="n">'+money(c.tarifaBruta)+'</td><td class="n">'+money(rn.porMiembroMes)+'</td><td class="n" style="font-weight:700">'+money(rn.margenAgencia)+'</td><td class="n">'+(badgeFacturas(c.id)?badgeFacturas(c.id)+'<br>':'')+(()=>{const vv=vencimientoCliente(c),pp=proximoCobroCliente(c);return vv.vencido?'<span class="p p-d">Vencido '+vv.dias+' d</span><div style="font-size:11px;color:var(--tx3)">próximo '+(pp?fdate(pp):'—')+'</div>':(pp?fdate(pp):'—')})()+'</td></tr>'}).join('')+'</tbody></table></div>';v.appendChild(card);card.querySelectorAll('[data-emp]').forEach(r=>r.onclick=()=>{S.mCompany=r.dataset.emp;render()})}
   else{const g=document.createElement('div');g.className='grid';list.forEach(c=>{const rn=rentabilidad(c),est=estadoCobroMes(c.id,today().slice(0,7)),pill=est==='pagado'?'<span class="p p-ok">Cobrado</span>':est==='parcial'?'<span class="p p-w">Parcial</span>':'<span class="p p-g">Sin cobrar</span>',card=document.createElement('div');card.className='ecard';card.innerHTML='<div class="etop">'+av(c.negocio,'',0,c.foto)+'<div style="min-width:0;flex:1"><div class="ename">'+esc(c.negocio)+'</div><div class="esub">'+(rn.numMiembros||0)+' en el equipo · margen '+money(rn.margenAgencia)+'</div></div></div><div style="display:flex;gap:6px;flex-wrap:wrap">'+pill+'<span class="p '+(c.estado==='activo'?'p-ok':c.estado==='pausado'?'p-w':'p-g')+'">'+(c.estado==='activo'?'Activo':c.estado==='pausado'?'Pausado':'Perdido')+'</span></div><div class="emeta"><div><div class="eamt">'+money(c.tarifaBruta)+'</div><div class="enote">bruto al mes</div></div><div style="text-align:right"><div class="eamt" style="font-size:13px;color:var(--tx2)">'+money(rn.porMiembroMes)+'</div><div class="enote">equipo variable</div></div></div>';card.onclick=()=>{S.mCompany=c.id;render()};g.appendChild(card)});v.appendChild(g)}
   const newCo=document.getElementById('new-co');if(newCo)newCo.onclick=()=>{S.mCompany='new';S.eCompany='new';render()};document.getElementById('emp-cards').onclick=()=>{S.viewEmpresas='cards';render()};document.getElementById('emp-list').onclick=()=>{S.viewEmpresas='list';render()};
 }
@@ -4010,6 +4060,10 @@ function mCompanyModal(){
       '<div class="f"><label>Fecha de cobro 2</label><input id="e-dia2" type="number" min="1" max="31" value="'+(c.diaCobro2||20)+'"><div class="hint">Solo para clientes recurrentes quincenales.</div></div>'+
 '<div class="f"><label>Estado</label><select id="e-est">'+ESTADOS_CLIENTE.map(x=>'<option value="'+x+'"'+(c.estado===x?' selected':'')+'>'+x[0].toUpperCase()+x.slice(1)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Cliente desde</label><input id="e-fi" type="date" value="'+(c.fechaInicio||'')+'"></div></div>'+
+      '<div class="row"><div class="f"><label>Cómo se le paga al equipo</label><select id="e-pagoeq">'+
+        '<option value="0"'+(c.pagoEquipoMensual?'':' selected')+'>Repartido por quincenas</option>'+
+        '<option value="1"'+(c.pagoEquipoMensual?' selected':'')+'>Todo el mes de una vez</option>'+
+        '</select><div class="hint">Para trabajos que no se reparten en quincenas: una web, una campaña, una producción. El equipo cobra el monto completo en la quincena donde arranca el trabajo.</div></div></div>'+
       '<div class="row" id="e-unico-wrap" style="display:none"><div class="f"><label>Estado del trabajo</label>'+
         '<select id="e-unico-fin"><option value="0"'+(c.trabajoFinalizado?'':' selected')+'>En curso</option>'+
         '<option value="1"'+(c.trabajoFinalizado?' selected':'')+'>Finalizado</option></select>'+
@@ -4058,6 +4112,16 @@ function mCompanyModal(){
         '<div class="met"><div class="mlab">Al equipo</div><div class="mval">'+money(w.equipo)+'</div></div>'+
         '<div class="met"><div class="mlab">A la agencia</div><div class="mval" style="color:var(--lime)">'+money(w.agencia)+'</div></div></div>'})()+
       '</div>'+
+      (()=>{const pend=facturasPendientes(c.id);
+        if(!pend.length)return '';
+        const saldo=r2(pend.reduce((s2,x)=>s2+x.st.saldo,0));
+        return '<div class="msec" style="border-left:3px solid var(--amb)"><div class="mstitle">Facturas por cobrar<span class="cnt">'+money(saldo)+'</span></div>'+
+          pend.map(x=>'<div class="lrow"><div><div class="lname">'+esc(x.iv.orden||'Factura')+' · '+fdate(x.iv.fecha)+'</div>'+
+            '<div class="lsub">'+(diasFactura(x.iv)!=null?'emitida hace '+diasFactura(x.iv)+' d':'')+
+            (x.st.estado==='parcial'?' · cobrado '+money(x.st.pagado)+' de '+money(x.st.total):'')+'</div></div>'+
+            '<span class="mono" style="font-weight:600">'+money(x.st.saldo)+'</span></div>').join('')+
+          '<div class="brow"><button class="b bp bs" id="fact-cobrar"><i class="ti ti-cash"></i>Registrar pago</button></div></div>';
+      })()+
       (()=>{const est=estadoTrabajoUnico(c);
         if(!est)return '';
         const col=est.estado==='finalizado'?'var(--lime)':est.estado==='vencido'?'var(--amb)':'var(--sky)';
@@ -4093,6 +4157,8 @@ function mCompanyModal(){
   }
   ov.appendChild(m);document.body.appendChild(ov);
   document.getElementById('x').onclick=()=>{S.mCompany=null;S.eCompany=null;render()};
+  const btnFact=document.getElementById('fact-cobrar');
+  if(btnFact)btnFact.onclick=()=>{S.mCompany=null;S.tab='cobros';S.presetCompany=c.id;render()};
   const btnCerrar=document.getElementById('cerrar-trabajo');
   if(btnCerrar)btnCerrar.onclick=async()=>{
     const f=prompt('¿En qué fecha se terminó el trabajo?','ymd'.length?today():today());
@@ -4291,6 +4357,7 @@ function mCompanyModal(){
         notasInternas:gv('e-notas'),
         tarifaBruta:Number(document.getElementById('e-tar').value)||0,
         repartoProporcional:!!borrador.repartoProporcional,
+        pagoEquipoMensual:document.getElementById('e-pagoeq')?document.getElementById('e-pagoeq').value==='1':!!c.pagoEquipoMensual,
         trabajoFinalizado:document.getElementById('e-unico-fin')?document.getElementById('e-unico-fin').value==='1':!!c.trabajoFinalizado,
         fechaFinTrabajo:document.getElementById('e-unico-fe')?document.getElementById('e-unico-fe').value:(c.fechaFinTrabajo||''),
         pctAgencia:pctAgenciaDe(borrador),
@@ -4751,7 +4818,8 @@ function vFechasPago(v){
             (v0.dias>=30?'<div style="font-size:11px;font-weight:400">'+Math.floor(v0.dias/30)+' mes'+(Math.floor(v0.dias/30)===1?'':'es')+'</div>':'')+'</td>'+
           '<td class="n">'+fdate(v0.desde)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(v0.desde)+'</div></td>'+
           '<td class="n">'+(v0.ultimo?fdate(v0.ultimo)+'<div style="font-size:11px;color:var(--tx3)">hace '+difDiasISO(v0.ultimo,hoy)+' d</div>':'<span style="color:var(--red)">nunca</span>')+'</td>'+
-          '<td><span class="p p-w">'+v0.pendientes.length+'</span><div style="font-size:11px;color:var(--tx3);margin-top:2px">'+listaPend+'</div></td>'+
+          '<td><span class="p p-w">'+v0.pendientes.length+'</span><div style="font-size:11px;color:var(--tx3);margin-top:2px">'+listaPend+'</div>'+
+            (badgeFacturas(x.c.id)?'<div style="margin-top:3px">'+badgeFacturas(x.c.id)+'</div>':'')+'</td>'+
           '<td class="n" style="font-weight:700">'+money(v0.monto)+'</td>'+
           '<td class="n" style="color:'+(x.ec.saldo>0.01?'var(--red)':'var(--lime)')+'">'+money(x.ec.saldo)+'</td>'+
           '<td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>';
@@ -4787,7 +4855,7 @@ function vFechasPago(v){
           '<td class="n">'+(x.prox?fdate(x.prox)+'<div style="font-size:11px;color:var(--tx3);text-transform:capitalize">'+diaSem(x.prox)+'</div>':'Sin fecha')+'</td>'+
           '<td class="n">'+cuando+'</td>'+
           '<td class="n">'+money(x.monto)+'<div style="font-size:11px;color:var(--tx3)">'+money(x.c.tarifaBruta)+' al mes</div></td>'+
-          '<td>'+pillEstado(x.est)+'</td>'+
+          '<td>'+pillEstado(x.est)+(badgeFacturas(x.c.id)?'<div style="margin-top:3px">'+badgeFacturas(x.c.id)+'</div>':'')+'</td>'+
           '<td class="n">'+(ult?fdate(ult)+'<div style="font-size:11px;color:var(--tx3)">hace '+difDiasISO(ult,hoy)+' d</div>':'—')+'</td>'+
           '<td class="n" style="font-weight:700;color:'+(x.ec.saldo>0.01?'var(--red)':'var(--lime)')+'">'+money(x.ec.saldo)+'</td>'+
           '<td class="ta"><button class="b bp bs" data-cobro="'+x.c.id+'">Registrar pago</button></td></tr>';
@@ -6345,21 +6413,22 @@ function payModal(memberId,q){
       '<input class="pay-client-mo" type="number" min="0" max="'+maxAdicional.toFixed(2)+'" step="0.01" value="'+liberado.toFixed(2)+'" data-max="'+maxAdicional.toFixed(2)+'" style="width:112px" title="Monto adicional a pagar ahora">'+
       '</div></div>';
   }).join('');
-  const adelPend=adelantosPendientesMiembro(m.id,q.fin);
+  const adelPend=adelantosPendientesMiembro(m.id,(q.fin>today()?q.fin:today()));
   md.innerHTML='<div class="mhd"><div class="mid">'+av(m.nombre,'l',1,m.foto)+'<div><div class="mtitle">Pagar a '+esc(m.nombre)+'</div><div class="esub">'+labelQ(q)+' de '+q.year+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+ 
-    '<div class="sim">'+(pm.tipoCompensacion==='garantizado'?
-      '<div class="simrow"><span>Piso garantizado de la quincena</span><span class="v">'+money(pm.pisoQuincena)+'</span></div>'+
-      '<div class="simrow"><span>Le corresponde de clientes</span><span class="v">'+money(pm.comisionTeoricaQuincena)+'</span></div>'+
-      '<div class="simrow"><span>Complemento de la agencia</span><span class="v" id="pay-complemento" style="color:var(--lav)">'+money(pm.complementoQuincena)+'</span></div>':'')+
-    (pm.sueldoYaPagado>0.005?'<div class="simrow"><span>Sueldo base ya pagado en esta quincena</span><span class="v" style="color:var(--lime)">'+money(pm.sueldoYaPagado)+'</span></div>':'')+
-    '<div class="simrow"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento pendiente':'Sueldo base pendiente')+'</span><span class="v">'+money(pm.sueldoPendiente)+'</span></div>'+
-    '<div class="simrow"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento a pagar ahora':'Sueldo base a pagar ahora')+'</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+ 
-    '<div class="simrow"><span>Pagos liberados por clientes</span><span class="v" id="pay-liberado">'+money(pm.pagableClientes)+'</span></div>'+ 
-    '<div class="simrow"><span>Cobertura manual</span><span class="v" id="pay-cubierto">$0.00</span></div>'+
+    /* Resumen en tres bloques: lo que le toca, lo que se le paga ahora y el
+       efectivo final. Antes eran once filas y tres repetían el complemento. */
+    '<div class="sim">'+
+    '<div class="simrow"><span>Le corresponde en la quincena</span><span class="v" id="pay-teorico">'+money(pm.totalDevengado)+'</span></div>'+
+    (pm.tipoCompensacion==='garantizado'
+      ? '<div class="simrow"><span style="color:var(--tx3);font-size:12px;padding-left:12px">piso '+money(pm.pisoQuincena)+' · de clientes '+money(pm.comisionTeoricaQuincena)+' · pone la agencia <span id="pay-complemento">'+money(pm.complementoQuincena)+'</span></span><span></span></div>'
+      : (pm.sueldoBase>0.005?'<div class="simrow"><span style="color:var(--tx3);font-size:12px;padding-left:12px">sueldo '+money(pm.sueldoBase)+' · de clientes '+money(pm.devengadoClientes)+'</span><span></span></div>':''))+
+    (pm.sueldoYaPagado>0.005?'<div class="simrow"><span style="color:var(--lime)">Ya le pagaste en esta quincena</span><span class="v" style="color:var(--lime)">'+money(pm.sueldoYaPagado)+'</span></div>':'')+
+    '<div class="simrow" style="border-top:1px solid var(--ln);margin-top:4px;padding-top:8px"><span>'+(pm.tipoCompensacion==='garantizado'?'Complemento a pagar':'Sueldo base a pagar')+'</span><span class="v" id="pay-sueldo">'+money(pm.sueldoPendiente)+'</span></div>'+
+    '<div class="simrow"><span>Liberado por los clientes</span><span class="v" id="pay-liberado">'+money(pm.pagableClientes)+'</span></div>'+
+    '<div class="simrow"><span>Adelantado sin que el cliente pague</span><span class="v" id="pay-cubierto">$0.00</span></div>'+
     '<div class="simrow"><span>Bonificaciones y descuentos</span><span class="v" id="pay-extras">$0.00</span></div>'+
-    '<div class="simrow"><span>Queda pendiente</span><span class="v" id="pay-pend">$0.00</span></div>'+
-    '<div class="simrow"><span>Le corresponde en la quincena</span><span class="v" id="pay-teorico">$0.00</span></div>'+ 
-    '<div class="simrow neg"><span>Adelantos pendientes</span><span class="v" id="pay-adelantos">−'+money(adelPend)+'</span></div>'+ 
+    '<div class="simrow neg"><span>Adelantos que se le descuentan</span><span class="v" id="pay-adelantos">−'+money(adelPend)+'</span></div>'+
+    '<div class="simrow"><span style="color:var(--amb)">Le quedará pendiente</span><span class="v" id="pay-pend" style="color:var(--amb)">$0.00</span></div>'+ 
     '<div class="simrow tot"><span>Total en efectivo a pagar</span><span class="v" id="pay-total">'+money(Math.max(0,pm.totalAntesAdelantos-adelPend))+'</span></div></div>'+ 
     '<div class="msec"><div class="mstitle">Qué quieres cubrir de cada cliente</div>'+ 
     '<p class="sub" style="font-size:12px;margin:-4px 0 10px">El porcentaje es el porcentaje total que quieres dejar cubierto para el empleado en esta quincena. Puedes cubrirlo aunque el cliente todavía no haya pagado.</p>'+ 
@@ -6367,7 +6436,15 @@ function payModal(memberId,q){
 ((pm.tipoCompensacion==='sueldo'||pm.tipoCompensacion==='mixto')?'<div class="f" style="margin-top:14px"><label>Sueldo de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo-q" type="number" min="0" step="0.01" value="'+pm.sueldoBase.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.sueldoMensual)||0)/2))+'</span></div><div class="hint">Si este mes acordaste otro monto, cámbialo aquí. Aplica solo a esta quincena; la ficha del empleado no se toca.</div></div>':'')+
     (pm.tipoCompensacion==='garantizado'?'<div class="f" style="margin-top:14px"><label>Piso garantizado de esta quincena</label><div style="display:flex;gap:8px;align-items:center"><input id="p-piso-q" type="number" min="0" step="0.01" value="'+pm.pisoQuincena.toFixed(2)+'"><span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">habitual '+money(r2((Number(m.ingresoGarantizado)||0)/2))+'</span></div><div class="hint">El complemento se recalcula solo: piso menos lo que le corresponde de clientes ('+money(pm.comisionTeoricaQuincena)+'). Aplica solo a esta quincena.</div></div>':'')+
     (pm.sueldoPendiente>0.005?'<div class="f" style="margin-top:14px"><label>Sueldo base a pagar ahora</label><div style="display:flex;gap:8px;align-items:center"><input id="p-sueldo" type="number" min="0" max="'+pm.sueldoPendiente.toFixed(2)+'" step="0.01" value="'+pm.sueldoPendiente.toFixed(2)+'"><button type="button" class="b bg bs" id="p-sueldo-todo">Todo</button><button type="button" class="b bg bs" id="p-sueldo-mitad">Mitad</button><button type="button" class="b bg bs" id="p-sueldo-cero">Nada</button></div><div class="hint">Para pagar el sueldo por partes. Lo que no pagues ahora queda pendiente en esta misma quincena y podrás abonarlo después.</div></div>':'')+
-    '<div class="f" style="margin-top:14px"><label>Descontar de adelantos pendientes</label><input id="p-desc-adv" type="number" min="0" step="0.01" value="'+Math.min(adelPend,Math.max(0,pm.totalAntesAdelantos)).toFixed(2)+'"><div class="hint">Puedes descontar todo, una parte o $0. El saldo no descontado sigue pendiente para futuras quincenas.</div></div>'+ 
+    (adelPend>0.005?'<div class="f" style="margin-top:14px"><label>Descontar de adelantos pendientes</label>'+
+      '<div style="display:flex;gap:8px;align-items:center"><input id="p-desc-adv" type="number" min="0" max="'+adelPend.toFixed(2)+'" step="0.01" value="'+Math.min(adelPend,Math.max(0,pm.totalAntesAdelantos)).toFixed(2)+'">'+
+      '<button type="button" class="b bg bs" id="p-adv-todo">Todo</button><button type="button" class="b bg bs" id="p-adv-cero">Nada</button></div>'+
+      '<div class="hint"><strong>Debe '+money(adelPend)+' en total</strong>'+
+      (adelPend>pm.totalAntesAdelantos+0.005
+        ? ' · esta quincena solo da para descontar '+money(r2(Math.max(0,pm.totalAntesAdelantos)))+'. El resto sigue pendiente.'
+        : ' · alcanza para descontarlo todo.')+
+      '</div></div>'
+      :'<input type="hidden" id="p-desc-adv" value="0">')+ 
     '<div class="row" style="margin-top:10px"><div class="f"><label>Total a pagar</label><input id="p-mo" type="number" step="0.01" value="'+Math.max(0,pm.totalAntesAdelantos-adelPend).toFixed(2)+'" readonly></div>'+ 
     '<div class="f"><label>Fecha</label><input id="p-fe" type="date" value="'+today()+'"></div></div>'+ 
     '<div class="msec" style="margin-top:14px"><div class="mstitle">¿Desde qué wallets se paga?</div><p class="sub" style="font-size:12px;margin:-4px 0 10px">Puedes dividir el pago entre varias wallets. Ejemplo: $300 en Efectivo + $200 en USDT.</p><div id="p-wallet-parts"></div><button type="button" class="b bg bs" id="p-add-wallet"><i class="ti ti-plus"></i>Agregar wallet</button><div class="sim" style="margin-top:10px"><div class="simrow"><span>Distribuido entre wallets</span><span class="v" id="p-wallet-total">$0.00</span></div></div></div>'+
@@ -6472,6 +6549,10 @@ function payModal(memberId,q){
   }
   document.getElementById('p-add-extra').onclick=()=>addExtra();
 
+  const inpAdv=document.getElementById('p-desc-adv');
+  const bTodo=document.getElementById('p-adv-todo'), bCero=document.getElementById('p-adv-cero');
+  if(bTodo)bTodo.onclick=()=>{inpAdv.value=adelPend.toFixed(2);syncTotal()};
+  if(bCero)bCero.onclick=()=>{inpAdv.value='0';syncTotal()};
   const inpSueQ=document.getElementById('p-sueldo-q');
   const inpSue=document.getElementById('p-sueldo');
   /* Si el usuario no ha tocado a mano "a pagar ahora", ese campo sigue al
