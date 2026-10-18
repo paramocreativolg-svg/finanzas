@@ -404,6 +404,77 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
 /* Barra de los tres cortes de la tarifa */
 .cortes{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--card2);margin:2px 0 4px}
 .corte{height:100%}
+
+/* ═══════════════════════════════════════════════════════════
+   PERSONALIDAD VISUAL
+   Inspirado en los UI kits modernos: esquinas muy redondeadas,
+   botones tipo píldora, sombras teñidas del color de marca y
+   acentos con más presencia. El morado claro se mantiene como
+   identidad, pero deja de ser un gris con tinte.
+   ═══════════════════════════════════════════════════════════ */
+:root{
+  --r:18px;
+  --r2:26px;
+  --rpill:999px;
+  /* Sombras con tinte morado en vez de gris neutro */
+  --sh1:0 1px 2px rgba(110,75,198,.05),0 8px 24px rgba(110,75,198,.07);
+  --sh2:0 16px 40px rgba(110,75,198,.12);
+  --sh3:0 28px 72px rgba(110,75,198,.20);
+  --lav3:#ece8ff;
+  --paper:#f6f4fb;
+}
+
+/* Tarjetas con más aire y reacción al pasar el cursor */
+.card{border-radius:var(--r2);padding:22px}
+.card:hover{box-shadow:var(--sh2)}
+.ctitle{font-size:15px;letter-spacing:-.02em}
+.ctitle .cnt{background:var(--lav3);color:var(--lav);border-radius:var(--rpill);padding:3px 11px;font-weight:600}
+
+/* Botones y chips en píldora */
+.b{border-radius:var(--rpill);font-weight:650;letter-spacing:-.01em}
+.b.bp{box-shadow:0 6px 18px rgba(110,75,198,.28)}
+.b.bp:hover{box-shadow:0 10px 26px rgba(110,75,198,.36);transform:translateY(-1px)}
+.chip{border-radius:var(--rpill);font-weight:600}
+.chip.on{box-shadow:0 4px 14px rgba(110,75,198,.24)}
+.p{border-radius:var(--rpill);font-weight:650;letter-spacing:.01em}
+.ib{border-radius:14px}
+
+/* Métricas: número protagonista y fondo con tinte */
+.met{border-radius:var(--r2);padding:20px}
+.mval{letter-spacing:-.035em}
+.mlab{font-weight:700;letter-spacing:.07em}
+.mico{border-radius:16px}
+.met-crit{padding-left:24px}
+.met-crit::before{left:8px;width:5px;border-radius:var(--rpill)}
+
+/* Campos más suaves */
+input,select,textarea{border-radius:14px}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 4px rgba(110,75,198,.12)}
+
+/* Navegación lateral con la activa en píldora */
+.nav a,.nav button{border-radius:var(--rpill)}
+.nav .on{box-shadow:0 6px 18px rgba(110,75,198,.30)}
+
+/* Tablas: cabecera en mayúsculas pequeñas y filas con respiro */
+.t thead th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3);padding-top:6px;padding-bottom:10px}
+.t tbody tr{transition:background .12s}
+.t tbody tr:hover{background:var(--lav2)}
+.t td{padding-top:13px;padding-bottom:13px}
+
+/* Filas de lista y modales */
+.lrow{border-radius:14px;padding:11px 12px;margin:0 -12px}
+.lrow:hover{background:var(--card2)}
+.mdl{border-radius:var(--r2)}
+.msec{border-radius:var(--r);padding:16px}
+.sim{border-radius:var(--r);overflow:hidden}
+.simrow.tot{font-weight:700}
+
+/* Avatares un poco más redondos, como en el kit */
+.av{border-radius:32%}
+
+/* Encabezado de página con el título más marcado */
+.hd h1.t{letter-spacing:-.035em}
+.eyeb{letter-spacing:.14em;font-weight:700}
 </style>
 
 <style>
@@ -2095,7 +2166,7 @@ function estadoCobroMes(companyId,ym){
 
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
-  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['contactos','Contactos'],['prospectos','Prospectos'],
+  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
   ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
@@ -2368,6 +2439,7 @@ function renderNav(){
   const sets=[
     ['n1',[['panel','ti-home','Inicio',null],['proyeccion','ti-chart-donut','Proyección',null],['estadisticas-clientes','ti-chart-pie','Estadísticas clientes',null]]],
     ['n2',[['empresas','ti-building','Empresas',visibleCompanies().filter(c=>c.estado==='activo').length],
+           ['inactivos','ti-archive','Pausados y perdidos',(()=>{const n=(visibleCompanies()||[]).filter(c=>c.estado!=='activo').length;return n||null})()],
            ['contactos','ti-address-book','Contactos',visibleContacts().length],
            ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length],
            ['captacion','ti-radar','Captación',null]]],
@@ -2426,7 +2498,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -3932,13 +4004,76 @@ function tarifaClienteLabel(c){
 }
 
 /* ─────────── EMPRESAS ─────────── */
+function vInactivos(v){
+  const todos=visibleCompanies()||[];
+  const pausados=todos.filter(c=>c.estado==='pausado');
+  const perdidos=todos.filter(c=>c.estado==='perdido');
+  head(v,'Clientes','Pausados y perdidos',
+    'Clientes que salieron de la cartera activa. Se conservan con todo su historial y puedes reactivarlos cuando vuelvan.',
+    '<button class="b bg" id="in-volver"><i class="ti ti-building"></i>Ir a Empresas</button>');
+
+  if(!pausados.length&&!perdidos.length){
+    v.appendChild(frag(mt('ti-mood-happy','Ningún cliente pausado ni perdido. Toda la cartera está activa.')));
+    const b=document.getElementById('in-volver');if(b)b.onclick=()=>{S.tab='empresas';render()};
+    return;
+  }
+  const mrrP=r2(pausados.reduce((s2,c)=>s2+(Number(c.tarifaBruta)||0),0));
+  const mrrX=r2(perdidos.reduce((s2,c)=>s2+(Number(c.tarifaBruta)||0),0));
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit tone-amb"><div class="mlab">Facturación fuera</div><div class="mval">'+money(r2(mrrP+mrrX))+'</div><div class="msub">al mes, si todos volvieran</div></div>'+
+    '<div class="met"><div class="mlab">Pausados</div><div class="mval" style="color:var(--amb)">'+pausados.length+'</div><div class="msub">'+money(mrrP)+' · pueden volver</div></div>'+
+    '<div class="met"><div class="mlab">Perdidos</div><div class="mval" style="color:var(--red)">'+perdidos.length+'</div><div class="msub">'+money(mrrX)+'</div></div>'+
+    '</div>'));
+
+  const bloque=(titulo,lista,color,nota)=>{
+    if(!lista.length)return;
+    const card=document.createElement('div');card.className='card';card.style.cssText='margin-bottom:16px;border-left:3px solid '+color;
+    card.innerHTML='<div class="ctitle">'+titulo+' <span class="cnt">'+lista.length+'</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:10px">'+nota+'</div>'+
+      '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Desde</th><th>Tiempo</th><th>Motivo</th><th>Facturaba</th><th>Saldo</th><th></th></tr></thead><tbody>'+
+      lista.map(c=>{
+        const ev=eventosCliente(c).filter(e=>e.tipo==='pausado'||e.tipo==='perdido').pop();
+        const d=ev&&ev.fecha?difDiasISO(ev.fecha,today()):null;
+        const ec=estadoCuentaCliente(c);
+        return '<tr data-emp="'+c.id+'" style="cursor:pointer">'+
+          '<td><div style="display:flex;align-items:center;gap:8px">'+av(c.negocio,'s',0,c.foto)+
+            '<div><strong>'+esc(c.negocio)+'</strong><div style="font-size:11px;color:var(--tx3)">'+esc(servicioDe(c))+'</div></div></div></td>'+
+          '<td class="n">'+(ev&&ev.fecha?fdate(ev.fecha):'<span style="color:var(--tx3)">sin registrar</span>')+'</td>'+
+          '<td class="n">'+(d!=null?(d>=60?Math.floor(d/30)+' meses':d+' d'):'—')+'</td>'+
+          '<td style="max-width:220px;font-size:12.5px">'+(ev&&ev.motivo?esc(ev.motivo):'<span style="color:var(--tx3)">—</span>')+'</td>'+
+          '<td class="n">'+money(c.tarifaBruta)+'</td>'+
+          '<td class="n" style="color:'+(ec.saldo>0.01?'var(--red)':'var(--tx3)')+'">'+(ec.saldo>0.01?money(ec.saldo):'—')+'</td>'+
+          '<td class="ta"><button class="b bp bs" data-react="'+c.id+'">Reactivar</button></td></tr>';
+      }).join('')+'</tbody></table></div>';
+    v.appendChild(card);
+    card.querySelectorAll('tr[data-emp]').forEach(tr=>tr.onclick=e=>{
+      if(e.target.closest('button'))return;S.tab='empresas';S.mCompany=tr.dataset.emp;render()});
+    card.querySelectorAll('[data-react]').forEach(b=>b.onclick=async e=>{
+      e.stopPropagation();
+      const c=companyById(b.dataset.react);if(!c)return;
+      const nota=prompt('¿Por qué vuelve? (opcional)','');
+      if(nota===null)return;
+      registrarCambioEstado(c,'activo',nota,today());
+      if(!await saveUI('companies'))return;
+      toast(c.negocio+' está activo de nuevo');render();
+    });
+  };
+  bloque('Pausados',pausados,'var(--amb)','Dejaron de facturar temporalmente. No cuentan para capacidad, nómina ni morosos.');
+  bloque('Perdidos',perdidos,'var(--red)','Se fueron. Su historial se conserva por si vuelven o para analizar por qué se perdieron.');
+
+  const b=document.getElementById('in-volver');if(b)b.onclick=()=>{S.tab='empresas';render()};
+}
+
 function vEmpresas(v){
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
   /* ── Filtros ── */
   if(!S.fEmp)S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};
   const F=S.fEmp;
   const todos=visibleCompanies();
-  const porEstado=todos.filter(c=>S.fCompany==='todos'||c.estado===S.fCompany);
+  /* Empresas es la cartera viva. Los pausados y perdidos tienen su propia
+     sección para no ensuciar los conteos ni los filtros del día a día. */
+  const activos=todos.filter(c=>c.estado==='activo');
+  const porEstado=activos;
   const ymAhora=today().slice(0,7);
 
   /* Opciones disponibles, sacadas de los datos reales */
@@ -3976,13 +4111,14 @@ function vEmpresas(v){
     return true;
   };
 
-  const ch=document.createElement('div');ch.className='chips';
-  [['todos','Todas'],['activo','Activas'],['pausado','Pausadas'],['perdido','Perdidas']].forEach(([k,l])=>{
-    const n=todos.filter(c=>k==='todos'||c.estado===k).length;
-    const b=document.createElement('button');b.className='chip'+(S.fCompany===k?' on':'');
-    b.innerHTML=l+' <span style="opacity:.6">'+n+'</span>';
-    b.onclick=()=>{S.fCompany=k;render()};ch.appendChild(b)});
-  v.appendChild(ch);
+  const inactivos=todos.filter(c=>c.estado!=='activo');
+  if(inactivos.length){
+    const av=document.createElement('div');av.className='sub';av.style.cssText='font-size:12.5px;margin-bottom:12px';
+    av.innerHTML='Aquí solo ves la cartera activa. '+
+      '<button type="button" class="chip" id="ver-inactivos">'+inactivos.length+' cliente'+(inactivos.length===1?'':'s')+' pausado'+(inactivos.length===1?'':'s')+' o perdido'+(inactivos.length===1?'':'s')+'</button>';
+    v.appendChild(av);
+    av.querySelector('#ver-inactivos').onclick=()=>{S.tab='inactivos';render()};
+  }
 
   const sel=(id,label,valor,opciones)=>'<div class="f"><label>'+label+'</label><select id="'+id+'">'+
     opciones.map(([k,l,n])=>'<option value="'+esc(k)+'"'+(valor===k?' selected':'')+'>'+esc(l)+(n!=null?' ('+n+')':'')+'</option>').join('')+'</select></div>';
@@ -4631,7 +4767,9 @@ function recordatoriosDe(c){return Array.isArray(c&&c.recordatorios)?c.recordato
 function ultimoRecordatorio(c){const r=recordatoriosDe(c);return r.length?r[0]:null}
 function listaMorosos(){
   const hoy=today();
-  return (visibleCompanies()||[]).filter(c=>c.estado!=='perdido').map(c=>{
+  /* Solo un cliente activo puede ser moroso: a un pausado o perdido no se le
+     reclama por el ciclo de cobro. Lo que quedó debiendo se ve en su ficha. */
+  return (visibleCompanies()||[]).filter(c=>c.estado==='activo').map(c=>{
     const ven=vencimientoCliente(c);
     const pend=facturasPendientes(c.id);
     const deudaFacturas=r2(pend.reduce((s2,x)=>s2+x.st.saldo,0));
