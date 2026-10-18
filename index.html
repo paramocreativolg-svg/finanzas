@@ -405,6 +405,49 @@ button,input,select,textarea{-webkit-tap-highlight-color:transparent}
 .cortes{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--card2);margin:2px 0 4px}
 .corte{height:100%}
 
+
+/* ─────────── EL VERDE, COMO SEGUNDO COLOR DE MARCA ───────────
+   El verde del kit entra en la identidad, no como señal suelta. Se redefinen
+   los tokens de verde que ya usaba la app (72 usos) para que todo lo positivo
+   —gráficos, barras, etiquetas, montos a favor— adopte el tono de una vez,
+   y se añade en los sitios donde la marca se ve: cenefa, nav, avatares.
+   Morado y verde conviven: morado conduce, verde confirma. */
+:root{
+  --verde:#3fbf60;
+  --verde-hondo:#1f8a46;
+  --verde2:#e8f8ed;
+  --verde3:#cdeed9;
+  --verde-sh:0 8px 24px rgba(63,191,96,.24);
+  /* Los tokens antiguos apuntan al verde nuevo: se propaga a toda la app */
+  --lime:#3fbf60;
+  --lime2:#e8f8ed;
+}
+
+/* Cenefa de sección: alterna con el morado para que el verde sea marca */
+.eyeb{color:var(--verde-hondo)}
+.hd .eyeb::before{content:'';display:inline-block;width:14px;height:3px;border-radius:99px;background:var(--verde);margin-right:8px;vertical-align:middle}
+
+/* Nav: la activa sigue en morado, pero el acento al pasar es verde */
+.nav a:hover,.nav button:hover{box-shadow:inset 3px 0 0 var(--verde)}
+.nav .on:hover{box-shadow:0 6px 18px rgba(110,75,198,.30)}
+
+/* Avatares: morado y verde se turnan, como en el kit */
+.av{background:linear-gradient(135deg,var(--lav) 0%,#8f7ff0 100%)}
+.assoc .av,.lrow .av{background:linear-gradient(135deg,var(--verde) 0%,#5fd389 100%)}
+
+/* Botón verde, para acciones que cierran algo */
+.b.bv{background:var(--verde);color:#fff;box-shadow:var(--verde-sh)}
+.b.bv:hover{box-shadow:0 12px 30px rgba(63,191,96,.32);transform:translateY(-1px)}
+
+/* La caja operativa, con el verde de marca */
+.caja-card{border-left:3px solid var(--verde)!important;background:linear-gradient(180deg,var(--verde2) 0%,var(--card) 58%)}
+.caja-card .ctitle .cnt{background:var(--verde3);color:var(--verde-hondo)}
+.met-crit.tone-verde::before,.met-crit.tone-lime::before{background:var(--verde)}
+.met-crit.tone-verde,.met-crit.tone-lime{background:linear-gradient(180deg,var(--verde2) 0%,var(--card) 62%)}
+.met-crit.tone-verde .mval,.met-crit.tone-lime .mval{color:var(--verde-hondo)}
+.p-ok,.p-caja{background:var(--verde2);color:var(--verde-hondo)}
+
+/* Barras de progreso y gráficos recogen el verde nuevo por los tokens */
 /* ═══════════════════════════════════════════════════════════
    PERSONALIDAD VISUAL
    Inspirado en los UI kits modernos: esquinas muy redondeadas,
@@ -475,6 +518,8 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 4px rgba(110,75,198,.12
 /* Encabezado de página con el título más marcado */
 .hd h1.t{letter-spacing:-.035em}
 .eyeb{letter-spacing:.14em;font-weight:700}
+
+
 </style>
 
 <style>
@@ -819,6 +864,31 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .mdl{max-height:calc(100dvh - 28px);overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;margin:auto 0;}
 .mdl.wide{max-height:calc(100dvh - 28px);}
 @media(max-width:880px){.ov{padding:12px!important;}.mdl,.mdl.wide{max-height:calc(100dvh - 24px)!important;width:100%;}}
+</style>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   TOKENS DE MARCA · hoja final
+   La app tiene siete hojas de estilo y una de las últimas
+   redefine los verdes. Esta va después de todas para que el
+   verde del kit sea el que mande en toda la aplicación.
+   ═══════════════════════════════════════════════════════════ */
+:root{
+  --verde:#3fbf60;
+  --verde-hondo:#1f8a46;
+  --verde2:#e8f8ed;
+  --verde3:#cdeed9;
+  --lime:#3fbf60;
+  --lime2:#e8f8ed;
+}
+.a3{background:#3fbf60}
+.p-ok{background:var(--verde2);color:var(--verde-hondo)}
+.caja-card{border-left:3px solid var(--verde)!important;background:linear-gradient(180deg,var(--verde2) 0%,var(--card) 58%)}
+.met-crit.tone-verde::before,.met-crit.tone-lime::before{background:var(--verde)}
+.met-crit.tone-verde,.met-crit.tone-lime{background:linear-gradient(180deg,var(--verde2) 0%,var(--card) 62%)}
+.met-crit.tone-verde .mval,.met-crit.tone-lime .mval{color:var(--verde-hondo)}
+.hd .eyeb::before{content:'';display:inline-block;width:14px;height:3px;border-radius:99px;background:var(--verde);margin-right:8px;vertical-align:middle}
+.eyeb{color:var(--verde-hondo)}
+.b.bv{background:var(--verde);color:#fff;box-shadow:0 8px 24px rgba(63,191,96,.24)}
 </style>
 </head>
 <body>
@@ -2090,6 +2160,38 @@ function leerAlloc(box,attr){
    Sale:   los gastos de la agencia.
    Ajusta: movimientos manuales en los dos sentidos.
    Solo cuenta desde la fecha de activación: nada retroactivo. */
+/* ═══════════ CAJA OPERATIVA ═══════════
+   La caja es el único dinero con el que se puede operar: pagar al equipo,
+   dar adelantos y cubrir gastos. Es lo que hay en las wallets menos lo que
+   está reservado en el fondo de la agencia. Si la caja no alcanza, hay que
+   traer dinero de la reserva antes de poder pagar. */
+function cajaOperativa(){
+  const enWallets=r2((S.metodos||[]).reduce((s2,w)=>s2+saldoWallet(w.id).saldo,0));
+  const reservado=fondoActivo()?resumenFondo().saldo:0;
+  return{enWallets,reservado,disponible:r2(enWallets-reservado),activa:fondoActivo()};
+}
+/* ¿Alcanza la caja para este pago? Devuelve null si sí, o el faltante. */
+function faltaEnCaja(monto){
+  const c=cajaOperativa();
+  if(!c.activa)return null;
+  const falta=r2(r2(monto)-c.disponible);
+  return falta>0.005?{falta,caja:c}:null;
+}
+/* Aviso con salida: explica el faltante y ofrece traerlo de la reserva. */
+async function validarCaja(monto,concepto){
+  const f=faltaEnCaja(monto);
+  if(!f)return true;
+  const msg='La caja operativa tiene '+money(f.caja.disponible)+' y '+concepto+' cuesta '+money(monto)+'. '
+    +'Faltan '+money(f.falta)+'. Hay '+money(f.caja.reservado)+' reservados en el fondo de la agencia. '
+    +'¿Traer '+money(f.falta)+' de la reserva para poder pagar?';
+  if(!confirm(msg))return false;
+  if(!Array.isArray(S.fondoMovs))S.fondoMovs=[];
+  S.fondoMovs.push({id:uid(),fecha:today(),tipo:'retiro',monto:f.falta,walletId:null,
+    nota:'Traído a la caja para '+concepto});
+  if(!await saveUI('fondoMovs'))return false;
+  toast(money(f.falta)+' traídos de la reserva');
+  return true;
+}
 function fondoActivo(){return !!S.fondoDesde}
 function desdeFondo(){return S.fondoDesde||null}
 function enRangoFondo(fecha){const d=desdeFondo();return !!d&&String(fecha||'')>=d}
@@ -2804,6 +2906,7 @@ async function pagarGastoFijo(id,ym){
   if(!w){alert('Selecciona una wallet para este gasto fijo.');return}
   const sw=saldoWallet(w.id,today()),disponible=r2(sw.saldo);
   if(disponible+0.005<Number(g.monto)){alert('La wallet seleccionada no tiene saldo suficiente.');return}
+  if(!await validarCaja(Number(g.monto)||0,'este gasto fijo'))return;
   const e={id:uid(),fecha,categoria:g.categoria||'General',descripcion:g.nombre,monto:r2(g.monto),walletId:g.walletId,fijoId:g.id,periodo:ym,esGastoFijo:true};
   S.egresos.push(e);await saveUI('egresos');toast('Gasto fijo marcado como pagado');render();
 }
@@ -2866,6 +2969,7 @@ function vEgresos(v){
       descripcion:document.getElementById('g-de').value.trim(),monto:Number(document.getElementById('g-mo').value)||0,
       walletId:(document.getElementById('g-wa')||{}).value||null};
     if(p.monto<=0){alert('Monto inválido.');return}
+    if(S.eEgreso==='new'&&!await validarCaja(p.monto,'este gasto'))return;
     if(S.eEgreso==='new')S.egresos.push({id:uid(),...p});
     else Object.assign(S.egresos.find(x=>x.id===S.eEgreso),p);
     S.eEgreso=null;await saveUI('egresos');toast('Guardado');render()};
@@ -5737,7 +5841,7 @@ function vFondo(v){
 
   v.appendChild(frag('<div class="mets mets-h">'+
     '<div class="met met-crit '+(R.saldo>=0?'tone-lime':'tone-red')+'"><div class="mlab">En el fondo</div><div class="mval">'+money(R.saldo)+'</div><div class="msub">ganancia reservada desde '+fdate(R.desde)+'</div></div>'+
-    '<div class="met"><div class="mlab">Disponible para operar</div><div class="mval" style="color:'+(R.disponible<0?'var(--red)':'var(--tx)')+'">'+money(R.disponible)+'</div><div class="msub">en wallets menos lo reservado</div></div>'+
+    '<div class="met met-crit '+(R.disponible<0?'tone-red':'tone-verde')+'"><div class="mlab">Caja operativa</div><div class="mval">'+money(R.disponible)+'</div><div class="msub">con esto puedes pagar hoy</div></div>'+
     '<div class="met met-ctx"><div class="mlab">Entró por cobros</div><div class="mval">'+money(R.cobros)+'</div><div class="msub">'+R.numCobros+' cobro'+(R.numCobros===1?'':'s')+'</div></div>'+
     '<div class="met met-ctx"><div class="mlab">Salió en gastos</div><div class="mval" style="color:var(--pink)">'+money(R.gastos)+'</div><div class="msub">gastos de la agencia</div></div>'+
     '<div class="met met-ctx"><div class="mlab">Ajustes manuales</div><div class="mval">'+money(r2(R.aportes-R.retiros))+'</div><div class="msub">'+money(R.aportes)+' apartado · '+money(R.retiros)+' sacado</div></div>'+
@@ -5785,14 +5889,17 @@ function vWallets(v){
      una parte ya está reservada como ganancia de la agencia. */
   if(fondoActivo()){
     const R=resumenFondo();
-    v.appendChild(frag('<div class="card" style="margin-bottom:16px;border-left:3px solid '+(R.disponible<0?'var(--red)':'var(--lime)')+'">'+
-      '<div class="ctitle">Cuánto puedes usar <span class="cnt">fondo activo desde '+fdate(R.desde)+'</span></div>'+
+    v.appendChild(frag('<div class="card'+(R.disponible<0?'':' caja-card')+'" style="margin-bottom:16px'+(R.disponible<0?';border-left:3px solid var(--red)':'')+'">'+
+      '<div class="ctitle">Caja operativa <span class="cnt">fondo activo desde '+fdate(R.desde)+'</span></div>'+
       '<div class="sim">'+
       '<div class="simrow"><span>Total en wallets</span><span class="v">'+money(R.enWallets)+'</span></div>'+
       '<div class="simrow"><span>− Reservado para la agencia</span><span class="v" style="color:var(--amb)">'+money(R.saldo)+'</span></div>'+
-      '<div class="simrow tot"><span>Disponible para operar</span><span class="v" style="color:'+(R.disponible<0?'var(--red)':'var(--lime)')+'">'+money(R.disponible)+'</span></div>'+
+      '<div class="simrow tot"><span>Caja: con esto puedes operar</span><span class="v" style="color:'+(R.disponible<0?'var(--red)':'var(--verde)')+'">'+money(R.disponible)+'</span></div>'+
       '</div>'+
-      '<div class="sub" style="font-size:12.5px;margin-top:10px">Los saldos de abajo son el dinero real de cada wallet. El fondo no mueve ese dinero, solo marca cuánto es ganancia.</div></div>'));
+      '<div class="sub" style="font-size:12.5px;margin-top:10px">La caja es el único dinero con el que se paga nómina, adelantos y gastos. Si no alcanza, la app te ofrece traer lo que falte de la reserva.</div>'+
+      '<div class="brow"><button class="b bg bs" id="caja-traer"><i class="ti ti-arrow-down-to-arc"></i>Traer de la reserva</button></div></div>'));
+    const bt=document.getElementById('caja-traer');
+    if(bt)bt.onclick=()=>movimientoFondoModal('retiro');
   }
   if(!S.metodos.length){
     v.appendChild(frag('<div class="card"><div class="ctitle">No hay wallets registradas</div><p class="sub">La app no crea ni reemplaza wallets automáticamente. Crea tus wallets aquí o restaúralas desde un respaldo JSON.</p><div class="brow"><button class="b bp" id="nw-empty"><i class="ti ti-plus"></i>Nueva wallet</button><button class="b bg" id="imp-wallets"><i class="ti ti-upload"></i>Importar respaldo</button></div></div>'));
@@ -6716,6 +6823,10 @@ function payModal(memberId,q){
   }
   syncTotal();syncWalletTotal();document.getElementById('p-desc-adv').oninput=syncTotal;document.getElementById('x').onclick=()=>{ov.remove();render()};
   async function doPay(gen){
+    /* La caja operativa es el techo de lo que se puede pagar. */
+    const el=document.getElementById('p-mo');
+    const totalEfectivo=r2(Number(el?el.value:0)||0);
+    if(totalEfectivo>0.005&&!await validarCaja(totalEfectivo,'este pago'))return;
     const detalle=pm.detalle.map((d,i)=>{const row=clientRows[i];const maxSel=Number(row?.querySelector('.pay-client-mo')?.dataset.max)||0;const montoSel=row?Math.max(0,Math.min(maxSel,Number(row.querySelector('.pay-client-mo').value)||0)):0;return{companyId:d.companyId,negocio:d.negocio,monto:d.montoQuincena,pagable:r2(montoSel),liberado:r2(d.ganado),retenido:r2(Math.max(0,d.montoQuincena-d.yaPagadoCliente-montoSel)),cobrado:d.clientePago,coberturaManual:r2(Math.max(0,montoSel-(Number(d.ganado)||0))),
         yaPagadoAntes:r2(d.yaPagadoCliente),pctCobrado:d.porcentajeCobrado};}).filter(d=>d.pagable>0||d.coberturaManual>0);
     /* Lo que NO se paga también se guarda, para que el comprobante lo explique.
@@ -7145,6 +7256,7 @@ function adelantoGeneralModal(){
    if(!walletId){alert('Selecciona la wallet de salida.');return}
    const sw=saldoWallet(walletId);
    if(monto>sw.saldo+0.005){alert('La wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}
+   if(!await validarCaja(monto,'este adelanto'))return;
    S.payouts.push({...base,walletId});
    if(!await saveUI('payouts'))return;
    ov.remove();toast('Adelanto registrado y descontado de la wallet');render();
