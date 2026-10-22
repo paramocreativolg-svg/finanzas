@@ -1662,7 +1662,10 @@ function calcularNomina(q){
       if(!clienteCuentaEnQuincena(c,q))return;
       /* En los clientes por trabajo la asignación mensual es cero porque no hay
          tarifa: lo que cuenta es lo cobrado, así que no se descartan aquí. */
-      const evtC=esEventual(c);
+      /* Los clientes por trabajo se pagan encargo por encargo, fuera de la
+         quincena, así que no entran aquí. */
+      if(esEventual(c))return;
+      const evtC=false;
       const asign=evtC?((c.asignaciones||[]).find(x=>x.memberId===m.id&&x.activo!==false&&!esAsignacionSoloEquipo(x))||null)
                       :asigDeMiembroRaw(c,m.id);
       if(!asign)return;
@@ -1791,7 +1794,7 @@ const DB={
     return{key:k,deleted:true};
   }
 };
-const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina','fondoDesde','fondoMovs','pctAgenciaDefecto'];
+const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina','fondoDesde','fondoMovs','pctAgenciaDefecto','trabajos'];
 /* Toda colección (array u objeto) queda protegida, no solo un subconjunto.
    Antes contacts, links, members, roles, users y gastosFijos no tenían red. */
 const COLLECTION_KEYS=new Set(['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','nominaSaldosIniciales','proyeccionGastosFijos','gastosFijos']);
@@ -1891,7 +1894,7 @@ async function verifyDataIntegrity(){
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
-  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,fondoDesde:null,fondoMovs:[],pctAgenciaDefecto:40,
+  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,fondoDesde:null,fondoMovs:[],pctAgenciaDefecto:40,trabajos:[],
   mCompany:null,mContact:null,mProspect:null,lead:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
@@ -4088,6 +4091,35 @@ function basePeriodoCliente(c,q,fr){
   if(esEventual(c))return cobradoEnQuincena(c,q);
   return r2((Number(c.tarifaBruta)||0)*fr);
 }
+/* ═══════════ TRABAJOS SUELTOS ═══════════
+   Un cliente por trabajo encarga cosas distintas: un logo a una persona, la
+   edición de dos videos a otra, cada una por su monto. No es un reparto por
+   pesos ni cae en la quincena: a cada persona se le paga ese trabajo aparte.
+   Por eso cada encargo es su propio registro, con su responsable y su pago. */
+function trabajosDeCliente(companyId){
+  return (S.trabajos||[]).filter(t=>t.companyId===companyId)
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+}
+function trabajosDeMiembro(memberId,{soloPendientes}={}){
+  return (S.trabajos||[]).filter(t=>t.memberId===memberId&&(!soloPendientes||!t.pagado))
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+}
+function trabajosPendientesPago(){
+  return (S.trabajos||[]).filter(t=>!t.pagado&&(Number(t.montoMiembro)||0)>0.005)
+    .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+}
+/* Lo que deja el trabajo a la agencia: lo que cobró menos lo que paga. */
+function margenTrabajo(t){
+  return r2((Number(t&&t.montoCliente)||0)-(Number(t&&t.montoMiembro)||0));
+}
+function resumenTrabajos(companyId){
+  const ts=companyId?trabajosDeCliente(companyId):(S.trabajos||[]);
+  const cobrado=r2(ts.reduce((s2,t)=>s2+(Number(t.montoCliente)||0),0));
+  const equipo=r2(ts.reduce((s2,t)=>s2+(Number(t.montoMiembro)||0),0));
+  const porPagar=r2(ts.filter(t=>!t.pagado).reduce((s2,t)=>s2+(Number(t.montoMiembro)||0),0));
+  return{trabajos:ts,num:ts.length,cobrado,equipo,porPagar,agencia:r2(cobrado-equipo),
+    pagados:ts.filter(t=>t.pagado).length};
+}
 /* Lo que le toca a un miembro de un cliente por trabajo en esa quincena. */
 function montoEventualMiembro(c,q,memberId){
   const base=cobradoEnQuincena(c,q);
@@ -4413,6 +4445,23 @@ function mCompanyModal(){
         '<div class="met"><div class="mlab">Al equipo</div><div class="mval">'+money(w.equipo)+'</div></div>'+
         '<div class="met"><div class="mlab">A la agencia</div><div class="mval" style="color:var(--lime)">'+money(w.agencia)+'</div></div></div>'})()+
       '</div>'+
+      (()=>{if(!esEventual(c))return '';
+        const R=resumenTrabajos(c.id);
+        return '<div class="msec" style="border-left:3px solid var(--verde)"><div class="mstitle">Trabajos<span class="cnt">'+R.num+'</span></div>'+
+          '<div class="sim" style="margin-bottom:10px">'+
+            '<div class="simrow"><span>Cobrado en trabajos</span><span class="v">'+money(R.cobrado)+'</span></div>'+
+            '<div class="simrow neg"><span>Pagado al equipo</span><span class="v">−'+money(R.equipo)+'</span></div>'+
+            (R.porPagar>0.005?'<div class="simrow"><span style="color:var(--amb)">Por pagar</span><span class="v" style="color:var(--amb)">'+money(R.porPagar)+'</span></div>':'')+
+            '<div class="simrow tot"><span>Queda a la agencia</span><span class="v" style="color:var(--verde-hondo)">'+money(R.agencia)+'</span></div>'+
+          '</div>'+
+          (R.num?R.trabajos.slice(0,8).map(t=>{const mm=memberById(t.memberId);
+            return '<div class="lrow" data-trab="'+t.id+'" style="cursor:pointer"><div><div class="lname">'+esc(t.descripcion)+'</div>'+
+            '<div class="lsub">'+fdate(t.fecha)+' · '+esc(mm?mm.nombre:'sin asignar')+' · cobrado '+money(t.montoCliente)+'</div></div>'+
+            '<div style="text-align:right"><div class="mono" style="font-weight:600">'+money(t.montoMiembro)+'</div>'+
+            (t.pagado?'<span class="p p-ok" style="font-size:9px">pagado</span>':'<span class="p p-w" style="font-size:9px">por pagar</span>')+'</div></div>'}).join('')
+            :'<div style="font-size:12.5px;color:var(--tx3)">Sin trabajos registrados todavía.</div>')+
+          '<div class="brow"><button class="b bp bs" id="trab-nuevo"><i class="ti ti-plus"></i>Registrar trabajo</button></div></div>';
+      })()+
       (()=>{const pend=facturasPendientes(c.id);
         if(!pend.length)return '';
         const saldo=r2(pend.reduce((s2,x)=>s2+x.st.saldo,0));
@@ -4458,6 +4507,14 @@ function mCompanyModal(){
   }
   ov.appendChild(m);document.body.appendChild(ov);
   document.getElementById('x').onclick=()=>{S.mCompany=null;S.eCompany=null;render()};
+  const btnTrab=document.getElementById('trab-nuevo');
+  if(btnTrab)btnTrab.onclick=()=>{S.mCompany=null;trabajoModal(c.id)};
+  m.querySelectorAll('[data-trab]').forEach(r=>r.onclick=()=>{
+    const t=(S.trabajos||[]).find(x=>x.id===r.dataset.trab);
+    S.mCompany=null;
+    if(t&&!t.pagado&&confirm('¿Pagar este trabajo ahora?\n\n'+t.descripcion+' · '+money(t.montoMiembro)))pagarTrabajoModal(r.dataset.trab);
+    else trabajoModal(null,r.dataset.trab);
+  });
   const btnFact=document.getElementById('fact-cobrar');
   if(btnFact)btnFact.onclick=()=>{S.mCompany=null;S.tab='cobros';S.presetCompany=c.id;render()};
   const btnCerrar=document.getElementById('cerrar-trabajo');
@@ -6262,11 +6319,118 @@ function compensacionLabel(m){
   if(t==='garantizado')return'Ingreso garantizado';
   return'Por cliente';
 }
+function trabajoModal(companyId,trabajoId){
+  const t=trabajoId?(S.trabajos||[]).find(x=>x.id===trabajoId):null;
+  const c=companyById(t?t.companyId:companyId);
+  if(!c){alert('Cliente no encontrado.');return}
+  const gente=(S.members||[]).filter(m=>m.activo!==false);
+  if(!gente.length){alert('Agrega miembros al equipo primero.');return}
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">'+(t?'Editar trabajo':'Nuevo trabajo')+'</div>'+
+    '<div class="esub">'+esc(c.negocio)+'</div></div><button class="ib" id="tb-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="f"><label>Qué se hizo</label><input id="tb-de" value="'+esc(t?t.descripcion:'')+'" placeholder="Logo · Edición de 2 videos · Parrilla de 10 piezas"></div>'+
+    '<div class="row"><div class="f"><label>Fecha</label><input id="tb-fe" type="date" value="'+esc(t?t.fecha:today())+'"></div>'+
+    '<div class="f"><label>Qué paga el cliente</label><input id="tb-mc" type="number" min="0" step="0.01" value="'+(t?r2(t.montoCliente).toFixed(2):'')+'"></div></div>'+
+    '<div class="row"><div class="f"><label>Quién lo hace</label><select id="tb-me">'+
+      gente.map(m=>'<option value="'+m.id+'"'+(t&&t.memberId===m.id?' selected':'')+'>'+esc(m.nombre)+' · '+esc(areaDe(m).nombre)+'</option>').join('')+
+      '</select></div>'+
+    '<div class="f"><label>Cuánto se le paga</label><input id="tb-mm" type="number" min="0" step="0.01" value="'+(t?r2(t.montoMiembro).toFixed(2):'')+'">'+
+      '<div class="hint" id="tb-sug"></div></div></div>'+
+    '<div class="f"><label>Nota</label><input id="tb-no" value="'+esc(t?(t.nota||''):'')+'"></div>'+
+    '<div id="tb-prev"></div>'+
+    '<div class="brow" style="justify-content:space-between">'+
+      (t?'<button class="b bg bd" id="tb-del"><i class="ti ti-trash"></i>Eliminar</button>':'<span></span>')+
+      '<button class="b bp" id="tb-ok">'+(t?'Guardar':'Registrar trabajo')+'</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#tb-x').onclick=()=>ov.remove();
+  const g=id=>md.querySelector('#'+id);
+  const dibujar=()=>{
+    const mc=r2(Math.max(0,Number(g('tb-mc').value)||0));
+    const mm=r2(Math.max(0,Number(g('tb-mm').value)||0));
+    const sug=r2(mc*(100-pctAgenciaDe(c))/100);
+    g('tb-sug').innerHTML=mc>0.005
+      ? 'Con el '+pct(pctAgenciaDe(c))+' de la agencia le tocarían <strong>'+money(sug)+'</strong>. Puedes poner otro monto.'
+      : 'Escribe primero lo que paga el cliente.';
+    const margen=r2(mc-mm);
+    g('tb-prev').innerHTML=mc>0.005
+      ? '<div class="sim"><div class="simrow"><span>Cobra el cliente</span><span class="v">'+money(mc)+'</span></div>'+
+        '<div class="simrow neg"><span>Se le paga a quien lo hace</span><span class="v">−'+money(mm)+'</span></div>'+
+        '<div class="simrow tot"><span>Queda a la agencia</span><span class="v" style="color:'+(margen<0?'var(--red)':'var(--verde-hondo)')+'">'+money(margen)+'</span></div></div>'+
+        (margen<0?'<div style="color:var(--red);font-size:12.5px;margin-top:8px">Le estarías pagando más de lo que cobras.</div>':'')
+      : '';
+  };
+  ['tb-mc','tb-mm'].forEach(id=>g(id).oninput=dibujar);
+  g('tb-mc').onblur=()=>{if(!g('tb-mm').value){g('tb-mm').value=r2(r2(Number(g('tb-mc').value)||0)*(100-pctAgenciaDe(c))/100).toFixed(2);dibujar()}};
+  dibujar();
+  g('tb-ok').onclick=async()=>{
+    const de=g('tb-de').value.trim();
+    if(!de){alert('Escribe qué se hizo.');return}
+    const mc=r2(Math.max(0,Number(g('tb-mc').value)||0));
+    const mm=r2(Math.max(0,Number(g('tb-mm').value)||0));
+    if(mc<=0){alert('Escribe lo que paga el cliente.');return}
+    if(!Array.isArray(S.trabajos))S.trabajos=[];
+    const datos={companyId:c.id,descripcion:de,fecha:g('tb-fe').value||today(),
+      montoCliente:mc,memberId:g('tb-me').value,montoMiembro:mm,nota:g('tb-no').value.trim()};
+    if(t)Object.assign(t,datos);
+    else S.trabajos.push({id:uid(),...datos,pagado:false,fechaPago:null,payoutId:null});
+    if(!await saveUI('trabajos'))return;
+    ov.remove();toast(t?'Trabajo actualizado':'Trabajo registrado');render();
+  };
+  const bd=g('tb-del');
+  if(bd)bd.onclick=async()=>{
+    if(t.pagado){alert('Este trabajo ya se pagó. Elimina primero el pago desde Pagos al equipo.');return}
+    if(!confirm('¿Eliminar este trabajo?'))return;
+    S.trabajos=(S.trabajos||[]).filter(x=>x.id!==t.id);
+    if(!await saveUI('trabajos'))return;
+    ov.remove();toast('Trabajo eliminado');render();
+  };
+}
+
+async function pagarTrabajoModal(trabajoId){
+  const t=(S.trabajos||[]).find(x=>x.id===trabajoId);
+  if(!t||t.pagado)return;
+  const m=memberById(t.memberId), c=companyById(t.companyId);
+  const monto=r2(Number(t.montoMiembro)||0);
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Pagar el trabajo</div>'+
+    '<div class="esub">'+esc(m?m.nombre:'')+' · '+esc(t.descripcion)+'</div></div>'+
+    '<button class="ib" id="pt-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="sim" style="margin-bottom:14px">'+
+      '<div class="simrow"><span>Cliente</span><span class="v">'+esc(c?c.negocio:'')+'</span></div>'+
+      '<div class="simrow"><span>Cobrado al cliente</span><span class="v">'+money(t.montoCliente)+'</span></div>'+
+      '<div class="simrow tot"><span>Se le paga</span><span class="v">'+money(monto)+'</span></div></div>'+
+    '<div class="row"><div class="f"><label>Desde qué wallet</label><select id="pt-wa">'+
+      (S.metodos||[]).map(w=>'<option value="'+w.id+'">'+esc(walletLabel(w))+' · '+money(saldoWallet(w.id).saldo)+'</option>').join('')+
+      '</select></div>'+
+    '<div class="f"><label>Fecha</label><input id="pt-fe" type="date" value="'+today()+'"></div></div>'+
+    '<div class="sub" style="font-size:12.5px">Este pago va aparte de la quincena: no entra en la nómina ni se mezcla con su sueldo.</div>'+
+    '<div class="brow"><button class="b bp" id="pt-ok"><i class="ti ti-cash"></i>Pagar '+money(monto)+'</button></div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  md.querySelector('#pt-x').onclick=()=>ov.remove();
+  md.querySelector('#pt-ok').onclick=async()=>{
+    const wid=md.querySelector('#pt-wa').value;
+    const sw=saldoWallet(wid);
+    if(monto>sw.saldo+0.005){alert('Esa wallet no tiene saldo suficiente. Disponible: '+money(sw.saldo));return}
+    if(!await validarCaja(monto,'este trabajo'))return;
+    const pid=uid();
+    S.payouts.push({id:pid,memberId:t.memberId,tipo:'trabajo',fecha:md.querySelector('#pt-fe').value||today(),
+      monto,walletId:wid,trabajoId:t.id,detalle:[],
+      nota:'Trabajo · '+t.descripcion+(c?' · '+c.negocio:'')});
+    t.pagado=true;t.fechaPago=md.querySelector('#pt-fe').value||today();t.payoutId=pid;
+    if(!await saveUI('payouts'))return;
+    if(!await saveUI('trabajos'))return;
+    ov.remove();toast('Trabajo pagado a '+(m?m.nombre:''));render();
+  };
+}
+
 function vOrganigrama(v){
   if(!S.orgSel)S.orgSel=null;
   const miembros=(S.members||[]).filter(m=>m.activo!==false);
-  head(v,'Equipo','Organigrama','Quién es quién, en qué área está y qué clientes lleva. Toca a alguien para ver su mapa.',
-    (S.orgSel?'<button class="b bg" id="org-todos"><i class="ti ti-arrow-left"></i>Ver todo el equipo</button>':''));
+  head(v,'Equipo','Organigrama','Quién es quién, en qué área está y qué clientes lleva. Toca a alguien para ver su mapa o editar su ficha.',
+    (S.orgSel?'<button class="b bg" id="org-todos"><i class="ti ti-arrow-left"></i>Ver todo el equipo</button>':'')+
+    '<button class="b bp" id="org-nuevo"><i class="ti ti-plus"></i>Nuevo miembro</button>');
 
   if(!miembros.length){v.appendChild(frag(mt('ti-users','Todavía no hay miembros en el equipo.')));return}
 
@@ -6287,7 +6451,8 @@ function vOrganigrama(v){
       '<div style="flex:1;min-width:180px"><div style="font-size:20px;font-weight:700;letter-spacing:-.03em">'+esc(m.nombre)+'</div>'+
       '<div style="font-size:13px;color:var(--tx2)">'+esc(ar.nombre)+' · '+esc(compensacionLabel(m))+'</div></div>'+
       '<div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:700">'+money(im.total)+'</div>'+
-      '<div style="font-size:11.5px;color:var(--tx3)">al mes</div></div></div>'+
+      '<div style="font-size:11.5px;color:var(--tx3)">al mes</div></div>'+
+      '<button class="b bg bs" id="org-editar"><i class="ti ti-edit"></i>Ver ficha</button></div>'+
       '<div class="mets" style="margin-top:16px">'+
         '<div class="met met-ctx"><div class="mlab">Clientes</div><div class="mval">'+cls.length+'</div><div class="msub">'+(m.capacidadClientes?'de '+m.capacidadClientes+' de tope':'sin tope')+'</div></div>'+
         '<div class="met met-ctx"><div class="mlab">De clientes</div><div class="mval">'+money(im.clientes)+'</div></div>'+
@@ -6322,6 +6487,8 @@ function vOrganigrama(v){
       pc.querySelectorAll('[data-mem]').forEach(n=>n.onclick=()=>{S.orgSel=n.dataset.mem;render()});
     }
     const bt=document.getElementById('org-todos');if(bt)bt.onclick=()=>{S.orgSel=null;render()};
+    const bn=document.getElementById('org-nuevo');if(bn)bn.onclick=()=>{S.mMember='new';S.eMember='new';render()};
+    const be=document.getElementById('org-editar');if(be)be.onclick=()=>{S.mMember=m.id;render()};
     return;
   }
 
@@ -6361,6 +6528,7 @@ function vOrganigrama(v){
     v.appendChild(card);
     card.querySelectorAll('[data-mem]').forEach(n=>n.onclick=()=>{S.orgSel=n.dataset.mem;render()});
   });
+  const bn=document.getElementById('org-nuevo');if(bn)bn.onclick=()=>{S.mMember='new';S.eMember='new';render()};
 }
 
 function vCapacidad(v){
@@ -7078,6 +7246,24 @@ function deudasEquipo(){
 }
 function vPagosEquipo(v){
   head(v,'Equipo','Pagos al equipo','Registra pagos, adelantos independientes y controla lo pendiente por cliente.','<button class="b bg" id="new-devolucion"><i class="ti ti-arrow-back-up"></i>Registrar devolución</button><button class="b bp" id="new-adv-general"><i class="ti ti-cash"></i>Nuevo adelanto al equipo</button>');
+  /* Trabajos sueltos pendientes de pago, fuera de la quincena. */
+  {
+    const pend=trabajosPendientesPago();
+    if(pend.length){
+      const tot=r2(pend.reduce((s2,t)=>s2+(Number(t.montoMiembro)||0),0));
+      const tc=document.createElement('div');tc.className='card';tc.style.cssText='margin-bottom:16px;border-left:3px solid var(--verde)';
+      tc.innerHTML='<div class="ctitle">Trabajos por pagar <span class="cnt">'+pend.length+' · '+money(tot)+'</span></div>'+
+        '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Encargos sueltos que se pagan aparte de la quincena, cada uno a quien lo hizo.</div>'+
+        pend.map(t=>{const mm=memberById(t.memberId),cc=companyById(t.companyId);
+          return '<div class="lrow"><div style="display:flex;align-items:center;gap:9px;min-width:0">'+av(mm?mm.nombre:'?','s',1,mm&&mm.foto)+
+          '<div style="min-width:0"><div class="lname">'+esc(t.descripcion)+'</div>'+
+          '<div class="lsub">'+esc(mm?mm.nombre:'sin asignar')+' · '+esc(cc?cc.negocio:'')+' · '+fdate(t.fecha)+'</div></div></div>'+
+          '<div style="display:flex;align-items:center;gap:10px"><span class="mono" style="font-weight:700">'+money(t.montoMiembro)+'</span>'+
+          '<button class="b bp bs" data-pagartrab="'+t.id+'">Pagar</button></div></div>'}).join('');
+      v.appendChild(tc);
+      tc.querySelectorAll('[data-pagartrab]').forEach(b=>b.onclick=()=>pagarTrabajoModal(b.dataset.pagartrab));
+    }
+  }
   const year=S.nomYear;
   const pagos=[...visiblePayouts()].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
   const total=r2(pagos.filter(p=>!esPayoutSinWallet(p)).reduce((s,p)=>s+(Number(p.monto)||0),0));
