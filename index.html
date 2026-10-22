@@ -889,6 +889,18 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .hd .eyeb::before{content:'';display:inline-block;width:14px;height:3px;border-radius:99px;background:var(--verde);margin-right:8px;vertical-align:middle}
 .eyeb{color:var(--verde-hondo)}
 .b.bv{background:var(--verde);color:#fff;box-shadow:0 8px 24px rgba(63,191,96,.24)}
+
+/* Organigrama: nodos interactivos */
+.orgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.orgnode{border:1px solid var(--ln2);border-radius:var(--r);padding:13px;cursor:pointer;background:var(--card);transition:.16s}
+.orgnode:hover{border-color:var(--lav);box-shadow:0 10px 26px rgba(110,75,198,.14);transform:translateY(-2px)}
+.orgnode-p:hover{border-color:var(--verde);box-shadow:0 10px 26px rgba(63,191,96,.16)}
+.orgnode-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.orgnode-n{font-size:13.5px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orgnode-s{font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.orgnode-b{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:var(--tx3);border-top:1px solid var(--ln);padding-top:9px}
+.orgbar{height:5px;border-radius:99px;background:var(--card2);overflow:hidden;margin-bottom:10px}
+.orgbar-f{height:100%;border-radius:99px;transition:width .3s}
 </style>
 </head>
 <body>
@@ -1386,6 +1398,9 @@ function ultimoPagoCliente(c){
   return ult;
 }
 function vencimientoCliente(c){
+  /* Un cliente por trabajo no tiene ciclo de cobro: no puede estar vencido.
+     Lo que deba se ve por sus facturas pendientes. */
+  if(esEventual(c))return{vencido:false,pendientes:[],dias:0,desde:null,monto:0,nuncaPago:false};
   const vacio={vencido:false,pendientes:[],dias:0,desde:null,ultimo:'',monto:0};
   if(!c||c.tipoContrato==='unico')return vacio;
   const hoy=today(), ultimo=ultimoPagoCliente(c);
@@ -1645,10 +1660,20 @@ function calcularNomina(q){
     S.companies.filter(c=>c.estado==='activo').forEach(c=>{
       /* Un trabajo único solo cuenta dentro de su ventana. */
       if(!clienteCuentaEnQuincena(c,q))return;
-      const asign=asigDeMiembroRaw(c,m.id);if(!asign)return;const mensual=asigDeMiembro(c,m.id);if(mensual<=0)return;
+      /* En los clientes por trabajo la asignación mensual es cero porque no hay
+         tarifa: lo que cuenta es lo cobrado, así que no se descartan aquí. */
+      const evtC=esEventual(c);
+      const asign=evtC?((c.asignaciones||[]).find(x=>x.memberId===m.id&&x.activo!==false&&!esAsignacionSoloEquipo(x))||null)
+                      :asigDeMiembroRaw(c,m.id);
+      if(!asign)return;
+      const mensual=asigDeMiembro(c,m.id);
+      if(!evtC&&mensual<=0)return;
       const fr=fraccionQuincena(c,q);
       if(fr<=0)return;
-      const mq=r2(mensual*fr),cb=cobroNominaCliente(c,q),clientePeriodo=r2((Number(c.tarifaBruta)||0)*fr);
+      const evt=esEventual(c);
+      const mq=evt?montoEventualMiembro(c,q,m.id):r2(mensual*fr);
+      if(mq<=0)return;
+      const cb=cobroNominaCliente(c,q),clientePeriodo=basePeriodoCliente(c,q,fr);
       const pctCobrado=quincenaDisponible&&clientePeriodo>0?Math.max(0,Math.min(1,cb.totalBruto/clientePeriodo)):0,ganado=quincenaDisponible?r2(mq*pctCobrado):0;
       const pagosQ=pagosNominaDeMiembroEnQ(m.id,q.key);
       const yaPagadoCliente=r2(pagosQ.reduce((sum,p)=>{const z=(p.detalle||[]).find(d=>d.companyId===c.id||d.negocio===c.negocio);return sum+(z?Number(z.pagable)||0:0)},0));
@@ -2269,7 +2294,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['organigrama','Organigrama'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -2557,6 +2582,7 @@ function renderNav(){
            ['facturas','ti-file-invoice','Facturas',visibleInvoices().length],
            ['egresos','ti-receipt-2','Egresos',visibleEgresos().length]]],
     ['n4',[['equipo','ti-users','Miembros',visibleMembers().length],
+           ['organigrama','ti-sitemap','Organigrama',null],
            ['capacidad','ti-gauge','Capacidad',(()=>{const c=capacidadAgencia();return c.techo>0?c.libres:null})()],
            ['nomina','ti-calendar-dollar','Nómina',null],
            ['pagos-equipo','ti-cash-banknote','Pagos al equipo',null]]],
@@ -2600,7 +2626,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -4045,6 +4071,38 @@ return (q.mitad===1?'1–15':'16–'+q.fin.slice(8))+' '+m[q.mes-1]}
 /* SERVICIOS ya existe más arriba, declarado para el catálogo de la agencia. */
 function servicioDe(c){const l=(c&&c.servicios)||[];return l.length?l.join(' · '):'Sin servicio marcado'}
 function esUnico(c){return !!(c&&c.tipoContrato==='unico')}
+/* ─────────── CLIENTE POR TRABAJO ───────────
+   Relación continua pero sin cuota fija: factura cuando hay trabajo. No tiene
+   tarifa mensual ni fecha de cobro, así que no puede vencer ni generar nómina
+   por tarifa. Lo que gana el equipo sale de lo que el cliente pagó de verdad. */
+function esEventual(c){return !!(c&&c.tipoContrato==='eventual')}
+/* Lo cobrado a un cliente por trabajo dentro de una quincena. */
+function cobradoEnQuincena(c,q){
+  return r2((S.cobros||[]).filter(p=>p.companyId===c.id&&p.tipoIngreso!=='externo'
+    &&p.tipoIngreso!=='devolucionAdelanto'&&p.fecha>=q.inicio&&p.fecha<=q.fin)
+    .reduce((s2,p)=>s2+(Number(p.montoBruto)||0),0));
+}
+/* Base del período para repartir: la tarifa en los fijos, lo cobrado en los
+   clientes por trabajo. */
+function basePeriodoCliente(c,q,fr){
+  if(esEventual(c))return cobradoEnQuincena(c,q);
+  return r2((Number(c.tarifaBruta)||0)*fr);
+}
+/* Lo que le toca a un miembro de un cliente por trabajo en esa quincena. */
+function montoEventualMiembro(c,q,memberId){
+  const base=cobradoEnQuincena(c,q);
+  if(base<=0)return 0;
+  const a=(c.asignaciones||[]).find(x=>x.memberId===memberId&&x.activo!==false);
+  if(!a||esAsignacionSoloEquipo(a))return 0;
+  const K=cortesCliente({...c,tarifaBruta:base});
+  if(a.modo==='proporcional'){
+    const lista=asigsProporcionales(c);
+    const total=lista.reduce((s2,x)=>s2+pesoAsignacion(x),0)||1;
+    return r2(K.equipo*pesoAsignacion(a)/total);
+  }
+  if(a.modo==='comision')return r2(base*(Number(a.comisionPct)||0)/100);
+  return r2(Number(a.monto)||0);
+}
 /* Fecha en que arranca el trabajo: la de inicio, o el primer cobro si no hay. */
 function inicioTrabajo(c){
   if(c&&c.fechaInicio)return c.fechaInicio;
@@ -4086,6 +4144,8 @@ function fraccionQuincena(c,q){
   return (ini>=q.inicio&&ini<=q.fin)?1:0;
 }
 function clienteCuentaEnQuincena(c,q){
+  /* El cliente por trabajo solo cuenta en las quincenas donde cobró algo. */
+  if(esEventual(c))return cobradoEnQuincena(c,q)>0.005;
   if(!esUnico(c))return true;
   const ini=inicioTrabajo(c);
   if(!ini)return false;
@@ -4096,6 +4156,7 @@ function clienteCuentaEnQuincena(c,q){
 }
 function tipoContratoLabel(c){
   const t=c&&c.tipoContrato;
+  if(t==='eventual')return'Por trabajo · sin cuota fija';
   if(t==='unico')return'Pago único';
     return c&&c.frecuencia==='quincenal'?'Recurrente · quincenal':'Recurrente · mensual';
 }
@@ -4289,12 +4350,12 @@ function mCompanyModal(){
       '<div class="f"><label>País</label><select id="e-pais"><option value="">No especificado</option>'+['Venezuela','Estados Unidos','Colombia','España','México','Chile','Argentina','Perú','Panamá','Canadá','República Dominicana','Otro'].map(x=>'<option'+(c.pais===x?' selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+
       '<div class="row"><div class="f"><label>Industria / rubro</label><input id="e-ind" value="'+esc(c.industria||'')+'" placeholder="Restaurante, clínica, retail…"></div>'+
       '<div class="f"><label>Sitio web</label><input id="e-web" value="'+esc(c.web||'')+'" placeholder="https://…"></div></div>'+
-      '<div class="row"><div class="f"><label>Tarifa bruta mensual</label><input id="e-tar" type="number" step="0.01" value="'+c.tarifaBruta+'"><div class="hint">Lo que paga el cliente</div></div>'+
+      '<div class="row"><div class="f"><label>Tarifa bruta mensual</label><input id="e-tar" type="number" step="0.01" value="'+c.tarifaBruta+'"><div class="hint" id="e-tar-h">Lo que paga el cliente</div></div>'+
       '<div class="f"><label>% que se queda la agencia</label><input id="e-pctag" type="number" min="0" max="100" step="0.1" value="'+(c.pctAgencia!=null?c.pctAgencia:pctAgenciaDefecto())+'"><div class="hint" id="e-pctag-h">Sobre el neto, después de la comisión. Va directo al fondo de la agencia en cada cobro.</div></div>'+
       '<div class="f"><label>Método de pago</label><select id="e-met">'+S.metodos.map(x=>'<option value="'+x.id+'"'+(c.metodoPagoId===x.id?' selected':'')+'>'+esc(x.nombre)+' · '+pct(x.comisionPct)+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Comisión manual %</label><input id="e-com" type="number" step="0.1" min="0" max="60" value="'+(c.comisionPct!=null&&c.comisionPct!==''?c.comisionPct:'')+'" placeholder="auto"><div class="hint">Vacío = usa la del método</div></div></div>'+
       '<div class="row"><div class="f"><label>Descuento predeterminado %</label><input id="e-desc" type="number" step="0.01" min="0" max="100" value="'+(c.descuentoPredeterminadoPct||0)+'"><div class="hint">Se aplicará automáticamente al crear facturas de este cliente.</div></div></div>'+
-      '<div class="row"><div class="f"><label>Tipo de contratación</label><select id="e-tipo"><option value="recurrente"'+((c.tipoContrato||'recurrente')==='recurrente'||false?' selected':'')+'>Recurrente</option><option value="unico"'+(c.tipoContrato==='unico'?' selected':'')+'>Pago único</option></select><div class="hint">Recurrente para clientes mensuales o quincenales. Pago único para servicios puntuales.</div></div>'+
+      '<div class="row"><div class="f"><label>Tipo de contratación</label><select id="e-tipo"><option value="recurrente"'+((c.tipoContrato||'recurrente')==='recurrente'?' selected':'')+'>Recurrente · cuota fija</option><option value="eventual"'+(c.tipoContrato==='eventual'?' selected':'')+'>Por trabajo · sin cuota fija</option><option value="unico"'+(c.tipoContrato==='unico'?' selected':'')+'>Pago único</option></select><div class="hint">Recurrente para clientes mensuales o quincenales. Pago único para servicios puntuales.</div></div>'+
       '<div class="f"><label>Frecuencia</label><select id="e-fr">'+[['mensual','Mensual'],['quincenal','Quincenal']].map(([k,l])=>'<option value="'+k+'"'+(c.frecuencia===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
       '<div class="f"><label>Fecha de cobro 1</label><input id="e-dia1" type="number" min="1" max="31" value="'+(c.diaCobro1||c.diaCobro||5)+'"><div class="hint">Día del mes. En quincenal es la primera fecha.</div></div>'+
       '<div class="f"><label>Fecha de cobro 2</label><input id="e-dia2" type="number" min="1" max="31" value="'+(c.diaCobro2||20)+'"><div class="hint">Solo para clientes recurrentes quincenales.</div></div>'+
@@ -4655,6 +4716,13 @@ function mCompanyModal(){
     const selTipo=document.getElementById('e-tipo'), wrapUnico=document.getElementById('e-unico-wrap');
     if(selTipo&&wrapUnico){
       const refrescarUnico=()=>{
+        const evt=selTipo.value==='eventual';
+        const ht=document.getElementById('e-tar-h');
+        if(ht)ht.textContent=evt
+          ? 'Opcional en los clientes por trabajo: lo que gana el equipo sale de lo que el cliente pague cada vez.'
+          : 'Lo que paga el cliente';
+        const ft=document.getElementById('e-tar');
+        if(ft)ft.placeholder=evt?'sin cuota fija':'0.00';
         const es=selTipo.value==='unico';
         wrapUnico.style.display=es?'':'none';
         if(es){
@@ -6184,6 +6252,115 @@ function transferirClientesModal(origenId){
     if(!await saveUI('companies'))return;
     ov.remove();toast(ids.length+' cliente'+(ids.length===1?'':'s')+' transferido'+(ids.length===1?'':'s')+' a '+dest.nombre);render();
   };
+}
+
+/* No existía una etiqueta reutilizable del tipo de compensación. */
+function compensacionLabel(m){
+  const t=m&&m.tipoCompensacion;
+  if(t==='sueldo')return'Sueldo fijo';
+  if(t==='mixto')return'Sueldo + clientes';
+  if(t==='garantizado')return'Ingreso garantizado';
+  return'Por cliente';
+}
+function vOrganigrama(v){
+  if(!S.orgSel)S.orgSel=null;
+  const miembros=(S.members||[]).filter(m=>m.activo!==false);
+  head(v,'Equipo','Organigrama','Quién es quién, en qué área está y qué clientes lleva. Toca a alguien para ver su mapa.',
+    (S.orgSel?'<button class="b bg" id="org-todos"><i class="ti ti-arrow-left"></i>Ver todo el equipo</button>':''));
+
+  if(!miembros.length){v.appendChild(frag(mt('ti-users','Todavía no hay miembros en el equipo.')));return}
+
+  /* ── Mapa de un miembro ── */
+  if(S.orgSel){
+    const m=memberById(S.orgSel);
+    if(!m){S.orgSel=null;render();return}
+    const ar=areaDe(m), cls=clientesDeMiembro(m.id);
+    const im=ingresoMensualMiembro(m);
+    const comps=cls.map(c=>({c,monto:asigDeMiembro(c,m.id),r:repartoCliente(c)}));
+    const compas=new Map();
+    cls.forEach(c=>(c.asignaciones||[]).filter(a=>a.memberId&&a.memberId!==m.id&&a.activo!==false)
+      .forEach(a=>{const o=memberById(a.memberId);if(!o)return;
+        const e=compas.get(o.id)||{m:o,clientes:[]};e.clientes.push(c.negocio);compas.set(o.id,e)}));
+
+    const card=document.createElement('div');card.className='card';card.style.marginBottom='16px';
+    card.innerHTML='<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'+av(m.nombre,'l',1,m.foto)+
+      '<div style="flex:1;min-width:180px"><div style="font-size:20px;font-weight:700;letter-spacing:-.03em">'+esc(m.nombre)+'</div>'+
+      '<div style="font-size:13px;color:var(--tx2)">'+esc(ar.nombre)+' · '+esc(compensacionLabel(m))+'</div></div>'+
+      '<div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:700">'+money(im.total)+'</div>'+
+      '<div style="font-size:11.5px;color:var(--tx3)">al mes</div></div></div>'+
+      '<div class="mets" style="margin-top:16px">'+
+        '<div class="met met-ctx"><div class="mlab">Clientes</div><div class="mval">'+cls.length+'</div><div class="msub">'+(m.capacidadClientes?'de '+m.capacidadClientes+' de tope':'sin tope')+'</div></div>'+
+        '<div class="met met-ctx"><div class="mlab">De clientes</div><div class="mval">'+money(im.clientes)+'</div></div>'+
+        (im.fijo>0.005?'<div class="met met-ctx"><div class="mlab">'+(m.tipoCompensacion==='garantizado'?'Complemento':'Sueldo')+'</div><div class="mval">'+money(im.fijo)+'</div></div>':'')+
+        '<div class="met met-ctx"><div class="mlab">Trabaja con</div><div class="mval">'+compas.size+'</div><div class="msub">compañeros</div></div>'+
+      '</div>';
+    v.appendChild(card);
+
+    const cc=document.createElement('div');cc.className='card';cc.style.marginBottom='16px';
+    cc.innerHTML='<div class="ctitle">Sus clientes <span class="cnt">'+cls.length+'</span></div>'+
+      (cls.length?'<div class="orgrid">'+comps.map(x=>
+        '<div class="orgnode" data-emp="'+x.c.id+'">'+
+        '<div class="orgnode-top">'+av(x.c.negocio,'s',0,x.c.foto)+'<div style="min-width:0"><div class="orgnode-n">'+esc(x.c.negocio)+'</div>'+
+        '<div class="orgnode-s">'+esc(servicioDe(x.c))+'</div></div></div>'+
+        '<div class="orgnode-b"><span>'+esc(tipoContratoLabel(x.c))+'</span><strong class="mono">'+(x.monto?money(x.monto):'—')+'</strong></div>'+
+        '</div>').join('')+'</div>'
+        :'<div style="font-size:12.5px;color:var(--tx3)">No lleva clientes activos.</div>');
+    v.appendChild(cc);
+    cc.querySelectorAll('[data-emp]').forEach(n=>n.onclick=()=>{S.tab='empresas';S.mCompany=n.dataset.emp;render()});
+
+    if(compas.size){
+      const pc=document.createElement('div');pc.className='card';
+      pc.innerHTML='<div class="ctitle">Con quién comparte clientes <span class="cnt">'+compas.size+'</span></div>'+
+        '<div class="orgrid">'+[...compas.values()].map(e=>
+          '<div class="orgnode" data-mem="'+e.m.id+'">'+
+          '<div class="orgnode-top">'+av(e.m.nombre,'s',1,e.m.foto)+'<div style="min-width:0"><div class="orgnode-n">'+esc(e.m.nombre)+'</div>'+
+          '<div class="orgnode-s">'+esc(areaDe(e.m).nombre)+'</div></div></div>'+
+          '<div class="orgnode-b"><span>'+e.clientes.length+' cliente'+(e.clientes.length===1?'':'s')+' en común</span>'+
+          '<strong style="font-size:11px;font-weight:600;color:var(--tx3)">'+esc(e.clientes.slice(0,2).join(', '))+(e.clientes.length>2?'…':'')+'</strong></div>'+
+          '</div>').join('')+'</div>';
+      v.appendChild(pc);
+      pc.querySelectorAll('[data-mem]').forEach(n=>n.onclick=()=>{S.orgSel=n.dataset.mem;render()});
+    }
+    const bt=document.getElementById('org-todos');if(bt)bt.onclick=()=>{S.orgSel=null;render()};
+    return;
+  }
+
+  /* ── Mapa del equipo por áreas ── */
+  const porArea=new Map();
+  miembros.forEach(m=>{
+    const k=areaDe(m).k||'otro';
+    const e=porArea.get(k)||{area:areaDe(m),gente:[]};
+    e.gente.push(m);porArea.set(k,e);
+  });
+  const totalMes=r2(miembros.reduce((s2,m)=>s2+ingresoMensualMiembro(m).total,0));
+  const conClientes=miembros.filter(m=>clientesDeMiembro(m.id).length).length;
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit tone-lime"><div class="mlab">Nómina al mes</div><div class="mval">'+money(totalMes)+'</div><div class="msub">'+miembros.length+' persona'+(miembros.length===1?'':'s')+'</div></div>'+
+    '<div class="met"><div class="mlab">Áreas</div><div class="mval">'+porArea.size+'</div><div class="msub">con gente asignada</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Con clientes</div><div class="mval">'+conClientes+'</div><div class="msub">de '+miembros.length+'</div></div>'+
+    '</div>'));
+
+  [...porArea.values()].sort((a,b)=>b.gente.length-a.gente.length).forEach(g=>{
+    const card=document.createElement('div');card.className='card';card.style.marginBottom='16px';
+    const mesArea=r2(g.gente.reduce((s2,m)=>s2+ingresoMensualMiembro(m).total,0));
+    card.innerHTML='<div class="ctitle">'+esc(g.area.nombre)+' <span class="cnt">'+g.gente.length+' · '+money(mesArea)+'</span></div>'+
+      '<div class="orgrid">'+g.gente.map(m=>{
+        const cls=clientesDeMiembro(m.id), im=ingresoMensualMiembro(m);
+        const tope=Number(m.capacidadClientes)||0;
+        const pctUso=tope?Math.min(100,Math.round(cls.length/tope*100)):0;
+        return '<div class="orgnode orgnode-p" data-mem="'+m.id+'">'+
+          '<div class="orgnode-top">'+av(m.nombre,'m',1,m.foto)+
+          '<div style="min-width:0"><div class="orgnode-n">'+esc(m.nombre)+'</div>'+
+          '<div class="orgnode-s">'+esc(compensacionLabel(m))+'</div></div></div>'+
+          (tope?'<div class="orgbar"><div class="orgbar-f" style="width:'+pctUso+'%;background:'+(pctUso>=100?'var(--red)':pctUso>=80?'var(--amb)':'var(--verde)')+'"></div></div>':'')+
+          '<div class="orgnode-b"><span>'+cls.length+' cliente'+(cls.length===1?'':'s')+(tope?' de '+tope:'')+'</span>'+
+          '<strong class="mono">'+money(im.total)+'</strong></div>'+
+          '</div>';
+      }).join('')+'</div>';
+    v.appendChild(card);
+    card.querySelectorAll('[data-mem]').forEach(n=>n.onclick=()=>{S.orgSel=n.dataset.mem;render()});
+  });
 }
 
 function vCapacidad(v){
