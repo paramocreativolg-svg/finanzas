@@ -915,6 +915,92 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .fps{font-size:11.5px;color:var(--tx3);margin-top:2px}
 .fpmo{font-size:14.5px;font-weight:700;white-space:nowrap}
 @media(max-width:560px){.fprow{flex-wrap:wrap}.fpmo{width:100%;text-align:right}}
+
+/* ═══════════════════════════════════════════════════════════
+   MENÚ EN GRUPOS PLEGABLES
+   Colores: solo los de la paleta existente, cada sección con
+   su --tint. Los mosaicos usan color-mix sobre ese tinte, así
+   que no se introduce ningún color nuevo.
+   ═══════════════════════════════════════════════════════════ */
+#navgroups{display:flex;flex-direction:column;gap:2px}
+
+/* Cabecera de grupo */
+.navgrp-h{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px 6px;cursor:pointer;user-select:none;border-radius:10px;transition:background .15s}
+.navgrp-h:hover{background:color-mix(in srgb,var(--pink) 7%,transparent)}
+.navgrp-h:focus-visible{outline:2px solid var(--lav);outline-offset:2px}
+.navgrp-t{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--tx3)}
+.navgrp-meta{display:flex;align-items:center;gap:7px}
+.navgrp-n{font-size:11px;font-weight:700;color:var(--tx3);background:var(--card2);border-radius:999px;padding:1px 7px}
+.navgrp-dot{width:6px;height:6px;border-radius:50%;background:var(--pink)}
+.navgrp-ar{font-size:15px;color:var(--tx3);transition:transform .3s ease}
+.navgrp.plegado .navgrp-ar{transform:rotate(-90deg)}
+
+/* Cuerpo plegable */
+.navgrp-b{display:grid;grid-template-rows:1fr;opacity:1;
+  transition:grid-template-rows .3s ease,opacity .3s ease,margin .3s ease}
+.navgrp-b>.nav{overflow:hidden;min-height:0}
+.navgrp.plegado .navgrp-b{grid-template-rows:0fr;opacity:0;margin-bottom:-2px;pointer-events:none}
+
+/* Elementos */
+.nav .navit{display:flex;align-items:center;gap:11px;width:100%;min-height:44px;
+  padding:6px 11px;border-radius:13px;border:0;background:transparent;cursor:pointer;
+  font-size:14px;font-weight:600;color:var(--tx2);text-align:left;
+  transition:background .15s,color .15s,box-shadow .15s}
+.navit .navlb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navit .ct{font-size:11px;font-weight:700;color:var(--tx3);background:var(--card2);
+  border-radius:999px;padding:2px 8px;flex-shrink:0}
+.navit:focus-visible{outline:2px solid var(--lav);outline-offset:2px}
+
+/* Mosaico del ícono */
+.navtile{width:32px;height:32px;border-radius:10px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--tint) 16%,transparent);
+  color:var(--tint);transition:background .15s,transform .15s,box-shadow .15s}
+.navtile i{font-size:17px;transition:transform .15s}
+
+/* Estados */
+.nav .navit:hover{background:color-mix(in srgb,var(--tint) 9%,transparent);color:var(--tx)}
+.nav .navit:hover .navtile{background:color-mix(in srgb,var(--tint) 26%,transparent)}
+.nav .navit:hover .navtile i{transform:scale(1.04)}
+.nav .navit.on{background:color-mix(in srgb,var(--tint) 11%,transparent);color:var(--tx);font-weight:700;box-shadow:none}
+.nav .navit.on .navtile{background:var(--tint);color:#fff;
+  box-shadow:0 6px 16px color-mix(in srgb,var(--tint) 38%,transparent)}
+.nav .navit.on .ct{background:color-mix(in srgb,var(--tint) 18%,transparent);color:var(--tint)}
+.navsueltos{margin-top:6px;padding-top:6px;border-top:1px solid var(--ln)}
+
+@media(prefers-reduced-motion:reduce){
+  .navgrp-b,.navgrp-ar,.navtile,.navtile i,.navit{transition:none}
+}
+/* Móvil: mismos mosaicos y acentos, misma estructura */
+@media(max-width:900px){
+  .nav .navit{min-height:46px}
+  .navtile{width:32px;height:32px}
+}
+
+/* Botón flotante de registro rápido */
+#fab{position:fixed;right:22px;bottom:22px;z-index:60;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+#fab[hidden]{display:none}
+#fab-btn{width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;background:var(--pink);color:#fff;
+  box-shadow:0 10px 30px color-mix(in srgb,var(--pink) 42%,transparent);
+  display:flex;align-items:center;justify-content:center;transition:transform .22s ease,box-shadow .2s}
+#fab-btn i{font-size:26px;transition:transform .22s ease}
+#fab-btn:hover{box-shadow:0 14px 38px color-mix(in srgb,var(--pink) 52%,transparent)}
+#fab.abierto #fab-btn i{transform:rotate(45deg)}
+#fab-btn:focus-visible{outline:3px solid var(--lav);outline-offset:3px}
+#fab-menu{display:flex;flex-direction:column;align-items:flex-end;gap:8px;
+  opacity:0;transform:translateY(10px) scale(.96);pointer-events:none;transition:.22s ease}
+#fab.abierto #fab-menu{opacity:1;transform:none;pointer-events:auto}
+.fabit{display:flex;align-items:center;gap:10px;border:0;cursor:pointer;background:transparent;padding:0}
+.fablb{font-size:13px;font-weight:650;color:var(--tx);background:var(--card);
+  border:1px solid var(--ln2);border-radius:999px;padding:7px 13px;box-shadow:var(--sh1);white-space:nowrap}
+.fabtile{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+  background:var(--card);border:1px solid var(--ln2);color:var(--tint);box-shadow:var(--sh1);transition:.16s}
+.fabtile i{font-size:20px}
+.fabit:hover .fabtile{background:color-mix(in srgb,var(--tint) 14%,var(--card));border-color:var(--tint);transform:scale(1.05)}
+.fabit:focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:999px}
+@media(max-width:900px){#fab{right:16px;bottom:78px}}
+@media(prefers-reduced-motion:reduce){#fab-menu,#fab-btn,#fab-btn i,.fabtile{transition:none}}
 </style>
 </head>
 <body>
@@ -930,16 +1016,16 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
       <input type="text" id="q" placeholder="Buscar…">
       <div id="qr"></div>
     </div>
-    <div class="nsec">Panel</div><nav class="nav" id="n1"></nav>
-    <div class="nsec">Clientes</div><nav class="nav" id="n2"></nav>
-    <div class="nsec">Dinero</div><nav class="nav" id="n3"></nav>
-    <div class="nsec">Equipo</div><nav class="nav" id="n4"></nav>
-    <div class="nsec">Config</div><nav class="nav" id="n5"></nav>
+    <div id="navgroups"></div>
     <div class="sfoot"><i class="ti ti-mountain"></i> La Grita, Táchira</div>
   </aside>
   <main class="main"><div id="mt"></div></main>
 </div>
 <div id="tm"></div>
+<div id="fab" hidden>
+  <div id="fab-menu" role="menu" aria-label="Registro rápido"></div>
+  <button id="fab-btn" aria-label="Registrar algo" aria-expanded="false" aria-haspopup="true"><i class="ti ti-plus" aria-hidden="true"></i></button>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -2310,7 +2396,7 @@ function estadoCobroMes(companyId,ym){
 
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
-  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
+  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['cobranza','Cobranza'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
   ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['organigrama','Organigrama'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
@@ -2579,42 +2665,216 @@ document.addEventListener('drop',function(e){
 },true);
 
 /* ═══════════ NAV ═══════════ */
-function renderNav(){
-  const sets=[
-    ['n1',[['panel','ti-home','Inicio',null],['proyeccion','ti-chart-donut','Proyección',null],['estadisticas-clientes','ti-chart-pie','Estadísticas clientes',null]]],
-    ['n2',[['empresas','ti-building','Empresas',visibleCompanies().filter(c=>c.estado==='activo').length],
-           ['inactivos','ti-archive','Pausados y perdidos',(()=>{const n=(visibleCompanies()||[]).filter(c=>c.estado!=='activo').length;return n||null})()],
-           ['contactos','ti-address-book','Contactos',visibleContacts().length],
-           ['prospectos','ti-target-arrow','Prospectos',visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length],
-           ['captacion','ti-radar','Captación',null]]],
-    ['n3',[['rentabilidad','ti-coin','Rentabilidad real',null],
-           ['fondo','ti-pig-money','Fondo agencia',null],
-           ['wallets','ti-wallet','Wallets',S.metodos.length],
-           ['fechas-pago','ti-calendar-event','Fechas de pago',null],
-           ['morosos','ti-alert-octagon','Morosos',(()=>{const n=listaMorosos().length;return n||null})()],
-           ['estado-cuenta','ti-file-description','Estado de cuenta',null],
-           ['linea','ti-table','Línea de cobranza',null],
-           ['cobros','ti-cash','Cobros',null],
-           ['caja','ti-chart-line','Flujo de caja',null],
-           ['facturas','ti-file-invoice','Facturas',visibleInvoices().length],
-           ['egresos','ti-receipt-2','Egresos',visibleEgresos().length]]],
-    ['n4',[['equipo','ti-users','Miembros',visibleMembers().length],
-           ['organigrama','ti-sitemap','Organigrama',null],
-           ['capacidad','ti-gauge','Capacidad',(()=>{const c=capacidadAgencia();return c.techo>0?c.libres:null})()],
-           ['nomina','ti-calendar-dollar','Nómina',null],
-           ['pagos-equipo','ti-cash-banknote','Pagos al equipo',null]]],
-    ['n5',[['ajustes','ti-settings','Ajustes',null]]]
-  ];
-  sets.forEach(([elId,items])=>{
-    const el=document.getElementById(elId);el.innerHTML='';
-    items.filter(x=>canView(x[0])).forEach(([k,ic,lb,ct])=>{
-      const b=document.createElement('button');
-      b.className=S.tab===k?'on':'';
-      b.innerHTML='<i class="ti '+ic+'"></i><span>'+lb+'</span>'+(ct!==null?'<span class="ct">'+ct+'</span>':'');
-      b.onclick=()=>{S.tab=k;render()};
-      el.appendChild(b);
-    });
+/* ═══════════ NAVEGACIÓN ═══════════
+   Cuatro grupos por lo que haces, no por el tipo de dato:
+     Panel     · lo que se mira para decidir
+     Clientes  · la cartera y todo lo de cobrarles
+     Dinero    · dónde está la plata y a dónde se va
+     Equipo    · las personas y lo que se les paga
+   Ajustes queda suelto al final porque no pertenece a ninguno.
+   Cada sección lleva su color de acento (--tint) derivado de la paleta. */
+const NAV_GRUPOS=[
+  {id:'panel',titulo:'Panel',items:[
+    ['panel','ti-home','Inicio','var(--pink)'],
+    ['proyeccion','ti-chart-donut','Proyección','var(--lav)'],
+    ['estadisticas-clientes','ti-chart-pie','Estadísticas clientes','var(--sky)'],
+    ['rentabilidad','ti-coin','Rentabilidad real','var(--lime)'],
+    ['caja','ti-chart-line','Flujo de caja','var(--sky)']]},
+  {id:'clientes',titulo:'Clientes',items:[
+    ['empresas','ti-building','Empresas','var(--pink)'],
+    ['inactivos','ti-archive','Pausados y perdidos','var(--tx3)'],
+    ['contactos','ti-address-book','Contactos','var(--lav)'],
+    ['prospectos','ti-target-arrow','Prospectos','var(--sky)'],
+    ['captacion','ti-radar','Captación','var(--sky)'],
+    ['cobranza','ti-calendar-event','Cobranza','var(--amb)'],
+    ['facturas','ti-file-invoice','Facturas','var(--amb)'],
+    ['cobros','ti-cash','Cobros','var(--lime)']]},
+  {id:'dinero',titulo:'Dinero',items:[
+    ['wallets','ti-wallet','Wallets','var(--lime)'],
+    ['fondo','ti-pig-money','Fondo agencia','var(--lime)'],
+    ['egresos','ti-receipt-2','Egresos','var(--red)']]},
+  {id:'equipo',titulo:'Equipo',items:[
+    ['organigrama','ti-sitemap','Organigrama','var(--pink)'],
+    ['capacidad','ti-gauge','Capacidad','var(--sky)'],
+    ['nomina','ti-calendar-dollar','Nómina','var(--amb)'],
+    ['pagos-equipo','ti-cash-banknote','Pagos al equipo','var(--lime)']]}
+];
+const NAV_SUELTOS=[['ajustes','ti-settings','Ajustes','var(--tx3)']];
+/* Contadores: viven aparte para que la tabla de arriba sea solo estructura. */
+function navContador(k){
+  try{
+    if(k==='empresas')return visibleCompanies().filter(c=>c.estado==='activo').length;
+    if(k==='inactivos'){const n=(visibleCompanies()||[]).filter(c=>c.estado!=='activo').length;return n||null}
+    if(k==='contactos')return visibleContacts().length;
+    if(k==='prospectos')return visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length;
+    if(k==='cobranza'){const n=listaMorosos().length;return n||null}
+    if(k==='wallets')return S.metodos.length;
+    if(k==='facturas'){const n=facturasPendientes().length;return n||visibleInvoices().length}
+    if(k==='egresos')return visibleEgresos().length;
+    if(k==='equipo')return visibleMembers().length;
+    if(k==='capacidad'){const c=capacidadAgencia();return c.techo>0?c.libres:null}
+  }catch(e){}
+  return null;
+}
+const NAV_LS='pc2_nav_plegados';
+function navPlegados(){
+  try{const v=JSON.parse(localStorage.getItem(NAV_LS)||'[]');return Array.isArray(v)?v:[]}
+  catch(e){return []}
+}
+function guardarPlegados(l){try{localStorage.setItem(NAV_LS,JSON.stringify(l))}catch(e){}}
+function navAcordeon(){return window.innerHeight<760}
+
+/* Si el menú no cabe a lo alto, se pliegan los grupos sin la sección activa,
+   empezando por el último. Nunca se achica la letra ni el espaciado. */
+/* ═══════════ REGISTRO RÁPIDO ═══════════
+   Un botón flotante con las cuatro cosas que más se registran, para no tener
+   que navegar hasta la sección cada vez. Solo ofrece lo que el rol puede ver. */
+const FAB_ACCIONES=[
+  {k:'cobro',ic:'ti-cash',lb:'Cobro de cliente',tint:'var(--lime)',ver:'cobros',
+   go:()=>{S.tab='cobros';S.presetCompany=null;render()}},
+  {k:'gasto',ic:'ti-receipt-2',lb:'Gasto',tint:'var(--red)',ver:'egresos',
+   go:()=>{S.tab='egresos';S.eEgreso='new';render()}},
+  {k:'adelanto',ic:'ti-wallet',lb:'Adelanto al equipo',tint:'var(--amb)',ver:'pagos-equipo',
+   go:()=>{S.tab='pagos-equipo';render();setTimeout(()=>{const b=document.getElementById('new-adv-general');if(b)b.click()},60)}},
+  {k:'cliente',ic:'ti-building-plus',lb:'Cliente nuevo',tint:'var(--pink)',ver:'empresas',
+   go:()=>{S.tab='empresas';S.mCompany='new';S.eCompany='new';render()}}
+];
+let fabAbierto=false;
+function cerrarFab(){
+  fabAbierto=false;
+  const w=document.getElementById('fab'),b=document.getElementById('fab-btn');
+  if(w)w.classList.remove('abierto');
+  if(b)b.setAttribute('aria-expanded','false');
+}
+function renderFab(){
+  const wrap=document.getElementById('fab'),menu=document.getElementById('fab-menu'),btn=document.getElementById('fab-btn');
+  if(!wrap||!menu||!btn)return;
+  const acciones=FAB_ACCIONES.filter(a=>canView(a.ver));
+  if(!acciones.length||S.loading){wrap.hidden=true;return}
+  wrap.hidden=false;
+  menu.innerHTML=acciones.map(a=>'<button class="fabit" role="menuitem" data-fab="'+a.k+'" style="--tint:'+a.tint+'">'+
+    '<span class="fablb">'+a.lb+'</span><span class="fabtile"><i class="ti '+a.ic+'" aria-hidden="true"></i></span></button>').join('');
+  menu.querySelectorAll('[data-fab]').forEach(b=>b.onclick=()=>{
+    const a=acciones.find(x=>x.k===b.dataset.fab);
+    cerrarFab();
+    if(a)a.go();
   });
+  btn.onclick=e=>{
+    e.stopPropagation();
+    fabAbierto=!fabAbierto;
+    wrap.classList.toggle('abierto',fabAbierto);
+    btn.setAttribute('aria-expanded',fabAbierto?'true':'false');
+  };
+  if(!wrap.dataset.ligado){
+    wrap.dataset.ligado='1';
+    document.addEventListener('click',ev=>{if(fabAbierto&&!wrap.contains(ev.target))cerrarFab()});
+    document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&fabAbierto)cerrarFab()});
+  }
+}
+/* Grupos que el usuario abrió a mano en esta sesión: el ajuste automático no
+   los vuelve a cerrar. Sin esto, al expandir uno el reajuste lo plegaba otra
+   vez en el mismo render y parecía que el menú no respondía. */
+const navAbiertosAMano=new Set();
+function ajustarNavAltura(){
+  const cont=document.getElementById('navgroups');
+  if(!cont)return;
+  const aside=cont.closest('aside');
+  if(!aside)return;
+  const cabe=()=>aside.scrollHeight<=aside.clientHeight+2;
+  if(cabe())return;
+  const plegados=new Set(navPlegados());
+  const candidatos=NAV_GRUPOS.filter(g=>!g.items.some(it=>it[0]===S.tab)&&!plegados.has(g.id)
+    &&!navAbiertosAMano.has(g.id)).reverse();
+  for(const g of candidatos){
+    const el=cont.querySelector('[data-g="'+g.id+'"]');
+    if(!el)continue;
+    el.classList.add('plegado');
+    const h=el.querySelector('.navgrp-h');
+    if(h)h.setAttribute('aria-expanded','false');
+    plegados.add(g.id);
+    if(cabe())break;
+  }
+  guardarPlegados([...plegados]);
+}
+function renderNav(){
+  const cont=document.getElementById('navgroups');
+  if(!cont)return;
+  const plegados=new Set(navPlegados());
+  const grupoActivo=(NAV_GRUPOS.find(g=>g.items.some(it=>it[0]===S.tab))||{}).id||null;
+  /* Al navegar, el grupo de la sección activa se abre solo. */
+  if(grupoActivo&&plegados.has(grupoActivo)){plegados.delete(grupoActivo);guardarPlegados([...plegados])}
+  cont.innerHTML='';
+
+  const pintarItem=(k,ic,lb,tint)=>{
+    const ct=navContador(k);
+    const b=document.createElement('button');
+    b.className='navit'+(S.tab===k?' on':'');
+    b.style.setProperty('--tint',tint||'var(--pink)');
+    b.setAttribute('aria-current',S.tab===k?'page':'false');
+    b.innerHTML='<span class="navtile"><i class="ti '+ic+'" aria-hidden="true"></i></span>'+
+      '<span class="navlb">'+lb+'</span>'+
+      (ct!==null&&ct!==undefined?'<span class="ct">'+ct+'</span>':'');
+    b.onclick=()=>{S.tab=k;render()};
+    return b;
+  };
+
+  NAV_GRUPOS.forEach(g=>{
+    const items=g.items.filter(it=>canView(it[0]));
+    if(!items.length)return;
+    const plegado=plegados.has(g.id);
+    const tieneActivo=items.some(it=>it[0]===S.tab);
+
+    const wrap=document.createElement('div');
+    wrap.className='navgrp'+(plegado?' plegado':'');
+    wrap.dataset.g=g.id;
+
+    const h=document.createElement('div');
+    h.className='navgrp-h';
+    h.setAttribute('role','button');
+    h.setAttribute('tabindex','0');
+    h.setAttribute('aria-expanded',plegado?'false':'true');
+    h.innerHTML='<span class="navgrp-t">'+g.titulo+'</span>'+
+      '<span class="navgrp-meta">'+
+        (plegado?'<span class="navgrp-n">'+items.length+'</span>'+(tieneActivo?'<span class="navgrp-dot"></span>':''):'')+
+        '<i class="ti ti-chevron-down navgrp-ar" aria-hidden="true"></i></span>';
+
+    const body=document.createElement('div');body.className='navgrp-b';
+    const inner=document.createElement('nav');inner.className='nav';
+    items.forEach(([k,ic,lb,tint])=>inner.appendChild(pintarItem(k,ic,lb,tint)));
+    body.appendChild(inner);
+
+    /* Cada cabecera pliega SU grupo: se captura g.id, no una variable del bucle. */
+    const alternar=()=>{
+      const ahora=new Set(navPlegados());
+      const estabaPlegado=ahora.has(g.id);
+      if(estabaPlegado){
+        ahora.delete(g.id);
+        navAbiertosAMano.add(g.id);
+        /* En pantallas bajas funciona como acordeón: al abrir uno, cierra los demás. */
+        if(navAcordeon())NAV_GRUPOS.forEach(o=>{if(o.id!==g.id){ahora.add(o.id);navAbiertosAMano.delete(o.id)}});
+      } else {
+        ahora.add(g.id);
+        navAbiertosAMano.delete(g.id);
+      }
+      guardarPlegados([...ahora]);
+      renderNav();
+    };
+    h.onclick=alternar;
+    h.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();alternar()}};
+
+    wrap.appendChild(h);wrap.appendChild(body);
+    cont.appendChild(wrap);
+  });
+
+  const sueltos=NAV_SUELTOS.filter(it=>canView(it[0]));
+  if(sueltos.length){
+    const n=document.createElement('nav');n.className='nav navsueltos';
+    sueltos.forEach(([k,ic,lb,tint])=>n.appendChild(pintarItem(k,ic,lb,tint)));
+    cont.appendChild(n);
+  }
+  ajustarNavAltura();
+  renderFab();
+
   const u=currentUser(),r=u&&roleById(u.roleId);
   const sf=document.querySelector('.sfoot');
   if(sf&&u)sf.innerHTML='<div class="sfoot-id" style="display:flex;align-items:center;gap:8px;margin-bottom:9px">'+
@@ -2643,7 +2903,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,cobranza:vCobranza,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -3156,12 +3416,12 @@ function vCaptacion(v){
   const T=S.capTab;
   head(v,'Clientes','Captación','Vuelca aquí cualquier lista que consigas y la app la limpia, quita duplicados y la mete al pipeline.',
     '<div class="chips" style="margin:0">'+
-    [['importar','Importar'],['bandeja','Bandeja'],['extraer','Extractores'],['fuentes','Por fuente']]
+    [['importar','Importar'],['extraer','Extractores'],['fuentes','Por fuente']]
     .map(([k,l])=>'<button type="button" class="chip'+(T===k?' on':'')+'" data-ct="'+k+'">'+l+'</button>').join('')+'</div>');
   v.querySelectorAll('[data-ct]').forEach(b=>b.onclick=()=>{S.capTab=b.dataset.ct;render()});
 
+  if(T==='bandeja'){S.tab='prospectos';S.proVista='lista';render();return}
   if(T==='importar')panelImportar(v);
-  else if(T==='bandeja')panelBandeja(v);
   else if(T==='extraer')panelExtractores(v);
   else panelFuentes(v);
 }
@@ -3264,7 +3524,7 @@ function panelImportar(v){
     toast(lista.length+' prospectos importados');
     S.imp={texto:'',mapa:null,fuente:I.fuente,etapa:I.etapa};
     S.bnd={q:'',fuente:I.fuente,etapa:'todas',contacto:'todos',orden:'reciente',sel:[]};
-    S.capTab='bandeja';render();
+    S.tab='prospectos';S.proVista='lista';render();
   };
   const bs=pr.querySelector('#imp-save');if(bs)bs.onclick=()=>crear(listos);
   const bf=pr.querySelector('#imp-force');if(bf)bf.onclick=()=>{if(confirm('Vas a crear '+dups.length+' prospectos que ya existen. ¿Seguro?'))crear(listos.concat(dups))};
@@ -3656,8 +3916,22 @@ function vProspectos(v){
     if(lp){vLead(v,lp);return}
     S.lead=null;
   }
+  if(!S.proVista)S.proVista='tablero';
+  if(S.proVista==='lista'){
+    /* La bandeja vivía en Captación mostrando los mismos prospectos en tabla.
+       Ahora es la vista de lista de esta misma sección. */
+    head(v,'Clientes','Prospectos','Los mismos prospectos en tabla, para trabajarlos en lote.',
+      '<div class="chips" style="margin:0">'+
+      [['tablero','Tablero'],['lista','Lista']].map(([k,l])=>'<button type="button" class="chip'+(S.proVista===k?' on':'')+'" data-pv="'+k+'">'+l+'</button>').join('')+'</div>');
+    v.querySelectorAll('[data-pv]').forEach(b=>b.onclick=()=>{S.proVista=b.dataset.pv;render()});
+    panelBandeja(v);
+    return;
+  }
   head(v,'Clientes','Prospectos','Arrastra las tarjetas entre columnas. Toca una para abrir su panel.',
+    '<div class="chips" style="margin:0 10px 0 0">'+
+    [['tablero','Tablero'],['lista','Lista']].map(([k,l])=>'<button type="button" class="chip'+(S.proVista===k?' on':'')+'" data-pv="'+k+'">'+l+'</button>').join('')+'</div>'+
     '<button class="b bp" id="new-p"><i class="ti ti-plus"></i>Nuevo</button>');
+  v.querySelectorAll('[data-pv]').forEach(b=>b.onclick=()=>{S.proVista=b.dataset.pv;render()});
   const pend=prospectosPendientes();
   if(pend.length){
     const al=document.createElement('div');al.className='card';al.style.cssText='margin-bottom:14px;border-left:3px solid var(--amb)';
@@ -5169,6 +5443,33 @@ async function cobrarRapido(c,monto,fecha){
   return true;
 }
 
+/* ═══════════ COBRANZA ═══════════
+   Fechas de pago, Morosos, Estado de cuenta y Línea de cobranza respondían
+   variantes de la misma pregunta —quién debe y cuánto— en cuatro secciones.
+   Ahora es una sola con pestañas; cada vista sigue siendo la misma función. */
+const COB_TABS=[['checklist','Checklist'],['morosos','Morosos'],['cliente','Por cliente'],['tabla','Tabla']];
+function vCobranza(v){
+  if(!S.cobTab)S.cobTab='checklist';
+  const n=listaMorosos().length;
+  const barra=document.createElement('div');barra.className='chips';barra.style.margin='0 0 16px';
+  barra.innerHTML=COB_TABS.map(([k,l])=>'<button type="button" class="chip'+(S.cobTab===k?' on':'')+'" data-cob="'+k+'">'+
+    l+(k==='morosos'&&n?' <span style="opacity:.7">'+n+'</span>':'')+'</button>').join('');
+  /* El contenedor se cuelga de v ANTES de pintar: varias vistas buscan sus
+     propios elementos con document.getElementById y, si no están en el
+     documento, el enganche de eventos revienta. */
+  const sub=document.createElement('div');
+  v.appendChild(sub);
+  if(S.cobTab==='checklist'){S.fpVista='lista';vFechasPago(sub)}
+  else if(S.cobTab==='morosos')vMorosos(sub);
+  else if(S.cobTab==='cliente')vEstadoCuenta(sub);
+  else vLinea(sub);
+  /* La barra va bajo el encabezado que ya pintó la vista interna. */
+  const hd=sub.querySelector('.hd');
+  if(hd&&hd.nextSibling)sub.insertBefore(barra,hd.nextSibling);
+  else sub.insertBefore(barra,sub.firstChild);
+  v.querySelectorAll('[data-cob]').forEach(b=>b.onclick=()=>{S.cobTab=b.dataset.cob;render()});
+}
+
 function vFechasPago(v){
   if(!S.fpVista)S.fpVista='lista';
   const act=visibleCompanies().filter(c=>c.estado==='activo');
@@ -5177,9 +5478,7 @@ function vFechasPago(v){
   const diaSem=f=>f?DIAS[new Date(f+'T12:00:00').getDay()]:'';
 
   head(v,'Cobranza','Fechas de pago','Marca lo que ya cobraste. Las fechas salen de los días configurados en la ficha de cada empresa.',
-    '<div class="chips" style="margin:0">'+
-    [['lista','Lista'],['detalle','Detalle']].map(([k,l])=>'<button type="button" class="chip'+(S.fpVista===k?' on':'')+'" data-fpv="'+k+'">'+l+'</button>').join('')+'</div>');
-  v.querySelectorAll('[data-fpv]').forEach(b=>b.onclick=()=>{S.fpVista=b.dataset.fpv;render()});
+'');
 
   if(S.fpVista==='lista'){
     const hoy2=today(), ym2=hoy2.slice(0,7);
