@@ -1001,6 +1001,88 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .fabit:focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:999px}
 @media(max-width:900px){#fab{right:16px;bottom:78px}}
 @media(prefers-reduced-motion:reduce){#fab-menu,#fab-btn,#fab-btn i,.fabtile{transition:none}}
+
+/* ═══════════════════════════════════════════════════════════
+   MENÚ CONTRAÍDO Y MÓVIL
+   El CSS antiguo escondía todos los <span> de cada botón. Los
+   elementos nuevos tienen dos (mosaico y texto), así que se
+   quedaban vacíos. Aquí se corrige y se adapta a móvil.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Barra lateral contraída ── */
+body.nav-collapsed .navgrp-h{display:none}
+/* Contraída, los grupos se muestran siempre abiertos: si no, habría
+   iconos escondidos sin forma de llegar a ellos. */
+body.nav-collapsed .navgrp.plegado .navgrp-b{grid-template-rows:1fr;opacity:1;pointer-events:auto;margin-bottom:0}
+body.nav-collapsed .navgrp+.navgrp{margin-top:6px;padding-top:6px;border-top:1px solid var(--ln)}
+body.nav-collapsed .nav .navit{justify-content:center;padding:6px 0;gap:0}
+body.nav-collapsed .navit .navlb,
+body.nav-collapsed .navit .ct{display:none}
+/* El mosaico sí se queda: es lo único que identifica la sección. */
+body.nav-collapsed .navit .navtile{display:flex}
+body.nav-collapsed .nav .navit.on{background:transparent;box-shadow:none}
+body.nav-collapsed .navsueltos{border-top:1px solid var(--ln)}
+
+/* ── Móvil ── */
+@media(max-width:880px){
+  body.nav-collapsed .navgrp-h{display:flex}
+  body.nav-collapsed .nav .navit{justify-content:flex-start;padding:6px 11px;gap:11px}
+  body.nav-collapsed .navit .navlb,
+  body.nav-collapsed .navit .ct{display:inline}
+  body.nav-collapsed .navgrp.plegado .navgrp-b{grid-template-rows:0fr;opacity:0;pointer-events:none}
+  body.nav-collapsed .navgrp+.navgrp{margin-top:0;padding-top:0;border-top:0}
+  /* Dedos, no cursor: filas más altas y objetivo de toque cómodo. */
+  .nav .navit{min-height:48px;padding:8px 12px}
+  .navgrp-h{padding:12px 12px 8px;min-height:40px}
+  .navgrp-t{font-size:12.5px}
+  .navtile{width:34px;height:34px}
+  .navtile i{font-size:18px}
+  #navgroups{gap:4px}
+}
+@media(max-width:560px){
+  .nav .navit{font-size:14.5px}
+  .navit .ct{font-size:11.5px;padding:2px 9px}
+  /* El botón flotante no debe tapar el último elemento del menú. */
+  #navgroups{padding-bottom:70px}
+}
+
+/* ── Ajustes móviles que faltaban ── */
+@media(max-width:880px){
+  /* El tablero de prospectos era la única rejilla sin adaptar: en móvil
+     se desliza en horizontal con columnas de ancho usable. */
+  .pcards{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+  .pcards>*{flex:0 0 78vw;max-width:320px;scroll-snap-align:start}
+  /* Tablas anchas: se deslizan en vez de aplastar el texto. */
+  .card>div[style*="overflow-x"]{-webkit-overflow-scrolling:touch}
+  .t{min-width:560px}
+  /* Encabezados: el título y los botones dejan de pelearse por el ancho. */
+  .hd{flex-wrap:wrap;gap:10px}
+  .hd .hd-acc{width:100%;display:flex;gap:8px;flex-wrap:wrap}
+  .hd .hd-acc .b{flex:1;min-width:140px;justify-content:center}
+  /* Métricas de dos en dos en vez de una tira apretada. */
+  .mets{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mets-h{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .met-crit{grid-column:span 2}
+  /* Formularios a una columna. */
+  .row{grid-template-columns:1fr}
+  /* Modales a pantalla casi completa, con el contenido deslizable. */
+  .mdl,.mdl.wide{max-width:100%;border-radius:20px 20px 0 0;padding:20px 18px 24px;
+    max-height:calc(100dvh - 24px);margin-top:auto}
+  .ov{align-items:flex-end;padding:0}
+}
+@media(max-width:560px){
+  .mets,.mets-h{grid-template-columns:1fr}
+  .met-crit{grid-column:span 1}
+  .mval{font-size:26px}
+  .met-crit .mval{font-size:30px}
+  .card{padding:16px 15px;border-radius:20px}
+  .ctitle{font-size:14.5px;flex-wrap:wrap;gap:6px}
+  .brow{flex-wrap:wrap}
+  .brow .b{flex:1;min-width:132px;justify-content:center}
+  .chips{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+  .chips .chip{flex:0 0 auto}
+  .pcards>*{flex:0 0 86vw}
+}
 </style>
 </head>
 <body>
