@@ -906,12 +906,15 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%;}
 .fplista{display:flex;flex-direction:column;gap:8px}
 .fprow{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--ln2);border-radius:var(--r);background:var(--card);cursor:pointer;transition:.15s}
 .fprow:hover{background:var(--lav2);border-color:var(--lav)}
-.fprow.hecho{opacity:.52;background:var(--verde2);border-color:var(--verde3)}
-.fprow.hecho:hover{background:var(--verde2)}
+/* Ya cobrado: se atenúa un poco pero NO se tacha, porque su próxima fecha
+   sigue siendo información útil. Tacharlo lo sacaba de la vista. */
+.fprow.aldia{background:var(--verde2);border-color:var(--verde3)}
+.fprow.aldia .fpn{color:var(--tx2)}
+.fprow.aldia .fpmo{color:var(--tx3);font-weight:600}
+.fprow.aldia:hover{background:var(--verde2)}
 .fprow input[type=checkbox]{width:20px;height:20px;margin:0;flex-shrink:0;accent-color:var(--verde);cursor:pointer}
 .fpmain{flex:1;min-width:0}
 .fpn{font-size:13.5px;font-weight:650;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.fprow.hecho .fpn{text-decoration:line-through;text-decoration-color:var(--verde)}
 .fps{font-size:11.5px;color:var(--tx3);margin-top:2px}
 .fpmo{font-size:14.5px;font-weight:700;white-space:nowrap}
 @media(max-width:560px){.fprow{flex-wrap:wrap}.fpmo{width:100%;text-align:right}}
@@ -5799,12 +5802,18 @@ function vFechasPago(v){
       /* Cobrado = hay un pago registrado de este cliente dentro del mes. */
       const cobrado=(S.cobros||[]).some(p=>p.companyId===c.id&&p.tipoIngreso!=='externo'
         &&p.tipoIngreso!=='devolucionAdelanto'&&String(p.fecha||'').slice(0,7)===ym2);
+      /* La fecha que se muestra SIEMPRE es la que toca actuar: la vencida si
+         debe, y si no, la próxima. A un cliente que ya pagó este mes se le
+         sigue viendo su próximo cobro: son mensuales y hay que saber cuándo
+         vuelve a tocar, no perderlo de vista tachado. */
       const fechaRef=ven.vencido?ven.desde:prox;
       return{c,ven,prox,cobrado,fechaRef,
         monto:r2(ven.vencido&&ven.monto?ven.monto:montoFacturaCliente(c)),
-        dias:fechaRef?difDiasISO(hoy2,fechaRef):null};
+        dias:fechaRef?difDiasISO(hoy2,fechaRef):null,
+        diasProx:prox?difDiasISO(hoy2,prox):null};
     }).filter(x=>x.fechaRef||x.cobrado)
       .sort((a,b)=>(a.cobrado?1:0)-(b.cobrado?1:0)||String(a.fechaRef||'').localeCompare(String(b.fechaRef||'')));
+    const alDia=filas.filter(x=>x.cobrado);
 
     const pendientes=filas.filter(x=>!x.cobrado);
     const totalPend=r2(pendientes.reduce((s2,x)=>s2+x.monto,0));
@@ -5820,20 +5829,25 @@ function vFechasPago(v){
       (filas.length?'<div class="fplista">'+filas.map(x=>{
         const c=x.c, w=walletById(c.metodoPagoId);
         const col=x.cobrado?'var(--verde)':x.ven.vencido?'var(--red)':(x.dias!=null&&x.dias<=3)?'var(--amb)':'var(--ln2)';
-        return '<label class="fprow'+(x.cobrado?' hecho':'')+'" style="border-left:3px solid '+col+'">'+
+        /* A los que ya cobraron se les muestra su PRÓXIMA fecha, no la pasada. */
+        const fechaMostrada=x.cobrado?x.prox:x.fechaRef;
+        const detalle=x.cobrado
+          ? '<span class="p p-ok" style="font-size:9px">cobrado</span> próximo '+(x.prox?fdate(x.prox):'sin fecha')+
+            (x.diasProx!=null&&x.diasProx>0?' · en '+x.diasProx+' d':'')
+          : (fechaMostrada?fdate(fechaMostrada):'—')+
+            (x.ven.vencido?' · <span style="color:var(--red);font-weight:650">vencido hace '+x.ven.dias+' d</span>'
+             :x.dias===0?' · <span style="color:var(--amb);font-weight:650">hoy</span>'
+             :x.dias!=null&&x.dias>0?' · en '+x.dias+' d':'');
+        return '<label class="fprow'+(x.cobrado?' aldia':'')+'" style="border-left:3px solid '+col+'">'+
           '<input type="checkbox" class="fpck" data-c="'+c.id+'" data-mo="'+x.monto.toFixed(2)+'" '+(x.cobrado?'checked disabled':'')+'>'+
           '<div class="fpmain">'+
             '<div class="fpn">'+esc(c.negocio)+(badgeFacturas(c.id)?' '+badgeFacturas(c.id):'')+'</div>'+
-            '<div class="fps">'+(x.fechaRef?fdate(x.fechaRef):'—')+
-              (x.cobrado?' · <span style="color:var(--verde-hondo)">cobrado</span>'
-               :x.ven.vencido?' · <span style="color:var(--red)">vencido hace '+x.ven.dias+' d</span>'
-               :x.dias===0?' · <span style="color:var(--amb)">hoy</span>'
-               :x.dias!=null&&x.dias>0?' · en '+x.dias+' d':'')+
-              (w?' · '+esc(w.nombre):'')+'</div>'+
+            '<div class="fps">'+detalle+(w?' · '+esc(w.nombre):'')+'</div>'+
           '</div>'+
           '<div class="fpmo mono">'+money(x.monto)+'</div>'+
         '</label>';
-      }).join('')+'</div>'
+      }).join('')+'</div>'+
+      (alDia.length?'<div class="sub" style="font-size:12.5px;margin-top:12px">Los '+alDia.length+' de abajo ya cobraron este mes. Se quedan en la lista con su próxima fecha para que no los pierdas de vista.</div>':'')
       :'<div style="font-size:12.5px;color:var(--tx3)">No hay fechas de cobro configuradas.</div>');
     v.appendChild(card);
 
