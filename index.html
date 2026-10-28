@@ -1083,6 +1083,117 @@ body.nav-collapsed .navsueltos{border-top:1px solid var(--ln)}
   .chips .chip{flex:0 0 auto}
   .pcards>*{flex:0 0 86vw}
 }
+
+/* ═══════════════════════════════════════════════════════════
+   NAVEGACIÓN MÓVIL
+   La lateral deja de ocupar el flujo: pasa a ser un cajón que
+   entra desde la izquierda. Arriba una barra compacta con el
+   nombre de la sección y abajo pestañas para lo más usado.
+   ═══════════════════════════════════════════════════════════ */
+#mbar,#mscrim,#mtabs{display:none}
+
+@media(max-width:880px){
+  #mbar[hidden],#mscrim[hidden],#mtabs[hidden]{display:none}
+
+  /* Barra superior */
+  #mbar{display:flex;align-items:center;gap:10px;position:fixed;inset:0 0 auto 0;z-index:90;
+    height:56px;padding:0 10px;background:var(--card);border-bottom:1px solid var(--ln);
+    padding-top:env(safe-area-inset-top,0px);height:calc(56px + env(safe-area-inset-top,0px))}
+  #mbar button{width:42px;height:42px;border-radius:13px;border:0;background:transparent;
+    color:var(--tx2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+  #mbar button:active{background:var(--card2)}
+  #mbar button i{font-size:22px}
+  #mbar-t{flex:1;min-width:0;font-size:16px;font-weight:700;letter-spacing:-.02em;color:var(--tx);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+
+  /* El contenido deja hueco arriba y abajo */
+  body.movil .main{padding-top:calc(70px + env(safe-area-inset-top,0px));
+    padding-bottom:calc(86px + env(safe-area-inset-bottom,0px))}
+
+  /* La lateral sale del flujo y se convierte en cajón */
+  body.movil .side,
+  body.movil.nav-collapsed .side{position:fixed!important;inset:0 auto 0 0!important;
+    width:min(86vw,310px)!important;max-width:310px;height:100dvh!important;max-height:100dvh!important;
+    padding:16px 12px calc(16px + env(safe-area-inset-bottom,0px));
+    overflow-y:auto!important;z-index:100;
+    transform:translateX(-102%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+    box-shadow:none;border-radius:0 22px 22px 0}
+  body.movil .side.abierta{transform:none;box-shadow:0 0 60px rgba(18,15,22,.45)}
+  body.movil .side .srch{display:block}
+  body.movil #navtoggle{display:none}
+
+  /* Velo */
+  #mscrim{display:block;position:fixed;inset:0;z-index:95;background:rgba(18,15,22,.5);
+    opacity:0;pointer-events:none;transition:opacity .28s ease}
+  #mscrim.visible{opacity:1;pointer-events:auto}
+  body.cajon-abierto{overflow:hidden}
+
+  /* Pestañas inferiores */
+  #mtabs{display:flex;position:fixed;inset:auto 0 0 0;z-index:90;
+    background:var(--card);border-top:1px solid var(--ln);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px))}
+  .mtab{flex:1;min-width:0;border:0;background:transparent;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;
+    border-radius:13px;color:var(--tx3);font-size:10.5px;font-weight:650;transition:.15s}
+  .mtab i{font-size:21px;transition:transform .15s}
+  .mtab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .mtab.on{color:var(--tint);background:color-mix(in srgb,var(--tint) 11%,transparent)}
+  .mtab.on i{transform:translateY(-1px)}
+  .mtab:active{background:var(--card2)}
+
+  /* El botón flotante se aparta de las pestañas */
+  #fab{bottom:calc(84px + env(safe-area-inset-bottom,0px));right:14px}
+  body.cajon-abierto #fab{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  body.movil .side,#mscrim,.mtab,.mtab i{transition:none}
+}
+
+/* ─────────── HOJA DE SECCIONES (móvil) ───────────
+   Cuadrícula de tarjetas en vez de lista vertical: con 21 secciones se
+   recorre de un vistazo. Cada tarjeta usa el --tint de su sección. */
+#msheet{display:none}
+@media(max-width:880px){
+  #msheet[hidden]{display:none}
+  #msheet{display:flex;flex-direction:column;position:fixed;inset:auto 0 0 0;z-index:100;
+    background:var(--paper);border-radius:26px 26px 0 0;
+    max-height:88dvh;transform:translateY(102%);
+    transition:transform .32s cubic-bezier(.32,.72,0,1);
+    box-shadow:0 -14px 50px rgba(18,15,22,.28)}
+  #msheet.abierta{transform:none}
+  /* Asa, como en las hojas nativas */
+  #msheet::before{content:'';position:absolute;top:8px;left:50%;transform:translateX(-50%);
+    width:38px;height:4px;border-radius:999px;background:var(--ln2)}
+  #msheet-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:22px 20px 12px;flex-shrink:0}
+  #msheet-hd h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.03em;color:var(--tx)}
+  #msheet-x{width:44px;height:44px;border-radius:14px;border:1px solid var(--ln2);background:var(--card);
+    color:var(--tx2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+  #msheet-x i{font-size:22px}
+  #msheet-x:active{background:var(--card2)}
+  #msheet-b{overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:0 16px calc(22px + env(safe-area-inset-bottom,0px))}
+  .msh-g{font-size:12.5px;font-weight:650;color:var(--tx3);padding:14px 4px 9px}
+  .msh-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+  .msh-c{position:relative;border:1.5px solid var(--ln2);border-radius:18px;background:var(--card);
+    padding:15px 8px 12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:9px;
+    transition:border-color .15s,transform .12s}
+  .msh-c:active{transform:scale(.97)}
+  .msh-c.on{border-color:var(--tint);border-width:2px}
+  .msh-tile{width:48px;height:48px;border-radius:15px;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--tint) 15%,transparent);color:var(--tint);transition:.15s}
+  .msh-tile i{font-size:23px}
+  .msh-c.on .msh-tile{background:var(--tint);color:#fff;
+    box-shadow:0 6px 16px color-mix(in srgb,var(--tint) 40%,transparent)}
+  .msh-lb{font-size:12.5px;font-weight:600;color:var(--tx);text-align:center;line-height:1.25;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .msh-c.on .msh-lb{font-weight:700}
+  .msh-ct{position:absolute;top:8px;right:8px;min-width:20px;height:20px;padding:0 6px;
+    border-radius:999px;background:var(--red);color:#fff;font-size:11px;font-weight:700;
+    display:flex;align-items:center;justify-content:center}
+  #msheet.abierta~#fab,body.cajon-abierto #fab{display:none}
+}
+@media(prefers-reduced-motion:reduce){#msheet{transition:none}}
 </style>
 </head>
 <body>
@@ -1104,6 +1215,20 @@ body.nav-collapsed .navsueltos{border-top:1px solid var(--ln)}
   <main class="main"><div id="mt"></div></main>
 </div>
 <div id="tm"></div>
+<header id="mbar" hidden>
+  <button id="mbar-menu" aria-label="Abrir menú" aria-expanded="false"><i class="ti ti-menu-2" aria-hidden="true"></i></button>
+  <div id="mbar-t"></div>
+  <button id="mbar-buscar" aria-label="Buscar"><i class="ti ti-search" aria-hidden="true"></i></button>
+</header>
+<div id="mscrim" hidden></div>
+<div id="msheet" hidden role="dialog" aria-modal="true" aria-label="Secciones">
+  <div id="msheet-hd">
+    <h2>Secciones</h2>
+    <button id="msheet-x" aria-label="Cerrar"><i class="ti ti-x" aria-hidden="true"></i></button>
+  </div>
+  <div id="msheet-b"></div>
+</div>
+<nav id="mtabs" hidden aria-label="Secciones principales"></nav>
 <div id="fab" hidden>
   <div id="fab-menu" role="menu" aria-label="Registro rápido"></div>
   <button id="fab-btn" aria-label="Registrar algo" aria-expanded="false" aria-haspopup="true"><i class="ti ti-plus" aria-hidden="true"></i></button>
@@ -2821,6 +2946,109 @@ const FAB_ACCIONES=[
   {k:'cliente',ic:'ti-building-plus',lb:'Cliente nuevo',tint:'var(--pink)',ver:'empresas',
    go:()=>{S.tab='empresas';S.mCompany='new';S.eCompany='new';render()}}
 ];
+/* ═══════════ NAVEGACIÓN MÓVIL ═══════════
+   En móvil la barra lateral dejaba de ser lateral: se volvía un bloque de
+   ancho completo con las 21 secciones encima del contenido, así que había que
+   recorrer todo el menú para llegar a lo que ibas a ver. Ahora es un cajón que
+   entra desde la izquierda, con una barra superior y pestañas abajo para lo
+   que más se usa. */
+const MTABS=[
+  ['panel','ti-home','Inicio','var(--pink)'],
+  ['empresas','ti-building','Clientes','var(--pink)'],
+  ['cobranza','ti-calendar-event','Cobranza','var(--amb)'],
+  ['nomina','ti-calendar-dollar','Nómina','var(--amb)']
+];
+/* La hoja de secciones reemplaza al cajón en móvil: con 21 secciones, una
+   cuadrícula de tarjetas se recorre de un vistazo, mientras que una lista
+   vertical obliga a desplazarse. Cada tarjeta lleva el mosaico de su color. */
+let hojaAbierta=false;
+function abrirHoja(v){
+  hojaAbierta=!!v;
+  const sh=document.getElementById('msheet'),scrim=document.getElementById('mscrim');
+  if(sh)sh.classList.toggle('abierta',hojaAbierta);
+  if(scrim)scrim.classList.toggle('visible',hojaAbierta);
+  document.body.classList.toggle('cajon-abierto',hojaAbierta);
+  const btn=document.getElementById('mbar-menu');
+  if(btn)btn.setAttribute('aria-expanded',hojaAbierta?'true':'false');
+  if(hojaAbierta)pintarHoja();
+}
+function pintarHoja(){
+  const b=document.getElementById('msheet-b');
+  if(!b)return;
+  let h='';
+  NAV_GRUPOS.forEach(g=>{
+    const items=g.items.filter(it=>canView(it[0]));
+    if(!items.length)return;
+    h+='<div class="msh-g">'+esc(g.titulo)+'</div><div class="msh-grid">'+
+      items.map(([k,ic,lb,tint])=>{
+        const ct=navContador(k);
+        return '<button class="msh-c'+(S.tab===k?' on':'')+'" data-sh="'+k+'" style="--tint:'+tint+'">'+
+          '<span class="msh-tile"><i class="ti '+ic+'" aria-hidden="true"></i></span>'+
+          /* Un contador en cero no informa de nada y ensucia la cuadrícula. */
+          (ct?'<span class="msh-ct">'+ct+'</span>':'')+
+          '<span class="msh-lb">'+esc(lb)+'</span></button>';
+      }).join('')+'</div>';
+  });
+  const sueltos=NAV_SUELTOS.filter(it=>canView(it[0]));
+  if(sueltos.length){
+    h+='<div class="msh-g">Config</div><div class="msh-grid">'+
+      sueltos.map(([k,ic,lb,tint])=>'<button class="msh-c'+(S.tab===k?' on':'')+'" data-sh="'+k+'" style="--tint:'+tint+'">'+
+      '<span class="msh-tile"><i class="ti '+ic+'" aria-hidden="true"></i></span><span class="msh-lb">'+esc(lb)+'</span></button>').join('')+'</div>';
+  }
+  b.innerHTML=h;
+  b.querySelectorAll('[data-sh]').forEach(x=>x.onclick=()=>{
+    S.tab=x.dataset.sh;abrirHoja(false);render();
+  });
+}
+let cajonAbierto=false;
+function esMovil(){return window.innerWidth<=880}
+function abrirCajon(v){
+  cajonAbierto=!!v;
+  const side=document.querySelector('aside.side');
+  const scrim=document.getElementById('mscrim');
+  const btn=document.getElementById('mbar-menu');
+  if(side)side.classList.toggle('abierta',cajonAbierto);
+  if(scrim)scrim.classList.toggle('visible',cajonAbierto);
+  if(btn)btn.setAttribute('aria-expanded',cajonAbierto?'true':'false');
+  document.body.classList.toggle('cajon-abierto',cajonAbierto);
+}
+function tituloSeccion(){
+  for(const g of NAV_GRUPOS){const it=g.items.find(x=>x[0]===S.tab);if(it)return it[2]}
+  const su=NAV_SUELTOS.find(x=>x[0]===S.tab);
+  return su?su[2]:'Páramo Creativo';
+}
+function renderMovil(){
+  const bar=document.getElementById('mbar'),scrim=document.getElementById('mscrim'),tabs=document.getElementById('mtabs');
+  if(!bar||!scrim||!tabs)return;
+  const activo=esMovil()&&!S.loading;
+  bar.hidden=!activo;scrim.hidden=!activo;tabs.hidden=!activo;
+  const sh=document.getElementById('msheet');if(sh)sh.hidden=!activo;
+  document.body.classList.toggle('movil',activo);
+  if(!activo){abrirCajon(false);abrirHoja(false);return}
+  document.getElementById('mbar-t').textContent=tituloSeccion();
+  const items=MTABS.filter(t=>canView(t[0]));
+  tabs.innerHTML=items.map(([k,ic,lb,tint])=>
+    '<button class="mtab'+(S.tab===k?' on':'')+'" data-mt="'+k+'" style="--tint:'+tint+'">'+
+    '<i class="ti '+ic+'" aria-hidden="true"></i><span>'+lb+'</span></button>').join('')+
+    '<button class="mtab'+(items.every(t=>t[0]!==S.tab)?' on':'')+'" data-mt="__mas" style="--tint:var(--lav)">'+
+    '<i class="ti ti-dots" aria-hidden="true"></i><span>Más</span></button>';
+  tabs.querySelectorAll('[data-mt]').forEach(b=>b.onclick=()=>{
+    if(b.dataset.mt==='__mas'){abrirHoja(true);return}
+    S.tab=b.dataset.mt;abrirCajon(false);render();
+  });
+  if(!bar.dataset.ligado){
+    bar.dataset.ligado='1';
+    document.getElementById('mbar-menu').onclick=()=>abrirHoja(!hojaAbierta);
+    document.getElementById('msheet-x').onclick=()=>abrirHoja(false);
+    document.getElementById('mbar-buscar').onclick=()=>{
+      abrirHoja(false);abrirCajon(true);
+      setTimeout(()=>{const q=document.getElementById('q');if(q)q.focus()},260);
+    };
+    scrim.onclick=()=>{abrirHoja(false);abrirCajon(false)};
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(hojaAbierta)abrirHoja(false);else if(cajonAbierto)abrirCajon(false)}});
+    window.addEventListener('resize',()=>{if(!esMovil()){abrirHoja(false);abrirCajon(false)}});
+  }
+}
 let fabAbierto=false;
 function cerrarFab(){
   fabAbierto=false;
@@ -2896,7 +3124,7 @@ function renderNav(){
     b.innerHTML='<span class="navtile"><i class="ti '+ic+'" aria-hidden="true"></i></span>'+
       '<span class="navlb">'+lb+'</span>'+
       (ct!==null&&ct!==undefined?'<span class="ct">'+ct+'</span>':'');
-    b.onclick=()=>{S.tab=k;render()};
+    b.onclick=()=>{S.tab=k;if(cajonAbierto)abrirCajon(false);render()};
     return b;
   };
 
@@ -2956,6 +3184,7 @@ function renderNav(){
   }
   ajustarNavAltura();
   renderFab();
+  renderMovil();
 
   const u=currentUser(),r=u&&roleById(u.roleId);
   const sf=document.querySelector('.sfoot');
