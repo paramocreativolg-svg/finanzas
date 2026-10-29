@@ -5799,18 +5799,27 @@ function vFechasPago(v){
     const filas=act.map(c=>{
       const ven=vencimientoCliente(c);
       const prox=proximoCobroCliente(c);
-      /* Cobrado = hay un pago registrado de este cliente dentro del mes. */
-      const cobrado=(S.cobros||[]).some(p=>p.companyId===c.id&&p.tipoIngreso!=='externo'
-        &&p.tipoIngreso!=='devolucionAdelanto'&&String(p.fecha||'').slice(0,7)===ym2);
+      /* "Al día" no es "pagó algo este mes": con ese criterio un cliente con
+         facturas de hace dos meses salía como cobrado por un abono suelto.
+         Está al día solo si no tiene fechas vencidas NI facturas sin cobrar. */
+      const pendFact=facturasPendientes(c.id);
+      const deudaFact=r2(pendFact.reduce((s2,x)=>s2+x.st.saldo,0));
+      const cobrado=!ven.vencido&&!pendFact.length;
+      /* Los quincenales cobran dos veces al mes: se muestran las dos fechas
+         que vienen, no solo la primera. */
+      const quincenal=(!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal';
       /* La fecha que se muestra SIEMPRE es la que toca actuar: la vencida si
          debe, y si no, la próxima. A un cliente que ya pagó este mes se le
          sigue viendo su próximo cobro: son mensuales y hay que saber cuándo
          vuelve a tocar, no perderlo de vista tachado. */
       const fechaRef=ven.vencido?ven.desde:prox;
       return{c,ven,prox,cobrado,fechaRef,
-        monto:r2(ven.vencido&&ven.monto?ven.monto:montoFacturaCliente(c)),
+        quincenal,pendFact,deudaFact,
+        /* Lo que toca cobrar: lo vencido, lo que falte de facturas, o la cuota. */
+        monto:r2(ven.vencido&&ven.monto?ven.monto:(deudaFact>0.005?deudaFact:montoFacturaCliente(c))),
         dias:fechaRef?difDiasISO(hoy2,fechaRef):null,
-        diasProx:prox?difDiasISO(hoy2,prox):null};
+        diasProx:prox?difDiasISO(hoy2,prox):null,
+        prox2:quincenal&&prox?siguienteFechaPago(c,prox):null};
     }).filter(x=>x.fechaRef||x.cobrado)
       .sort((a,b)=>(a.cobrado?1:0)-(b.cobrado?1:0)||String(a.fechaRef||'').localeCompare(String(b.fechaRef||'')));
     const alDia=filas.filter(x=>x.cobrado);
@@ -5831,23 +5840,29 @@ function vFechasPago(v){
         const col=x.cobrado?'var(--verde)':x.ven.vencido?'var(--red)':(x.dias!=null&&x.dias<=3)?'var(--amb)':'var(--ln2)';
         /* A los que ya cobraron se les muestra su PRÓXIMA fecha, no la pasada. */
         const fechaMostrada=x.cobrado?x.prox:x.fechaRef;
+        const dosFechas=x.quincenal&&x.prox2
+          ? ' <span style="color:var(--tx3)">y '+fdate(x.prox2)+'</span>' : '';
         const detalle=x.cobrado
-          ? '<span class="p p-ok" style="font-size:9px">cobrado</span> próximo '+(x.prox?fdate(x.prox):'sin fecha')+
+          ? '<span class="p p-ok" style="font-size:9px">al día</span> próximo '+(x.prox?fdate(x.prox):'sin fecha')+dosFechas+
             (x.diasProx!=null&&x.diasProx>0?' · en '+x.diasProx+' d':'')
           : (fechaMostrada?fdate(fechaMostrada):'—')+
-            (x.ven.vencido?' · <span style="color:var(--red);font-weight:650">vencido hace '+x.ven.dias+' d</span>'
+            (x.ven.vencido?' · <span style="color:var(--red);font-weight:650">vencido hace '+x.ven.dias+' d</span>'+
+               (x.ven.pendientes.length>1?' <span style="color:var(--red)">('+x.ven.pendientes.length+' fechas)</span>':'')
              :x.dias===0?' · <span style="color:var(--amb);font-weight:650">hoy</span>'
-             :x.dias!=null&&x.dias>0?' · en '+x.dias+' d':'');
+             :x.dias!=null&&x.dias>0?' · en '+x.dias+' d':'')+
+            (x.quincenal&&!x.ven.vencido?dosFechas:'');
         return '<label class="fprow'+(x.cobrado?' aldia':'')+'" style="border-left:3px solid '+col+'">'+
           '<input type="checkbox" class="fpck" data-c="'+c.id+'" data-mo="'+x.monto.toFixed(2)+'" '+(x.cobrado?'checked disabled':'')+'>'+
           '<div class="fpmain">'+
-            '<div class="fpn">'+esc(c.negocio)+(badgeFacturas(c.id)?' '+badgeFacturas(c.id):'')+'</div>'+
+            '<div class="fpn">'+esc(c.negocio)+
+              (x.quincenal?' <span class="p p-i" style="font-size:9px">quincenal</span>':'')+
+              (badgeFacturas(c.id)?' '+badgeFacturas(c.id):'')+'</div>'+
             '<div class="fps">'+detalle+(w?' · '+esc(w.nombre):'')+'</div>'+
           '</div>'+
           '<div class="fpmo mono">'+money(x.monto)+'</div>'+
         '</label>';
       }).join('')+'</div>'+
-      (alDia.length?'<div class="sub" style="font-size:12.5px;margin-top:12px">Los '+alDia.length+' de abajo ya cobraron este mes. Se quedan en la lista con su próxima fecha para que no los pierdas de vista.</div>':'')
+      (alDia.length?'<div class="sub" style="font-size:12.5px;margin-top:12px">Los '+alDia.length+' de abajo están al día: ninguna fecha vencida y ninguna factura sin cobrar. Se quedan con su próxima fecha para que no los pierdas de vista.</div>':'')
       :'<div style="font-size:12.5px;color:var(--tx3)">No hay fechas de cobro configuradas.</div>');
     v.appendChild(card);
 
