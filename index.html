@@ -1239,6 +1239,28 @@ body.nav-collapsed .navsueltos{border-top:1px solid var(--ln)}
 .fasebar{display:block;flex:1;min-width:90px;height:6px;border-radius:999px;background:var(--card2);overflow:hidden}
 .fasebar>span{display:block;height:100%;border-radius:999px;background:var(--c);transition:width .3s}
 .fasetxt{font-size:11.5px;color:var(--tx3)}
+
+/* Rejilla del CRM */
+.crmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.crmcard{border:1px solid var(--ln2);border-left:3px solid var(--c);border-radius:var(--r2);
+  background:var(--card);padding:16px;cursor:pointer;transition:.16s;box-shadow:var(--sh1)}
+.crmcard:hover{box-shadow:var(--sh2);transform:translateY(-2px);border-color:var(--c)}
+.crmtop{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+.crmn{font-size:14.5px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crms{font-size:11.5px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crmring{width:38px;height:38px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--c) 15%,transparent);color:var(--c);font-size:13px;font-weight:700}
+.crmfase{display:flex;align-items:center;gap:8px;margin-bottom:11px;flex-wrap:wrap}
+.crmmonto{margin-left:auto;font-size:13.5px;font-weight:700}
+.crmacc{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tx2);
+  background:var(--card2);border-radius:12px;padding:9px 11px}
+.crmacc i{font-size:16px;color:var(--amb);flex-shrink:0}
+.crmacc.ok{color:var(--tx3)}
+.crmacc.ok i{color:var(--verde)}
+.crmacc span:first-of-type{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crmmas{font-size:10.5px;font-weight:700;color:var(--tx3);background:var(--card);border-radius:999px;padding:1px 7px}
+.crmpie{font-size:11px;color:var(--tx3);margin-top:9px}
+@media(max-width:560px){.crmgrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -2648,7 +2670,7 @@ function estadoCobroMes(companyId,ym){
 
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
-  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['cobranza','Cobranza'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
+  ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['cobranza','Cobranza'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['crm','CRM'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
   ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['organigrama','Organigrama'],['captacion','Captación'],['whatsapp','WhatsApp'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
@@ -2933,7 +2955,8 @@ const NAV_GRUPOS=[
     ['rentabilidad','ti-coin','Rentabilidad real','var(--lime)'],
     ['caja','ti-chart-line','Flujo de caja','var(--sky)']]},
   {id:'clientes',titulo:'Clientes',items:[
-    ['empresas','ti-building','Empresas','var(--pink)'],
+    ['crm','ti-timeline','CRM','var(--pink)'],
+    ['empresas','ti-building','Empresas','var(--lav)'],
     ['inactivos','ti-archive','Pausados y perdidos','var(--tx3)'],
     ['contactos','ti-address-book','Contactos','var(--lav)'],
     ['prospectos','ti-target-arrow','Prospectos','var(--sky)'],
@@ -2957,6 +2980,7 @@ const NAV_SUELTOS=[['ajustes','ti-settings','Ajustes','var(--tx3)']];
 function navContador(k){
   try{
     if(k==='empresas')return visibleCompanies().filter(c=>c.estado==='activo').length;
+    if(k==='crm'){const n=(visibleCompanies()||[]).filter(c=>c.estado!=='perdido'&&saludCliente(c).nivel==='riesgo').length;return n||null}
     if(k==='inactivos'){const n=(visibleCompanies()||[]).filter(c=>c.estado!=='activo').length;return n||null}
     if(k==='contactos')return visibleContacts().length;
     if(k==='prospectos')return visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length;
@@ -3261,7 +3285,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,cobranza:vCobranza,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,whatsapp:vWhatsApp,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,crm:vCRM,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,cobranza:vCobranza,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,whatsapp:vWhatsApp,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -3323,8 +3347,12 @@ function vFacturas(v){
   const hist=document.createElement('div');hist.className='card';hist.style.marginTop='16px';
   const inv=visibleInvoices().slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
   hist.innerHTML='<div class="ctitle">Historial<span class="cnt">'+inv.length+'</span></div>'+
-    (inv.length?'<table class="t"><thead><tr><th>Orden</th><th>Cliente</th><th>Fecha</th><th>Período</th><th>Monto</th><th></th></tr></thead><tbody>'+
+    (inv.length?'<table class="t"><thead><tr><th>Orden</th><th>Cliente</th><th>Fecha</th><th>Período</th><th>Monto</th><th>Estado</th><th></th></tr></thead><tbody>'+
     inv.slice(0,40).map(i=>'<tr><td class="n">'+esc(i.orden)+'</td><td>'+esc(i.negocio)+'</td><td class="n">'+fdate(i.fecha)+'</td><td>'+(esc(i.periodoEtiqueta||i.periodo||'Servicio mensual'))+'</td><td class="n">'+(Number(i.descuento||0)>0?money(i.subtotal||i.total)+' → '+money(i.total):money(i.total))+'</td>'+
+    '<td>'+(()=>{const st=estadoFactura(i);
+      return st.estado==='cobrada'?'<span class="p p-ok">Cobrada</span>'
+        :st.estado==='parcial'?'<span class="p p-w">Faltan '+money(st.saldo)+'</span>'
+        :'<span class="p p-d">Pendiente</span>'})()+'</td>'+
     '<td class="ta"><button class="ib" data-pdf="'+i.id+'" title="Descargar PDF"><i class="ti ti-download"></i></button><button class="ib" data-editi="'+i.id+'" title="Editar factura"><i class="ti ti-edit"></i></button><button class="ib dg" data-di="'+i.id+'" title="Eliminar factura"><i class="ti ti-trash"></i></button></td></tr>').join('')+'</tbody></table>'
     :mt('ti-file-invoice','Sin facturas.'));
   v.appendChild(hist);
@@ -3426,8 +3454,27 @@ function vFacturas(v){
   };
   hist.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>facturaPDF(S.invoices.find(i=>i.id===b.dataset.pdf)));
   hist.querySelectorAll('[data-editi]').forEach(b=>b.onclick=()=>editarFacturaModal(b.dataset.editi));
-  hist.querySelectorAll('[data-di]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Eliminar factura?'))return;
-    S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);await saveUI('invoices');render()});
+  hist.querySelectorAll('[data-di]').forEach(b=>b.onclick=async()=>{
+    const iv=(S.invoices||[]).find(x=>x.id===b.dataset.di);
+    if(!iv)return;
+    const st=estadoFactura(iv);
+    /* Borrar una factura ya cobrada dejaría el cobro apuntando a nada, así
+       que se avisa de qué se pierde antes de hacerlo. */
+    let txt='¿Eliminar la factura '+(iv.orden||'')+' de '+money(iv.total)+'?';
+    if(st.estado==='cobrada'||st.estado==='parcial'){
+      txt+=String.fromCharCode(10,10)+'Ojo: tiene '+money(st.pagado)+' cobrados asociados. '+
+        'Los cobros no se borran, pero quedarán sueltos sin factura.';
+    } else {
+      txt+=String.fromCharCode(10,10)+'Está pendiente de cobro, así que no afecta a ningún dinero registrado.';
+    }
+    txt+=String.fromCharCode(10,10)+'No se puede deshacer.';
+    if(!confirm(txt))return;
+    S.invoices=S.invoices.filter(i=>i.id!==b.dataset.di);
+    /* Los cobros que la referenciaban quedan sin factura, no rotos. */
+    (S.cobros||[]).forEach(p2=>{if(p2.facturaId===b.dataset.di)p2.facturaId=null});
+    if(!await saveUI('invoices'))return;
+    await saveUI('cobros');
+    toast('Factura eliminada');render()});
 }
 
 
@@ -4741,6 +4788,69 @@ function vPanel(v){
 
   c1.querySelectorAll('[data-cob]').forEach(b=>b.onclick=()=>{S.tab='cobros';S.presetCompany=b.dataset.cob;render()});
   const gn=document.getElementById('go-nom');if(gn)gn.onclick=()=>{S.tab='nomina';S.nomQ=qActual.key;render()};
+
+  /* ── Lo que viene y lo que acaba de entrar ──
+     El panel decía qué pasó, pero no qué va a pasar. Estas dos tarjetas
+     responden las preguntas con las que se abre el día: a quién le toca
+     pagar pronto, y cómo van los que acaban de llegar. */
+  const g2=document.createElement('div');g2.className='g2';
+
+  /* Próximos cobros · 14 días */
+  const prox=act.map(c=>{
+    const ven=vencimientoCliente(c);
+    const pr=proximoCobroCliente(c);
+    return{c,ven,pr,dias:pr?difDiasISO(t,pr):null,
+      monto:r2(ven.vencido&&ven.monto?ven.monto:montoFacturaCliente(c))};
+  }).filter(x=>x.ven.vencido||(x.dias!==null&&x.dias>=0&&x.dias<=14))
+    .sort((a,b)=>(b.ven.vencido?1:0)-(a.ven.vencido?1:0)||(a.dias||0)-(b.dias||0));
+  const totProx=r2(prox.reduce((s2,x)=>s2+x.monto,0));
+  const cp=document.createElement('div');cp.className='card';
+  cp.innerHTML='<div class="ctitle">Próximos cobros <span class="cnt">'+money(totProx)+'</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Vencidos y lo que toca en los próximos 14 días.</div>'+
+    (prox.length?prox.slice(0,8).map(x=>{
+      const col=x.ven.vencido?'var(--red)':x.dias<=3?'var(--amb)':'var(--tx3)';
+      return '<div class="lrow" data-pc="'+x.c.id+'" style="cursor:pointer">'+
+        '<div style="display:flex;align-items:center;gap:9px;min-width:0">'+av(x.c.negocio,'s',0,x.c.foto)+
+        '<div style="min-width:0"><div class="lname">'+esc(x.c.negocio)+'</div>'+
+        '<div class="lsub" style="color:'+col+'">'+
+          (x.ven.vencido?'vencido hace '+x.ven.dias+' d':x.dias===0?'hoy':x.dias===1?'mañana':'en '+x.dias+' d')+
+          (x.pr?' · '+fdate(x.ven.vencido?x.ven.desde:x.pr):'')+'</div></div></div>'+
+        '<span class="mono" style="font-weight:650">'+money(x.monto)+'</span></div>';
+    }).join('')+(prox.length>8?'<div class="sub" style="font-size:12px;margin-top:6px">y '+(prox.length-8)+' más…</div>':'')
+      :'<div style="font-size:12.5px;color:var(--tx3)">Nada por cobrar en las próximas dos semanas.</div>')+
+    '<div class="brow" style="margin-top:12px"><button class="b bp bs" id="go-cobranza">Ver cobranza</button></div>';
+  g2.appendChild(cp);
+
+  /* Últimos clientes */
+  const ult=(visibleCompanies()||[]).slice()
+    .sort((a,b)=>String(b.fechaInicio||'').localeCompare(String(a.fechaInicio||'')))
+    .slice(0,6);
+  const mrrNuevo=r2(ult.filter(c=>c.estado==='activo'&&c.fechaInicio&&difDiasISO(c.fechaInicio,t)<=60)
+    .reduce((s2,c)=>s2+(Number(c.tarifaBruta)||0),0));
+  const cu=document.createElement('div');cu.className='card';
+  cu.innerHTML='<div class="ctitle">Últimos clientes'+(mrrNuevo>0.005?' <span class="cnt">+'+money(mrrNuevo)+' en 60 d</span>':'')+'</div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Los más recientes y en qué fase están.</div>'+
+    (ult.length?ult.map(c=>{
+      const f=faseCliente(c), ob=onboardingDe(c);
+      const d=c.fechaInicio?difDiasISO(c.fechaInicio,t):null;
+      return '<div class="lrow" data-uc="'+c.id+'" style="cursor:pointer">'+
+        '<div style="display:flex;align-items:center;gap:9px;min-width:0">'+av(c.negocio,'s',0,c.foto)+
+        '<div style="min-width:0"><div class="lname">'+esc(c.negocio)+'</div>'+
+        '<div class="lsub">'+(d!==null?(d<=1?'entró hoy':d<60?'hace '+d+' d':'hace '+Math.round(d/30)+' meses'):'sin fecha')+
+        (c.fuenteOrigen?' · '+esc(c.fuenteOrigen):'')+'</div></div></div>'+
+        '<div style="text-align:right"><span class="fasepill" style="--c:'+f.color+'">'+esc(f.lb)+'</span>'+
+        (f.k==='onboarding'?'<div style="font-size:11px;color:var(--tx3);margin-top:3px">'+ob.hechos+' de '+ob.total+'</div>':'')+
+        '</div></div>';
+    }).join('')
+      :'<div style="font-size:12.5px;color:var(--tx3)">Todavía no hay clientes.</div>')+
+    '<div class="brow" style="margin-top:12px"><button class="b bg bs" id="go-emp">Ver todos</button></div>';
+  g2.appendChild(cu);
+  v.appendChild(g2);
+
+  g2.querySelectorAll('[data-pc]').forEach(r=>r.onclick=()=>{S.tab='cobros';S.presetCompany=r.dataset.pc;render()});
+  g2.querySelectorAll('[data-uc]').forEach(r=>r.onclick=()=>{S.tab='crm';S.crmCliente=r.dataset.uc;render()});
+  const gc=document.getElementById('go-cobranza');if(gc)gc.onclick=()=>{S.tab='cobranza';S.cobTab='checklist';render()};
+  const ge=document.getElementById('go-emp');if(ge)ge.onclick=()=>{S.tab='empresas';render()};
 }
 function labelQ(q){const m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 return (q.mitad===1?'1–15':'16–'+q.fin.slice(8))+' '+m[q.mes-1]}
@@ -4941,12 +5051,7 @@ function vInactivos(v){
 }
 
 function vEmpresas(v){
-  /* Si hay un cliente abierto en modo CRM, esa es la vista. */
-  if(S.crmCliente){
-    const cc=companyById(S.crmCliente);
-    if(cc){vClienteCRM(v,cc);return}
-    S.crmCliente=null;
-  }
+  /* El CRM es su propia sección; Empresas vuelve a ser solo la cartera. */
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
   /* ── Filtros ── */
   if(!S.fEmp)S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};
@@ -5506,7 +5611,7 @@ function mCompanyModal(){
     return;
   }
 
-  document.getElementById('a-crm').onclick=()=>{S.mCompany=null;S.tab='empresas';S.crmCliente=c.id;render()};
+  document.getElementById('a-crm').onclick=()=>{S.mCompany=null;S.tab='crm';S.crmCliente=c.id;render()};
   document.getElementById('a-wa').onclick=()=>{S.mCompany=null;waModal(c)};
   document.getElementById('a-cob').onclick=()=>{S.mCompany=null;S.tab='cobros';S.presetCompany=c.id;render()};
   document.getElementById('a-fac').onclick=()=>{S.mCompany=null;S.tab='facturas';S.presetCompany=c.id;render()};
@@ -5895,7 +6000,10 @@ function vFechasPago(v){
          Está al día solo si no tiene fechas vencidas NI facturas sin cobrar. */
       const pendFact=facturasPendientes(c.id);
       const deudaFact=r2(pendFact.reduce((s2,x)=>s2+x.st.saldo,0));
+      /* "Al día" = el dinero entró; lo calcula la app. */
       const cobrado=!ven.vencido&&!pendFact.length;
+      /* "Ya le cobré" = ya le pediste el pago este mes. Es gestión, no dinero. */
+      const solicitado=(c.recordatorios||[]).some(r=>String(r.fecha||'').slice(0,7)===hoy2.slice(0,7));
       /* Los quincenales cobran dos veces al mes: se muestran las dos fechas
          que vienen, no solo la primera. */
       const quincenal=(!c.tipoContrato||c.tipoContrato==='recurrente')&&c.frecuencia==='quincenal';
@@ -5907,6 +6015,7 @@ function vFechasPago(v){
       return{c,ven,prox,cobrado,fechaRef,
         quincenal,pendFact,deudaFact,
         /* Lo que toca cobrar: lo vencido, lo que falte de facturas, o la cuota. */
+        solicitado,
         monto:r2(ven.vencido&&ven.monto?ven.monto:(deudaFact>0.005?deudaFact:montoFacturaCliente(c))),
         dias:fechaRef?difDiasISO(hoy2,fechaRef):null,
         diasProx:prox?difDiasISO(hoy2,prox):null,
@@ -5925,7 +6034,8 @@ function vFechasPago(v){
       '</div>'));
 
     const card=document.createElement('div');card.className='card';
-    card.innerHTML='<div class="ctitle">Checklist de cobro <span class="cnt">'+pendientes.length+' pendientes</span></div>'+
+    card.innerHTML='<div class="ctitle">Fechas de cobro <span class="cnt">'+pendientes.length+' por cobrar</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Marca la casilla cuando ya le hayas pedido el pago. El dinero entra aparte, en Cobros.</div>'+
       (filas.length?'<div class="fplista">'+filas.map(x=>{
         const c=x.c, w=walletById(c.metodoPagoId);
         const col=x.cobrado?'var(--verde)':x.ven.vencido?'var(--red)':(x.dias!=null&&x.dias<=3)?'var(--amb)':'var(--ln2)';
@@ -5942,30 +6052,33 @@ function vFechasPago(v){
              :x.dias===0?' · <span style="color:var(--amb);font-weight:650">hoy</span>'
              :x.dias!=null&&x.dias>0?' · en '+x.dias+' d':'')+
             (x.quincenal&&!x.ven.vencido?dosFechas:'');
-        return '<label class="fprow'+(x.cobrado?' aldia':'')+'" style="border-left:3px solid '+col+'">'+
-          '<input type="checkbox" class="fpck" data-c="'+c.id+'" data-mo="'+x.monto.toFixed(2)+'" '+(x.cobrado?'checked disabled':'')+'>'+
+        return '<div class="fprow'+(x.cobrado?' aldia':'')+'" style="border-left:3px solid '+col+'">'+
+          '<label class="fpck-w"><input type="checkbox" class="fpck" data-c="'+c.id+'" '+((x.cobrado||x.solicitado)?'checked':'')+(x.cobrado?' disabled':'')+'></label>'+
           '<div class="fpmain">'+
             '<div class="fpn">'+esc(c.negocio)+
               (x.quincenal?' <span class="p p-i" style="font-size:9px">quincenal</span>':'')+
               (badgeFacturas(c.id)?' '+badgeFacturas(c.id):'')+'</div>'+
-            '<div class="fps">'+detalle+(w?' · '+esc(w.nombre):'')+'</div>'+
+            '<div class="fps">'+detalle+(w?' · '+esc(w.nombre):'')+
+              (!x.cobrado&&x.solicitado?' · <span style="color:var(--sky)">ya se lo pediste</span>':'')+'</div>'+
           '</div>'+
           '<div class="fpmo mono">'+money(x.monto)+'</div>'+
-        '</label>';
+        '</div>';
       }).join('')+'</div>'+
       (alDia.length?'<div class="sub" style="font-size:12.5px;margin-top:12px">Los '+alDia.length+' de abajo están al día: ninguna fecha vencida y ninguna factura sin cobrar. Se quedan con su próxima fecha para que no los pierdas de vista.</div>':'')
       :'<div style="font-size:12.5px;color:var(--tx3)">No hay fechas de cobro configuradas.</div>');
     v.appendChild(card);
 
+    /* El check deja constancia de que ya le pediste el pago. El dinero se
+       registra en Cobros: mezclarlos hacía que un clic creara un ingreso que
+       quizá no había entrado. */
     card.querySelectorAll('.fpck').forEach(ck=>ck.onchange=async()=>{
       const c=companyById(ck.dataset.c);
       if(!c){ck.checked=false;return}
-      const mo=r2(Number(ck.dataset.mo)||0);
-      const txt='¿Registrar el cobro de '+c.negocio+' por '+money(mo)+'?'+
-        String.fromCharCode(10,10)+'Entra en '+((walletById(c.metodoPagoId)||{}).nombre||'la wallet del cliente')+' con fecha de hoy. Si el monto fue otro, usa Cobros.';
-      if(!confirm(txt)){ck.checked=false;return}
-      if(await cobrarRapido(c,mo,today())){toast('Cobro registrado');render()}
-      else ck.checked=false;
+      if(!Array.isArray(c.recordatorios))c.recordatorios=[];
+      if(ck.checked)c.recordatorios.push({fecha:today(),nota:'Cobro solicitado'});
+      else c.recordatorios=c.recordatorios.filter(r=>String(r.fecha||'').slice(0,7)!==today().slice(0,7));
+      if(!await saveUI('companies')){ck.checked=!ck.checked;return}
+      toast(ck.checked?'Marcado: ya se lo pediste':'Marca quitada');render();
     });
     return;
   }
@@ -7842,6 +7955,90 @@ function waModal(c){
     await saveUI('companies');
     setTimeout(()=>{ov.remove();render()},80);
   };
+}
+
+/* ═══════════ CRM · la sección ═══════════
+   Estaba escondido detrás de un botón dentro de la ficha de cada cliente.
+   Siendo el centro del trabajo diario, pasa a ser su propia sección: una
+   rejilla con todos, su salud, su fase y qué toca hacer con cada uno. */
+function vCRM(v){
+  if(S.crmCliente){
+    const cc=companyById(S.crmCliente);
+    if(cc){vClienteCRM(v,cc);return}
+    S.crmCliente=null;
+  }
+  if(!S.crmFiltro)S.crmFiltro={q:'',fase:'todas',orden:'salud'};
+  const F=S.crmFiltro;
+  const todos=(visibleCompanies()||[]).filter(c=>c.estado!=='perdido');
+  const datos=todos.map(c=>({c,sal:saludCliente(c),fase:faseCliente(c),acc:accionesCliente(c),
+    ultInt:interaccionesDe(c).map(i=>i.fecha).sort().pop()||null}));
+
+  const porFase=k=>datos.filter(x=>x.fase.k===k).length;
+  const enRiesgo=datos.filter(x=>x.sal.nivel==='riesgo').length;
+  const conAcciones=datos.filter(x=>x.acc.length).length;
+
+  head(v,'Clientes','CRM','Todos tus clientes con su salud, su fase y lo que toca hacer con cada uno.',
+    '<button class="b bp" id="crm-nuevo"><i class="ti ti-plus"></i>Nuevo cliente</button>');
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit '+(enRiesgo?'tone-red':'tone-verde')+'"><div class="mlab">En riesgo</div><div class="mval">'+enRiesgo+'</div><div class="msub">de '+datos.length+' clientes</div></div>'+
+    '<div class="met"><div class="mlab">En onboarding</div><div class="mval" style="color:var(--sky)">'+porFase('onboarding')+'</div><div class="msub">sin terminar la puesta en marcha</div></div>'+
+    '<div class="met"><div class="mlab">Renovación cerca</div><div class="mval" style="color:var(--amb)">'+porFase('renovacion')+'</div><div class="msub">en 30 días o menos</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Con algo pendiente</div><div class="mval">'+conAcciones+'</div><div class="msub">tienen acciones sin hacer</div></div>'+
+    '</div>'));
+
+  /* Filtros */
+  const fc=document.createElement('div');fc.className='card';fc.style.marginBottom='16px';
+  const fases=[['todas','Todas'],['onboarding','En onboarding'],['activo','Retainer activo'],['renovacion','Renovación cerca'],['pausado','Pausados']];
+  fc.innerHTML='<div class="row"><div class="f"><label>Buscar</label><input id="crmq" value="'+esc(F.q||'')+'" placeholder="Nombre, servicio, zona…"></div>'+
+    '<div class="f"><label>Ordenar por</label><select id="crmo">'+
+      [['salud','Los que peor están primero'],['nombre','Nombre A-Z'],['monto','Mayor facturación'],['contacto','Hace más que no hablan']]
+      .map(([k,l])=>'<option value="'+k+'"'+(F.orden===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div></div>'+
+    '<div class="chips" style="margin:0">'+fases.map(([k,l])=>{
+      const n=k==='todas'?datos.length:datos.filter(x=>x.fase.k===k).length;
+      return '<button type="button" class="chip'+(F.fase===k?' on':'')+'" data-cf="'+k+'">'+l+' <span style="opacity:.6">'+n+'</span></button>';
+    }).join('')+'</div>';
+  v.appendChild(fc);
+
+  let lista=datos.filter(x=>{
+    if(F.fase!=='todas'&&x.fase.k!==F.fase)return false;
+    const q=String(F.q||'').trim().toLowerCase();
+    if(q&&![x.c.negocio,x.c.ubicacion,servicioDe(x.c),x.c.fuenteOrigen].filter(Boolean).join(' ').toLowerCase().includes(q))return false;
+    return true;
+  });
+  if(F.orden==='salud')lista.sort((a,b)=>a.sal.puntos-b.sal.puntos);
+  else if(F.orden==='nombre')lista.sort((a,b)=>String(a.c.negocio||'').localeCompare(String(b.c.negocio||'')));
+  else if(F.orden==='monto')lista.sort((a,b)=>(Number(b.c.tarifaBruta)||0)-(Number(a.c.tarifaBruta)||0));
+  else lista.sort((a,b)=>String(a.ultInt||'').localeCompare(String(b.ultInt||'')));
+
+  const grid=document.createElement('div');grid.className='crmgrid';
+  grid.innerHTML=lista.length?lista.map(x=>{
+    const c=x.c, d=x.ultInt?difDiasISO(x.ultInt,today()):null;
+    const ob=onboardingDe(c);
+    return '<div class="crmcard" data-c="'+c.id+'" style="--c:'+x.sal.color+'">'+
+      '<div class="crmtop">'+av(c.negocio,'m',0,c.foto)+
+        '<div style="min-width:0;flex:1"><div class="crmn">'+esc(c.negocio)+'</div>'+
+        '<div class="crms">'+esc(servicioDe(c))+'</div></div>'+
+        '<div class="crmring"><span>'+x.sal.puntos+'</span></div></div>'+
+      '<div class="crmfase"><span class="fasepill" style="--c:'+x.fase.color+'">'+esc(x.fase.lb)+'</span>'+
+        (x.fase.k==='onboarding'?'<span class="fasebar" style="--c:var(--sky)"><span style="width:'+ob.pct+'%"></span></span>':'')+
+        '<span class="mono crmmonto">'+money(c.tarifaBruta)+'</span></div>'+
+      (x.acc.length?'<div class="crmacc"><i class="ti '+x.acc[0].ic+'"></i><span>'+esc(x.acc[0].txt)+'</span>'+
+        (x.acc.length>1?'<span class="crmmas">+'+(x.acc.length-1)+'</span>':'')+'</div>'
+        :'<div class="crmacc ok"><i class="ti ti-check"></i><span>Nada pendiente</span></div>')+
+      '<div class="crmpie">'+(d!==null?'Último contacto hace '+d+' d':'<span style="color:var(--amb)">Nunca han hablado</span>')+'</div>'+
+    '</div>';
+  }).join(''):'<div style="font-size:12.5px;color:var(--tx3)">Ningún cliente con esos filtros.</div>';
+  v.appendChild(grid);
+
+  grid.querySelectorAll('[data-c]').forEach(n=>n.onclick=()=>{S.crmCliente=n.dataset.c;render()});
+  fc.querySelectorAll('[data-cf]').forEach(b=>b.onclick=()=>{F.fase=b.dataset.cf;render()});
+  fc.querySelector('#crmo').onchange=e=>{F.orden=e.target.value;render()};
+  const q=fc.querySelector('#crmq');let tq=null;
+  q.oninput=()=>{clearTimeout(tq);tq=setTimeout(()=>{F.q=q.value;render();
+    const n2=document.getElementById('crmq');if(n2){n2.focus();n2.setSelectionRange(n2.value.length,n2.value.length)}},280)};
+  const bn=document.getElementById('crm-nuevo');
+  if(bn)bn.onclick=()=>{S.tab='empresas';S.mCompany='new';S.eCompany='new';render()};
 }
 
 function vClienteCRM(v,c){
