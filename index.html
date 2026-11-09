@@ -1197,6 +1197,48 @@ body.nav-collapsed .navsueltos{border-top:1px solid var(--ln)}
   #msheet.abierta~#fab,body.cajon-abierto #fab{display:none}
 }
 @media(prefers-reduced-motion:reduce){#msheet{transition:none}}
+
+/* Anillo de salud del cliente */
+.saludring{width:68px;height:68px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:conic-gradient(var(--c) calc(var(--p)*1%),var(--card2) 0)}
+.saludring span{width:52px;height:52px;border-radius:50%;background:var(--card);
+  display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:var(--c)}
+
+/* ─────────── GLOW UP: profundidad y jerarquía ───────────
+   Sin colores nuevos: se trabaja con luz, sombra y contraste
+   sobre la paleta que ya existe. */
+.card{position:relative;overflow:hidden}
+/* Un filo de luz arriba separa la tarjeta del fondo sin añadir borde */
+.card::after{content:'';position:absolute;inset:0 0 auto 0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);pointer-events:none}
+.met{position:relative;overflow:hidden}
+.met::after{content:'';position:absolute;inset:0 0 auto 0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent);pointer-events:none}
+/* La métrica crítica recibe un halo de su propio tono */
+.met-crit{box-shadow:var(--sh1),0 18px 44px -24px color-mix(in srgb,var(--pink) 60%,transparent)}
+.met-crit.tone-verde,.met-crit.tone-lime{box-shadow:var(--sh1),0 18px 44px -24px color-mix(in srgb,var(--verde) 65%,transparent)}
+.met-crit.tone-red{box-shadow:var(--sh1),0 18px 44px -24px color-mix(in srgb,var(--red) 60%,transparent)}
+.met-crit.tone-amb{box-shadow:var(--sh1),0 18px 44px -24px color-mix(in srgb,var(--amb) 60%,transparent)}
+/* Números tabulares: las columnas de dinero dejan de bailar */
+.mono,.mval,.t .n{font-variant-numeric:tabular-nums}
+/* Encabezado de sección con más presencia */
+.hd h1.t{font-size:27px}
+.hd .sub{max-width:72ch}
+/* Filas de tabla con separación más suave */
+.t tbody tr{border-bottom:1px solid color-mix(in srgb,var(--ln) 55%,transparent)}
+.t tbody tr:last-child{border-bottom:0}
+/* Botones secundarios menos planos */
+.b.bg{border:1px solid var(--ln2);background:var(--card)}
+.b.bg:hover{border-color:var(--lav);background:var(--lav2)}
+@media(max-width:560px){.hd h1.t{font-size:23px}}
+
+/* Fase del cliente */
+.faserow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 2px}
+.fasepill{font-size:11px;font-weight:700;padding:4px 11px;border-radius:999px;
+  background:color-mix(in srgb,var(--c) 15%,transparent);color:var(--c)}
+.fasebar{display:block;flex:1;min-width:90px;height:6px;border-radius:999px;background:var(--card2);overflow:hidden}
+.fasebar>span{display:block;height:100%;border-radius:999px;background:var(--c);transition:width .3s}
+.fasetxt{font-size:11.5px;color:var(--tx3)}
 </style>
 </head>
 <body>
@@ -2104,7 +2146,7 @@ const DB={
     return{key:k,deleted:true};
   }
 };
-const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina','fondoDesde','fondoMovs','pctAgenciaDefecto','trabajos'];
+const KEYS=['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','counter','nominaInicioKey','nominaSaldosIniciales','controlInicioFecha','proyeccionGastosFijos','gastosFijos','desfaseNomina','fondoDesde','fondoMovs','pctAgenciaDefecto','trabajos','waPlantillas','waCola','waConfig','entrada','reglasCobro','reglasLog'];
 /* Toda colección (array u objeto) queda protegida, no solo un subconjunto.
    Antes contacts, links, members, roles, users y gastosFijos no tenían red. */
 const COLLECTION_KEYS=new Set(['companies','contacts','links','prospects','members','roles','users','metodos','cobros','invoices','payouts','adelantos','egresos','entregas','calendario','nominaSaldosIniciales','proyeccionGastosFijos','gastosFijos']);
@@ -2204,7 +2246,7 @@ async function verifyDataIntegrity(){
 
 /* ═══════════ ESTADO ═══════════ */
 let S={tab:'panel',companies:[],contacts:[],links:[],prospects:[],members:[],roles:[],users:[],metodos:[],
-  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,fondoDesde:null,fondoMovs:[],pctAgenciaDefecto:40,trabajos:[],
+  cobros:[],invoices:[],payouts:[],adelantos:[],egresos:[],entregas:[],calendario:{},counter:188,nominaInicioKey:null,nominaSaldosIniciales:{},controlInicioFecha:null,proyeccionGastosFijos:[],gastosFijos:[],desfaseNomina:-1,fondoDesde:null,fondoMovs:[],pctAgenciaDefecto:40,trabajos:[],waPlantillas:[],waCola:[],waConfig:{},entrada:[],reglasCobro:null,reglasLog:[],
   mCompany:null,mContact:null,mProspect:null,lead:null,mMember:null,mWallet:null,eWallet:null,mNomina:null,
   eCompany:null,eContact:null,eProspect:null,eMember:null,eEgreso:null,
   fCompany:'todos',fContact:'todos',fInvoice:'todas',fEmp:{q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'},
@@ -2607,7 +2649,7 @@ function estadoCobroMes(companyId,ym){
 /* ═══════════ USUARIOS Y PERMISOS ═══════════ */
 const TAB_PERMS=[
   ['panel','Dashboard'],['proyeccion','Proyección'],['estadisticas-clientes','Estadísticas clientes'],['fechas-pago','Fechas de pago'],['morosos','Morosos'],['cobranza','Cobranza'],['estado-cuenta','Estado de cuenta'],['empresas','Empresas'],['inactivos','Pausados y perdidos'],['contactos','Contactos'],['prospectos','Prospectos'],
-  ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['organigrama','Organigrama'],['captacion','Captación'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
+  ['rentabilidad','Rentabilidad real'],['fondo','Fondo de la agencia'],['capacidad','Capacidad del equipo'],['organigrama','Organigrama'],['captacion','Captación'],['whatsapp','WhatsApp'],['wallets','Wallets'],['linea','Línea de cobranza'],['cobros','Cobros'],['caja','Flujo de caja'],
   ['facturas','Facturas'],['egresos','Egresos'],['equipo','Miembros'],['nomina','Nómina'],
   ['pagos-equipo','Pagos al equipo'],['ajustes','Ajustes']
 ];
@@ -2896,6 +2938,7 @@ const NAV_GRUPOS=[
     ['contactos','ti-address-book','Contactos','var(--lav)'],
     ['prospectos','ti-target-arrow','Prospectos','var(--sky)'],
     ['captacion','ti-radar','Captación','var(--sky)'],
+    ['whatsapp','ti-brand-whatsapp','WhatsApp','var(--lime)'],
     ['cobranza','ti-calendar-event','Cobranza','var(--amb)'],
     ['facturas','ti-file-invoice','Facturas','var(--amb)'],
     ['cobros','ti-cash','Cobros','var(--lime)']]},
@@ -2918,6 +2961,7 @@ function navContador(k){
     if(k==='contactos')return visibleContacts().length;
     if(k==='prospectos')return visibleProspects().filter(p=>p.estado!=='ganado'&&p.estado!=='perdido').length;
     if(k==='cobranza'){const n=listaMorosos().length;return n||null}
+    if(k==='whatsapp'){const n=waPendientes().length;return n||null}
     if(k==='wallets')return S.metodos.length;
     if(k==='facturas'){const n=facturasPendientes().length;return n||visibleInvoices().length}
     if(k==='egresos')return visibleEgresos().length;
@@ -3217,7 +3261,7 @@ function render(){
     mount.innerHTML='';
     if(S.loading){mount.innerHTML='<div class="empty">Cargando…</div>';return}
     const v=document.createElement('div');v.className='view';mount.appendChild(v);
-    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,cobranza:vCobranza,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
+    const fallbackView=(titulo,sub)=>function(v){head(v,'',titulo,sub||'Esta sección no está disponible en esta versión.','');v.appendChild(frag(mt('ti-alert-triangle','La sección no pudo cargarse. Actualiza la página para reintentar.')))}; const views={panel:vPanel,proyeccion:vProyeccion,'estadisticas-clientes':vEstadisticasClientes,empresas:vEmpresas,inactivos:vInactivos,contactos:vContactos,prospectos:(typeof vProspectos==='function'?vProspectos:fallbackView('Prospectos')),linea:vLinea,wallets:vWallets,'fechas-pago':vFechasPago,morosos:vMorosos,cobranza:vCobranza,'estado-cuenta':vEstadoCuenta,cobros:vCobros,caja:vCaja,rentabilidad:vRentabilidad,fondo:vFondo,capacidad:vCapacidad,organigrama:vOrganigrama,captacion:vCaptacion,whatsapp:vWhatsApp,facturas:(typeof vFacturas==='function'?vFacturas:fallbackView('Facturas')),egresos:(typeof vEgresos==='function'?vEgresos:fallbackView('Egresos')),equipo:vEquipo,nomina:vNomina,'pagos-equipo':vPagosEquipo,ajustes:vAjustes};
     const fn=views[S.tab]||vPanel;
     try{fn(v)}catch(err){
       console.error('Error al dibujar la sección '+S.tab,err);
@@ -4199,6 +4243,24 @@ function panelExtractores(v){
 }
 
 function panelFuentes(v){
+  /* Lo que de verdad importa de una fuente no es cuántos leads trae, sino
+     cuántos se vuelven clientes y cuánto dinero entró por ellos. */
+  {
+    const at=atribucionFuentes().filter(x=>x.prospectos||x.clientes);
+    if(at.length){
+      const ac=document.createElement('div');ac.className='card';ac.style.cssText='margin-bottom:16px;border-left:3px solid var(--verde)';
+      ac.innerHTML='<div class="ctitle">De dónde viene el dinero <span class="cnt">'+at.length+' fuentes</span></div>'+
+        '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Cuántos prospectos trajo cada fuente, cuántos se volvieron clientes y cuánto has cobrado por ellos. Es lo que dice dónde invertir.</div>'+
+        '<div style="overflow-x:auto"><table class="t"><thead><tr><th>Fuente</th><th>Prospectos</th><th>Clientes</th><th>Conversión</th><th>Factura al mes</th><th>Cobrado</th></tr></thead><tbody>'+
+        at.map(x=>'<tr><td><strong>'+esc(x.fuente)+'</strong></td>'+
+          '<td class="n">'+x.prospectos+'</td><td class="n" style="color:var(--verde-hondo)">'+x.clientes+'</td>'+
+          '<td class="n">'+(x.prospectos||x.clientes?'<span class="p '+(x.conversion>=30?'p-ok':x.conversion>=10?'p-w':'p-g')+'">'+pct(x.conversion)+'</span>':'—')+'</td>'+
+          '<td class="n">'+money(x.mrr)+'</td>'+
+          '<td class="n" style="font-weight:700">'+money(x.cobrado)+'</td></tr>').join('')+
+        '</tbody></table></div>';
+      v.appendChild(ac);
+    }
+  }
   const ps=visibleProspects()||[];
   if(!ps.length){v.appendChild(frag(mt('ti-database-search','Todavía no hay prospectos. Importa una lista para empezar.')));return}
   const porFuente=new Map();
@@ -4292,9 +4354,24 @@ function vProspectos(v){
   document.getElementById('new-p').onclick=()=>{S.mProspect='new';render()};
   bd.querySelectorAll('[data-cv]').forEach(b=>b.onclick=async e=>{e.stopPropagation();
     const p=S.prospects.find(x=>x.id===b.dataset.cv);
-    S.companies.push({id:uid(),negocio:p.negocio,ubicacion:p.ubicacion||'',tarifaBruta:p.montoEstimado||0,
-      metodoPagoId:(S.metodos[0]||{}).id,estado:'activo',frecuencia:'mensual',diaCobro:5,
-      equipoIds:[],pesos:{},notas:[],fechaInicio:today()});
+    /* Antes la conversión creaba un cliente casi vacío: se perdían teléfono,
+       email, Instagram, categoría, la fuente y toda la historia del prospecto.
+       Había que volver a escribirlo todo. */
+    const nuevo={id:uid(),negocio:p.negocio,ubicacion:p.ubicacion||'',
+      telefono:p.telefono||'',email:p.email||'',instagram:p.instagram||'',web:p.web||'',
+      industria:p.categoria||'',
+      tarifaBruta:p.montoEstimado||0,
+      metodoPagoId:(S.metodos[0]||{}).id,estado:'activo',frecuencia:'mensual',
+      tipoContrato:'recurrente',diaCobro1:5,diaCobro:5,
+      repartoProporcional:true,pctAgencia:pctAgenciaDefecto(),
+      servicios:[],asignaciones:[],equipoIds:[],pesos:{},notas:[],historialEstado:[],
+      fechaInicio:today(),
+      /* De dónde vino, para poder medir qué fuente trae dinero */
+      fuenteOrigen:p.fuente||'Sin fuente',prospectoId:p.id,
+      onboarding:{},
+      /* Su historia de prospecto pasa a ser su historia de cliente */
+      interacciones:(p.actividad||[]).map(a=>({fecha:a.fecha,canal:a.tipo,nota:a.detalle||'',previo:true}))};
+    S.companies.push(nuevo);
     S.prospects=S.prospects.filter(x=>x.id!==p.id);
     await saveUI('companies');await saveUI('prospects');S.tab='empresas';toast('Convertido en cliente');render()});
 }
@@ -4864,6 +4941,12 @@ function vInactivos(v){
 }
 
 function vEmpresas(v){
+  /* Si hay un cliente abierto en modo CRM, esa es la vista. */
+  if(S.crmCliente){
+    const cc=companyById(S.crmCliente);
+    if(cc){vClienteCRM(v,cc);return}
+    S.crmCliente=null;
+  }
   const vista=S.viewEmpresas||'cards';head(v,'Clientes','Empresas','Cada cliente con su tarifa, equipo variable y margen de agencia.','<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip '+(vista==='cards'?'on':'')+'" id="emp-cards"><i class="ti ti-layout-grid"></i> Tarjetas</button><button class="chip '+(vista==='list'?'on':'')+'" id="emp-list"><i class="ti ti-list"></i> Lista</button>'+(isAdminUser()?'<button class="b bp" id="new-co"><i class="ti ti-plus"></i>Nueva empresa</button>':'')+'</div>');
   /* ── Filtros ── */
   if(!S.fEmp)S.fEmp={q:'',pais:'todos',area:'todas',miembro:'todos',frecuencia:'todas',wallet:'todas',cobro:'todos'};
@@ -5037,7 +5120,13 @@ function mCompanyModal(){
     const invs=S.invoices.filter(i=>i.companyId===c.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
     const pagos=S.cobros.filter(p=>p.companyId===c.id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
     m.innerHTML='<div class="mhd"><div class="mid">'+av(c.negocio,'l',0,c.foto)+'<div><div class="mtitle">'+esc(c.negocio)+'</div><div class="esub">'+esc(c.ubicacion||'Sin ubicación')+' · '+esc(tarifaClienteLabel(c))+(Number(c.descuentoPredeterminadoPct||0)>0?' · descuento '+pct(c.descuentoPredeterminadoPct):'')+'</div></div></div><button class="ib" id="x"><i class="ti ti-x"></i></button></div>'+
-      '<div class="brow"><button class="b bp bs" id="a-cob"><i class="ti ti-cash"></i>Registrar cobro</button><button class="b bg bs" id="a-fac"><i class="ti ti-file-invoice"></i>Facturar</button><button class="b bg bs" id="a-edit"><i class="ti ti-edit"></i>Editar</button><button class="b bg bs bd" id="a-del"><i class="ti ti-trash"></i></button></div>'+
+      (()=>{const f=faseCliente(c);const ob=onboardingDe(c);const rv=renovacionDe(c);
+        return '<div class="faserow" style="--c:'+f.color+'">'+
+          '<span class="fasepill">'+esc(f.lb)+'</span>'+
+          (f.k==='onboarding'?'<span class="fasebar"><span style="width:'+ob.pct+'%"></span></span><span class="fasetxt">'+ob.hechos+' de '+ob.total+'</span>':'')+
+          (rv?'<span class="fasetxt">Renueva '+fdate(rv.fecha)+' · '+esc(rv.etiqueta)+'</span>':'')+
+        '</div>'})()+
+      '<div class="brow"><button class="b bp bs" id="a-crm"><i class="ti ti-timeline"></i>Ver CRM</button><button class="b bg bs" id="a-wa"><i class="ti ti-brand-whatsapp"></i></button><button class="b bg bs" id="a-cob"><i class="ti ti-cash"></i>Cobro</button><button class="b bg bs" id="a-fac"><i class="ti ti-file-invoice"></i>Facturar</button><button class="b bg bs" id="a-edit"><i class="ti ti-edit"></i>Editar</button><button class="b bg bs bd" id="a-del"><i class="ti ti-trash"></i></button></div>'+
       fichaMarketing(c)+
       '<div class="msec"><div class="mstitle">Cómo se reparte cada mes</div><div class="sim">'+simRows(rn.cascada)+'</div></div>'+
       '<div class="msec"><div class="mstitle">Wallet acumulado de este cliente</div>'+(function(){
@@ -5417,6 +5506,8 @@ function mCompanyModal(){
     return;
   }
 
+  document.getElementById('a-crm').onclick=()=>{S.mCompany=null;S.tab='empresas';S.crmCliente=c.id;render()};
+  document.getElementById('a-wa').onclick=()=>{S.mCompany=null;waModal(c)};
   document.getElementById('a-cob').onclick=()=>{S.mCompany=null;S.tab='cobros';S.presetCompany=c.id;render()};
   document.getElementById('a-fac').onclick=()=>{S.mCompany=null;S.tab='facturas';S.presetCompany=c.id;render()};
   document.getElementById('a-edit').onclick=()=>{S.eCompany=c.id;render()};
@@ -7173,6 +7264,709 @@ async function pagarTrabajoModal(trabajoId){
     if(!await saveUI('payouts'))return;
     if(!await saveUI('trabajos'))return;
     ov.remove();toast('Trabajo pagado a '+(m?m.nombre:''));render();
+  };
+}
+
+/* ═══════════ WHATSAPP ═══════════
+   La app no envía: es una página estática y la API de WhatsApp exige un
+   servidor con token. Lo que sí hace es dejar los mensajes listos en una cola
+   dentro de Supabase, con el número normalizado y el texto ya resuelto, para
+   que Make o n8n la lean y envíen. Mientras tanto, cada mensaje se puede
+   mandar a mano por wa.me sin esperar a la automatización. */
+const WA_VARS=[
+  ['cliente','Nombre del negocio'],
+  ['contacto','Nombre de la persona'],
+  ['monto','Monto que debe'],
+  ['dias','Días de atraso'],
+  ['fecha','Próxima fecha de cobro'],
+  ['wallet','Dónde pagar'],
+  ['titular','A nombre de quién'],
+  ['factura','Número de factura'],
+  ['agencia','Nombre de la agencia']
+];
+const WA_PLANTILLAS_BASE=[
+  {id:'rec',nombre:'Recordatorio de pago',uso:'cobranza',
+   texto:'Hola {cliente}, ¿cómo estás? Te escribo para recordarte el pago de {monto} con fecha {fecha}. Puedes hacerlo por {wallet} a nombre de {titular}. Cualquier cosa me avisas, ¡gracias!'},
+  {id:'ven',nombre:'Pago vencido',uso:'cobranza',
+   texto:'Hola {cliente}, espero estés bien. El pago de {monto} lleva {dias} días pendiente. ¿Te ayudo con algo para poder procesarlo? Puedes pagar por {wallet} a nombre de {titular}.'},
+  {id:'fac',nombre:'Factura enviada',uso:'cobranza',
+   texto:'Hola {cliente}, te comparto la factura {factura} por {monto}. Quedo atenta a cualquier duda. ¡Gracias por la confianza!'},
+  {id:'gra',nombre:'Gracias por el pago',uso:'relacion',
+   texto:'¡Recibido, {cliente}! Gracias por el pago de {monto}. Seguimos trabajando. 💜'},
+  {id:'seg',nombre:'Seguimiento',uso:'relacion',
+   texto:'Hola {cliente}, ¿cómo va todo? Quería saber cómo te has sentido con el trabajo de este mes y si hay algo que quieras ajustar.'}
+];
+function waPlantillas(){
+  const propias=Array.isArray(S.waPlantillas)?S.waPlantillas:[];
+  return WA_PLANTILLAS_BASE.concat(propias);
+}
+function waTelefono(c){
+  const t=String((c&&c.telefono)||'').replace(/\D/g,'');
+  if(!t)return '';
+  /* Venezuela: 0414… se envía como 58414… */
+  if(t.length>=10&&t.startsWith('0'))return '58'+t.slice(1);
+  if(t.length<=11&&!t.startsWith('58')&&t.length>=10)return '58'+t;
+  return t;
+}
+function waDatos(c){
+  const ven=vencimientoCliente(c);
+  const fact=facturasPendientes(c.id);
+  const w=walletById(c.metodoPagoId);
+  const ct=(S.links||[]).filter(l=>l.companyId===c.id).map(l=>(S.contacts||[]).find(x=>x.id===l.contactId)).filter(Boolean)[0];
+  const deuda=r2(Math.max(ven.vencido?ven.monto:0,fact.reduce((s2,x)=>s2+x.st.saldo,0)));
+  return{
+    cliente:c.negocio||'',
+    contacto:(ct&&ct.nombre)||c.negocio||'',
+    monto:money(deuda>0.005?deuda:montoFacturaCliente(c)),
+    dias:String(ven.vencido?ven.dias:0),
+    fecha:(ven.vencido?fdate(ven.desde):(proximoCobroCliente(c)?fdate(proximoCobroCliente(c)):'por confirmar')),
+    wallet:(w&&w.nombre)||'transferencia',
+    titular:(w&&w.titular)||'la agencia',
+    factura:fact.length?(fact[0].iv.orden||''):'',
+    agencia:'Páramo Creativo'
+  };
+}
+function waRender(texto,c){
+  const d=waDatos(c);
+  return String(texto||'').replace(/\{(\w+)\}/g,(m,k)=>d[k]!==undefined?d[k]:m);
+}
+function waLink(c,texto){
+  const t=waTelefono(c);
+  return t?'https://wa.me/'+t+'?text='+encodeURIComponent(texto):'';
+}
+/* La cola: cada registro es un mensaje listo para que la automatización lo
+   tome, lo envíe y lo marque. El formato es plano a propósito. */
+function waEncolar(c,texto,plantillaId){
+  if(!Array.isArray(S.waCola))S.waCola=[];
+  const t=waTelefono(c);
+  if(!t)return null;
+  const reg={
+    id:uid(),estado:'pendiente',creado:new Date().toISOString(),
+    companyId:c.id,cliente:c.negocio,telefono:t,
+    texto,plantillaId:plantillaId||null,
+    intentos:0,enviado:null,error:null
+  };
+  S.waCola.push(reg);
+  return reg;
+}
+function waPendientes(){return (S.waCola||[]).filter(x=>x.estado==='pendiente')}
+function waResumen(){
+  const c=S.waCola||[];
+  return{total:c.length,pendientes:c.filter(x=>x.estado==='pendiente').length,
+    enviados:c.filter(x=>x.estado==='enviado').length,
+    fallidos:c.filter(x=>x.estado==='error').length};
+}
+/* ═══════════ COBRO AUTOMÁTICO ═══════════
+   La app no cobra dinero: para eso haría falta una pasarela de pago. Lo que
+   automatiza es el reclamo. Cada regla mira la fecha de cobro de cada cliente
+   y, cuando toca, deja el mensaje en la cola de WhatsApp. Lo envía después
+   tu escenario de Make o n8n, igual que los mensajes manuales.
+   Cada mensaje se encola UNA vez por cliente, regla y período: si abres la
+   app cinco veces el mismo día no se encola cinco veces. */
+const REGLAS_BASE=[
+  {id:'r-antes3',nombre:'Aviso 3 días antes',activa:true,cuando:'antes',dias:3,plantillaId:'rec',soloSiDebe:false},
+  {id:'r-dia',nombre:'El día del cobro',activa:true,cuando:'diaDe',dias:0,plantillaId:'rec',soloSiDebe:false},
+  {id:'r-desp3',nombre:'3 días de atraso',activa:true,cuando:'despues',dias:3,plantillaId:'ven',soloSiDebe:true},
+  {id:'r-desp10',nombre:'10 días de atraso',activa:true,cuando:'despues',dias:10,plantillaId:'ven',soloSiDebe:true},
+  {id:'r-desp21',nombre:'21 días de atraso',activa:false,cuando:'despues',dias:21,plantillaId:'ven',soloSiDebe:true}
+];
+function reglasCobro(){
+  if(!Array.isArray(S.reglasCobro))return REGLAS_BASE.map(r=>({...r}));
+  return S.reglasCobro;
+}
+/* La fecha de referencia de cada regla.
+   En los atrasos se mide desde la ÚLTIMA fecha que pasó, no desde la más
+   vieja: si no, en un cliente con tres meses de deuda la regla de «3 días»
+   no vuelve a dispararse nunca y la escalada se rompe. */
+function fechaObjetivoRegla(c,r){
+  const ven=vencimientoCliente(c);
+  if(r.cuando==='despues'){
+    if(!ven.vencido)return null;
+    const ps=(ven.pendientes||[]).slice().sort();
+    return ps.length?ps[ps.length-1]:ven.desde;
+  }
+  return proximoCobroCliente(c)||null;
+}
+/* ¿Hoy es uno de los días de cobro de este cliente? proximoCobroCliente solo
+   devuelve fechas estrictamente futuras, así que el mismo día nunca coincidía. */
+function hoyEsDiaDeCobro(c,hoy){
+  const dia=Number(String(hoy).slice(8,10));
+  const ult=new Date(Number(hoy.slice(0,4)),Number(hoy.slice(5,7)),0).getDate();
+  return diasCobroDe(c).some(d=>Math.min(Number(d)||1,ult)===dia);
+}
+function aplicaRegla(c,r,hoy){
+  if(!r.activa)return null;
+  if(c.estado!=='activo')return null;
+  if(esEventual(c)||esUnico(c))return null;   /* no tienen ciclo fijo */
+  if(!waTelefono(c))return null;
+  const ven=vencimientoCliente(c);
+  if(r.soloSiDebe&&!ven.vencido&&!facturasPendientes(c.id).length)return null;
+  const ref=fechaObjetivoRegla(c,r);
+  if(!ref)return null;
+  if(r.cuando==='antes'){
+    if(difDiasISO(hoy,ref)!==Number(r.dias))return null;
+  } else if(r.cuando==='diaDe'){
+    if(!hoyEsDiaDeCobro(c,hoy))return null;
+    return hoy;
+  } else {
+    if(difDiasISO(ref,hoy)!==Number(r.dias))return null;
+  }
+  return ref;
+}
+function claveRegla(c,r,ref){return c.id+'|'+r.id+'|'+ref}
+function yaEncolado(clave){return (S.reglasLog||[]).some(x=>x.clave===clave)}
+/* Evalúa todas las reglas. Devuelve lo que encolaría sin tocar nada si
+   `simular` es true, para poder enseñarlo antes de ejecutar. */
+function evaluarReglasCobro({simular}={}){
+  const hoy=today(), out=[];
+  const pl=waPlantillas();
+  (visibleCompanies()||[]).forEach(c=>{
+    reglasCobro().forEach(r=>{
+      const ref=aplicaRegla(c,r,hoy);
+      if(!ref)return;
+      const clave=claveRegla(c,r,ref);
+      if(yaEncolado(clave))return;
+      const plt=pl.find(x=>x.id===r.plantillaId)||pl[0];
+      const texto=waRender(plt.texto,c);
+      out.push({c,r,ref,clave,texto,plantilla:plt.nombre});
+    });
+  });
+  if(!simular){
+    out.forEach(x=>{
+      waEncolar(x.c,x.texto,x.r.plantillaId);
+      if(!Array.isArray(S.reglasLog))S.reglasLog=[];
+      S.reglasLog.push({clave:x.clave,fecha:hoy,companyId:x.c.id,reglaId:x.r.id,cliente:x.c.negocio});
+    });
+  }
+  return out;
+}
+/* Corre una vez al día al abrir la app, si está encendido. */
+async function correrReglasAlAbrir(){
+  if(!S.waConfig||S.waConfig.auto!==true)return;
+  const hoy=today();
+  if(S.waConfig.ultimaCorrida===hoy)return;
+  const hechos=evaluarReglasCobro();
+  S.waConfig={...S.waConfig,ultimaCorrida:hoy};
+  await save('waConfig');
+  if(hechos.length){await save('waCola');await save('reglasLog');
+    toast(hechos.length+' recordatorio'+(hechos.length===1?'':'s')+' en la cola');}
+}
+
+/* ═══════════ CICLO COMPLETO DEL CLIENTE ═══════════
+   Los CRM de agencia coinciden en algo: el ciclo no termina al ganar. Después
+   viene el onboarding, el retainer corriendo y la renovación. Aquí se modela
+   ese tramo, que es donde se pierde o se retiene el dinero. */
+const ONBOARDING=[
+  ['contrato','Contrato firmado'],
+  ['accesos','Accesos a redes y cuentas'],
+  ['kickoff','Reunión de arranque'],
+  ['marca','Lineamientos de marca recibidos'],
+  ['calendario','Primer calendario aprobado'],
+  ['cobro','Primer cobro registrado']
+];
+function faseCliente(c){
+  if(!c)return null;
+  if(c.estado==='perdido')return{k:'perdido',lb:'Perdido',color:'var(--red)'};
+  if(c.estado==='pausado')return{k:'pausado',lb:'Pausado',color:'var(--amb)'};
+  const ob=onboardingDe(c);
+  if(!ob.completo)return{k:'onboarding',lb:'En onboarding',color:'var(--sky)'};
+  const r=renovacionDe(c);
+  if(r&&r.dias!==null&&r.dias<=30)return{k:'renovacion',lb:'Renovación cerca',color:'var(--amb)'};
+  return{k:'activo',lb:'Retainer activo',color:'var(--verde)'};
+}
+function onboardingDe(c){
+  const hechos=(c&&c.onboarding)||{};
+  /* El primer cobro se marca solo: ya está en los datos. */
+  const auto={cobro:(S.cobros||[]).some(p=>p.companyId===c.id&&p.tipoIngreso!=='externo')};
+  const pasos=ONBOARDING.map(([k,lb])=>({k,lb,hecho:!!(hechos[k]||auto[k])}));
+  const n=pasos.filter(x=>x.hecho).length;
+  return{pasos,hechos:n,total:pasos.length,pct:Math.round(n/pasos.length*100),completo:n===pasos.length};
+}
+/* Renovación: cuándo vence el acuerdo y cuánto falta. */
+function renovacionDe(c){
+  if(!c||!c.fechaRenovacion)return null;
+  const d=difDiasISO(today(),c.fechaRenovacion);
+  return{fecha:c.fechaRenovacion,dias:d,
+    vencida:d<0,
+    etiqueta:d<0?'Venció hace '+Math.abs(d)+' días':d===0?'Vence hoy':'En '+d+' días'};
+}
+/* Atribución: qué fuente de prospectos trae dinero de verdad, no solo leads. */
+function atribucionFuentes(){
+  const m=new Map();
+  const add=(f,k,v)=>{const e=m.get(f)||{fuente:f,prospectos:0,clientes:0,mrr:0,cobrado:0};e[k]+=v;m.set(f,e)};
+  (S.prospects||[]).forEach(p=>add(p.fuente||'Sin fuente','prospectos',1));
+  (S.companies||[]).forEach(c=>{
+    const f=c.fuenteOrigen||'Sin fuente';
+    add(f,'clientes',1);
+    if(c.estado==='activo')add(f,'mrr',r2(Number(c.tarifaBruta)||0));
+    add(f,'cobrado',r2((S.cobros||[]).filter(k=>k.companyId===c.id&&k.tipoIngreso!=='externo')
+      .reduce((s2,k)=>s2+(Number(k.montoBruto)||0),0)));
+  });
+  return [...m.values()].map(e=>({...e,
+    conversion:e.prospectos?r2(e.clientes/(e.prospectos+e.clientes)*100):(e.clientes?100:0)
+  })).sort((a,b)=>b.cobrado-a.cobrado);
+}
+
+/* ═══════════ BANDEJA DE ENTRADA · PARA EL CHATBOT ═══════════
+   Un bot externo escribe aquí lo que recibe por WhatsApp. La app lo lee, lo
+   empareja con un cliente o prospecto por teléfono, y te deja decidir. Es el
+   otro lado de la cola de salida: una entra, otra sale. */
+function telefonoNormalizado(t){
+  const d=String(t||'').replace(/\D/g,'');
+  if(!d)return '';
+  if(d.length>=10&&d.startsWith('0'))return '58'+d.slice(1);
+  if(d.length>=10&&!d.startsWith('58'))return '58'+d;
+  return d;
+}
+function buscarPorTelefono(tel){
+  const t=telefonoNormalizado(tel);
+  if(!t)return null;
+  const coincide=x=>telefonoNormalizado(x&&x.telefono)===t;
+  const c=(S.companies||[]).find(coincide);
+  if(c)return{tipo:'cliente',registro:c};
+  const p=(S.prospects||[]).find(coincide);
+  if(p)return{tipo:'prospecto',registro:p};
+  const ct=(S.contacts||[]).find(coincide);
+  if(ct)return{tipo:'contacto',registro:ct};
+  return null;
+}
+function entradaPendiente(){return (S.entrada||[]).filter(x=>!x.procesado)}
+function entradaConMatch(){
+  return (S.entrada||[]).map(x=>({...x,match:buscarPorTelefono(x.telefono)}));
+}
+
+/* ═══════════ CRM DEL CLIENTE ═══════════
+   Una ficha es un formulario; un CRM es una historia. Aquí se reúne todo lo
+   que pasó con el cliente en una sola línea de tiempo, se calcula su salud y
+   se proponen las acciones que tocan ahora. */
+function interaccionesDe(c){return Array.isArray(c&&c.interacciones)?c.interacciones:[]}
+function lineaTiempoCliente(c){
+  const ev=[];
+  if(c.fechaInicio)ev.push({fecha:c.fechaInicio,tipo:'alta',icono:'ti-flag',color:'var(--verde)',
+    titulo:'Entró como cliente',detalle:(c.servicios||[]).join(' · ')||''});
+  (c.historialEstado||[]).forEach(h=>ev.push({fecha:h.fecha,tipo:'estado',icono:'ti-arrow-right',
+    color:h.a==='activo'?'var(--verde)':h.a==='pausado'?'var(--amb)':'var(--red)',
+    titulo:'Pasó a '+h.a,detalle:h.motivo||''}));
+  (S.cobros||[]).filter(p=>p.companyId===c.id).forEach(p=>ev.push({fecha:p.fecha,tipo:'cobro',icono:'ti-cash',
+    color:'var(--verde)',titulo:'Pagó '+money(p.montoBruto),
+    detalle:(walletById(p.metodoPagoId)||{}).nombre||''}));
+  (S.invoices||[]).filter(i=>i.companyId===c.id).forEach(i=>{const st=estadoFactura(i);
+    ev.push({fecha:i.fecha,tipo:'factura',icono:'ti-file-invoice',
+      color:st.estado==='cobrada'?'var(--verde)':'var(--amb)',
+      titulo:'Factura '+(i.orden||'')+' · '+money(i.total),detalle:st.etiqueta})});
+  (S.trabajos||[]).filter(t=>t.companyId===c.id).forEach(t=>{const m=memberById(t.memberId);
+    ev.push({fecha:t.fecha,tipo:'trabajo',icono:'ti-briefcase',color:'var(--lav)',
+      titulo:t.descripcion,detalle:money(t.montoCliente)+(m?' · lo hizo '+m.nombre:'')})});
+  (c.recordatorios||[]).forEach(r=>ev.push({fecha:r.fecha,tipo:'aviso',icono:'ti-bell',color:'var(--amb)',
+    titulo:'Le recordamos el pago',detalle:r.nota||''}));
+  interaccionesDe(c).forEach(i=>ev.push({fecha:i.fecha,tipo:'interaccion',
+    icono:i.canal==='WhatsApp'?'ti-brand-whatsapp':i.canal==='Llamada'?'ti-phone':i.canal==='Reunión'?'ti-users':'ti-message',
+    color:'var(--sky)',titulo:i.canal+(i.asunto?' · '+i.asunto:''),detalle:i.nota||''}));
+  (c.notas||[]).forEach(n=>{const f=(typeof n==='object'?n.fecha:null);
+    ev.push({fecha:f||c.fechaInicio||today(),tipo:'nota',icono:'ti-note',color:'var(--tx3)',
+      titulo:'Nota',detalle:typeof n==='object'?(n.texto||''):String(n)})});
+  return ev.filter(e=>e.fecha).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+}
+/* Salud del cliente: una nota de 0 a 100 con los motivos a la vista, para que
+   no sea un número mágico sino algo que puedas discutir. */
+function saludCliente(c){
+  const motivos=[];let p=100;
+  const ven=vencimientoCliente(c);
+  if(ven.vencido){const q=Math.min(40,10+ven.dias);p-=q;motivos.push({mal:true,txt:'Vencido hace '+ven.dias+' días',peso:-q})}
+  const fact=facturasPendientes(c.id);
+  if(fact.length){const q=Math.min(25,8*fact.length);p-=q;motivos.push({mal:true,txt:fact.length+' factura'+(fact.length===1?'':'s')+' sin cobrar',peso:-q})}
+  const ult=(S.cobros||[]).filter(x=>x.companyId===c.id&&x.fecha).map(x=>x.fecha).sort().pop();
+  const dias=ult?difDiasISO(ult,today()):null;
+  if(dias===null){p-=20;motivos.push({mal:true,txt:'Nunca ha pagado',peso:-20})}
+  else if(dias>75){p-=20;motivos.push({mal:true,txt:'Sin pagar hace '+dias+' días',peso:-20})}
+  else if(dias<=35)motivos.push({mal:false,txt:'Pagó hace '+dias+' días',peso:0});
+  const meses=c.fechaInicio?Math.floor(difDiasISO(c.fechaInicio,today())/30):0;
+  if(meses>=12){p=Math.min(100,p+8);motivos.push({mal:false,txt:'Lleva '+Math.floor(meses/12)+' año'+(meses>=24?'s':'')+' contigo',peso:8})}
+  else if(meses>=6)motivos.push({mal:false,txt:'Lleva '+meses+' meses contigo',peso:0});
+  const eq=(c.asignaciones||[]).filter(a=>a.activo!==false).length;
+  if(!eq){p-=10;motivos.push({mal:true,txt:'Sin equipo asignado',peso:-10})}
+  if(c.estado==='pausado'){p-=25;motivos.push({mal:true,txt:'Está pausado',peso:-25})}
+  p=Math.max(0,Math.min(100,Math.round(p)));
+  return{puntos:p,motivos,
+    nivel:p>=80?'bien':p>=55?'atencion':'riesgo',
+    etiqueta:p>=80?'Sano':p>=55?'Requiere atención':'En riesgo',
+    color:p>=80?'var(--verde)':p>=55?'var(--amb)':'var(--red)'};
+}
+/* Qué toca hacer ahora con este cliente. */
+function accionesCliente(c){
+  const out=[];
+  const ven=vencimientoCliente(c);
+  if(ven.vencido)out.push({ic:'ti-alert-triangle',txt:'Reclamar '+money(ven.monto)+' vencido hace '+ven.dias+' días',urgente:true,accion:'cobrar'});
+  const fact=facturasPendientes(c.id);
+  if(fact.length)out.push({ic:'ti-file-invoice',txt:fact.length+' factura'+(fact.length===1?'':'s')+' por cobrar · '+money(r2(fact.reduce((s2,x)=>s2+x.st.saldo,0))),urgente:ven.vencido,accion:'cobrar'});
+  if(!(c.asignaciones||[]).filter(a=>a.activo!==false).length)out.push({ic:'ti-users',txt:'No tiene a nadie del equipo asignado',accion:'editar'});
+  if(!c.telefono&&!c.email)out.push({ic:'ti-address-book',txt:'Sin teléfono ni email para contactarlo',accion:'editar'});
+  const ultInt=interaccionesDe(c).map(i=>i.fecha).sort().pop();
+  const d=ultInt?difDiasISO(ultInt,today()):null;
+  if(d===null)out.push({ic:'ti-message',txt:'Nunca has registrado una conversación con él',accion:'hablar'});
+  else if(d>45)out.push({ic:'ti-message',txt:'Hace '+d+' días que no hablan',accion:'hablar'});
+  const est=estadoTrabajoUnico(c);
+  if(est&&est.estado==='vencido')out.push({ic:'ti-clock',txt:'El trabajo pasó su mes y sigue abierto',accion:'editar'});
+  const ob=onboardingDe(c);
+  if(!ob.completo)out.push({ic:'ti-rocket',txt:'Falta terminar la puesta en marcha · '+ob.hechos+' de '+ob.total,accion:'crm'});
+  const rv=renovacionDe(c);
+  if(rv&&rv.dias!==null&&rv.dias<=30)out.push({ic:'ti-refresh',txt:'Renovación '+rv.etiqueta.toLowerCase(),urgente:rv.dias<=7,accion:'crm'});
+  return out;
+}
+function vWhatsApp(v){
+  const R=waResumen(), pend=waPendientes();
+  const url=(S.waConfig&&S.waConfig.webhook)||'';
+  head(v,'Clientes','WhatsApp','Los mensajes se preparan aquí y los envía tu automatización. La app no manda nada por sí sola.',
+    '<button class="b bg" id="wa-copiar"><i class="ti ti-copy"></i>Copiar la cola</button>'+
+    (pend.length?'<button class="b bg bd" id="wa-limpiar">Vaciar enviados</button>':''));
+
+  v.appendChild(frag('<div class="mets mets-h">'+
+    '<div class="met met-crit '+(pend.length?'tone-amb':'tone-lime')+'"><div class="mlab">En cola</div><div class="mval">'+R.pendientes+'</div><div class="msub">esperando que los envíe la automatización</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Enviados</div><div class="mval">'+R.enviados+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Fallidos</div><div class="mval" style="color:'+(R.fallidos?'var(--red)':'var(--tx3)')+'">'+R.fallidos+'</div></div>'+
+    '<div class="met met-ctx"><div class="mlab">Plantillas</div><div class="mval">'+waPlantillas().length+'</div></div>'+
+    '</div>'));
+
+  /* Cómo conectarlo */
+  const cn=document.createElement('div');cn.className='card';cn.style.cssText='margin-bottom:16px;border-left:3px solid var(--verde)';
+  cn.innerHTML='<div class="ctitle">Cómo conectarlo</div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Esta app vive en el navegador y no puede guardar el token de WhatsApp ni recibir webhooks. '+
+    'Lo que hace es dejar cada mensaje listo en Supabase, con el número ya normalizado y el texto resuelto. '+
+    'Tu escenario de <strong>Make</strong> o <strong>n8n</strong> lee esa cola, envía por la API de WhatsApp y marca el resultado.</div>'+
+    '<ol style="font-size:12.5px;color:var(--tx2);margin:0 0 12px;padding-left:18px;line-height:1.9">'+
+      '<li>En Make o n8n, crea un escenario con disparador por tiempo, cada 5 o 15 minutos.</li>'+
+      '<li>Lee de Supabase la clave <code>pc2_waCola</code> y filtra los que tengan <code>estado: "pendiente"</code>.</li>'+
+      '<li>Por cada uno, envía a la API de WhatsApp usando <code>telefono</code> y <code>texto</code>.</li>'+
+      '<li>Escribe de vuelta <code>estado: "enviado"</code> y la fecha en <code>enviado</code>. Si falla, <code>estado: "error"</code> y el motivo.</li>'+
+    '</ol>'+
+    '<div class="f"><label>URL de tu webhook (opcional, solo para tenerla a mano)</label>'+
+      '<input id="wa-url" value="'+esc(url)+'" placeholder="https://hook.make.com/..."></div>'+
+    '<div class="f"><label>Así se ve cada registro de la cola</label>'+
+      '<pre style="background:var(--ink);color:var(--txi);padding:12px;border-radius:var(--r);overflow-x:auto;font-size:11px;line-height:1.6;margin:0"><code>'+
+      esc(JSON.stringify({id:'k3f9x',estado:'pendiente',creado:'2026-10-28T14:02:00.000Z',
+        companyId:'c1',cliente:'Casa Dam',telefono:'584141112233',
+        texto:'Hola Casa Dam, el pago de $400.00...',plantillaId:'ven',
+        intentos:0,enviado:null,error:null},null,2))+'</code></pre></div>';
+  v.appendChild(cn);
+  cn.querySelector('#wa-url').onchange=async e=>{
+    S.waConfig={...(S.waConfig||{}),webhook:e.target.value.trim()};
+    await saveUI('waConfig');toast('Guardado');
+  };
+
+  /* Cobro automático */
+  {
+    const reglas=reglasCobro();
+    const prev=evaluarReglasCobro({simular:true});
+    const auto=!!(S.waConfig&&S.waConfig.auto);
+    const rc=document.createElement('div');rc.className='card';rc.style.cssText='margin-bottom:16px;border-left:3px solid var(--amb)';
+    rc.innerHTML='<div class="ctitle">Cobro automático <span class="cnt">'+reglas.filter(r=>r.activa).length+' reglas activas</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:12px">Cada regla mira la fecha de cobro de cada cliente y, cuando toca, deja el mensaje en la cola. '+
+      'La app no envía: lo hace tu escenario de Make o n8n al leer la cola. Cada mensaje se encola una sola vez por cliente y período.</div>'+
+      '<label class="qrow'+(auto?' on':'')+'" style="cursor:pointer;margin-bottom:12px"><span class="qsel">'+
+        '<input type="checkbox" id="rc-auto" '+(auto?'checked':'')+'>'+
+        '<span class="qtxt"><span class="qnom">Encolar solo al abrir la app</span>'+
+        '<span class="qsub">Una vez al día. Si lo dejas apagado, encolas a mano con el botón de abajo.</span></span></span></label>'+
+      reglas.map((r,i)=>'<div class="lrow"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0">'+
+        '<input type="checkbox" class="rc-on" data-i="'+i+'" '+(r.activa?'checked':'')+' style="width:18px;height:18px;margin:0;accent-color:var(--verde)">'+
+        '<span style="min-width:0"><span style="font-size:13px;font-weight:600">'+esc(r.nombre)+'</span>'+
+        '<div style="font-size:11px;color:var(--tx3)">'+
+          (r.cuando==='antes'?r.dias+' días antes de la fecha':r.cuando==='diaDe'?'El mismo día':r.dias+' días después, si no pagó')+
+          ' · plantilla «'+esc((waPlantillas().find(p2=>p2.id===r.plantillaId)||{}).nombre||'')+'»</div></span></label>'+
+        '</div>').join('')+
+      '<div class="sim" style="margin-top:12px"><div class="simrow tot"><span>Si ejecutas ahora, se encolarían</span>'+
+        '<span class="v" style="color:'+(prev.length?'var(--amb)':'var(--verde-hondo)')+'">'+prev.length+' mensaje'+(prev.length===1?'':'s')+'</span></div></div>'+
+      (prev.length?'<div style="margin-top:10px">'+prev.slice(0,8).map(x=>'<div class="lrow"><div style="min-width:0">'+
+        '<div class="lname">'+esc(x.c.negocio)+'</div><div class="lsub">'+esc(x.r.nombre)+' · '+fdate(x.ref)+'</div></div></div>').join('')+
+        (prev.length>8?'<div class="sub" style="font-size:12px">y '+(prev.length-8)+' más…</div>':'')+'</div>':'')+
+      '<div class="brow"><button class="b bp" id="rc-run"'+(prev.length?'':' disabled')+'><i class="ti ti-player-play"></i>Encolar ahora</button></div>';
+    v.appendChild(rc);
+    rc.querySelector('#rc-auto').onchange=async e=>{
+      S.waConfig={...(S.waConfig||{}),auto:e.target.checked};
+      await saveUI('waConfig');toast(e.target.checked?'Se encolará solo al abrir':'Desactivado');render();
+    };
+    rc.querySelectorAll('.rc-on').forEach(ck=>ck.onchange=async()=>{
+      const rs=reglasCobro().map(r=>({...r}));
+      rs[Number(ck.dataset.i)].activa=ck.checked;
+      S.reglasCobro=rs;
+      if(!await saveUI('reglasCobro'))return;render();
+    });
+    const br=rc.querySelector('#rc-run');
+    if(br)br.onclick=async()=>{
+      const hechos=evaluarReglasCobro();
+      if(!hechos.length){toast('No había nada que encolar');return}
+      if(!await saveUI('waCola'))return;
+      await saveUI('reglasLog');
+      toast(hechos.length+' mensaje'+(hechos.length===1?'':'s')+' en la cola');render();
+    };
+  }
+
+  /* Lo que llega del chatbot */
+  {
+    const ent=entradaConMatch();
+    const pendE=ent.filter(x=>!x.procesado);
+    const ec=document.createElement('div');ec.className='card';ec.style.cssText='margin-bottom:16px;border-left:3px solid var(--sky)';
+    ec.innerHTML='<div class="ctitle">Lo que llega <span class="cnt">'+pendE.length+' sin procesar</span></div>'+
+      '<div class="sub" style="font-size:12.5px;margin-bottom:12px">El otro lado de la cola: tu chatbot escribe aquí los mensajes que recibe, en la clave <code>pc2_entrada</code> de Supabase. '+
+      'La app los empareja por teléfono con un cliente o prospecto y te deja decidir qué hacer.</div>'+
+      '<div class="f"><label>Formato que debe escribir el bot</label>'+
+      '<pre style="background:var(--ink);color:var(--txi);padding:12px;border-radius:var(--r);overflow-x:auto;font-size:11px;line-height:1.6;margin:0"><code>'+
+      esc(JSON.stringify({id:'in_8d2',recibido:'2026-10-28T15:10:00.000Z',telefono:'584141112233',
+        nombre:'María de Casa Dam',texto:'Hola, ya hice la transferencia',
+        canal:'WhatsApp',procesado:false},null,2))+'</code></pre></div>'+
+      (pendE.length?'<div style="overflow-x:auto;margin-top:12px"><table class="t"><thead><tr><th>De</th><th>Mensaje</th><th>Lo reconozco</th><th></th></tr></thead><tbody>'+
+        pendE.slice(0,30).map(x=>'<tr><td><strong>'+esc(x.nombre||x.telefono)+'</strong><div style="font-size:11px;color:var(--tx3)">+'+esc(x.telefono||'')+'</div></td>'+
+          '<td style="font-size:12px;max-width:320px">'+esc(String(x.texto||'').slice(0,120))+'</td>'+
+          '<td>'+(x.match?'<span class="p p-ok">'+x.match.tipo+' · '+esc(x.match.registro.negocio||x.match.registro.nombre||'')+'</span>':'<span class="p p-w">Desconocido</span>')+'</td>'+
+          '<td class="ta"><button class="b bp bs" data-ent="'+x.id+'">'+(x.match?'Registrar':'Crear prospecto')+'</button></td></tr>').join('')+
+        '</tbody></table></div>'
+        :'<div style="font-size:12.5px;color:var(--tx3);margin-top:10px">Nada pendiente. Cuando el bot escriba, aparecerá aquí.</div>');
+    v.appendChild(ec);
+    ec.querySelectorAll('[data-ent]').forEach(b=>b.onclick=async()=>{
+      const x=(S.entrada||[]).find(y=>y.id===b.dataset.ent);
+      if(!x)return;
+      const m=buscarPorTelefono(x.telefono);
+      if(m&&m.tipo==='cliente'){
+        const c=m.registro;
+        if(!Array.isArray(c.interacciones))c.interacciones=[];
+        c.interacciones.push({fecha:(x.recibido||'').slice(0,10)||today(),canal:x.canal||'WhatsApp',
+          asunto:'Entrante',nota:x.texto||''});
+        await saveUI('companies');
+      } else if(m&&m.tipo==='prospecto'){
+        const pr=m.registro;
+        if(!Array.isArray(pr.actividad))pr.actividad=[];
+        pr.actividad.push({fecha:(x.recibido||'').slice(0,10)||today(),tipo:x.canal||'WhatsApp',detalle:x.texto||''});
+        await saveUI('prospects');
+      } else {
+        S.prospects.push({id:uid(),negocio:x.nombre||('+'+x.telefono),telefono:x.telefono||'',
+          estado:'nuevo',fechaCreacion:today(),fuente:'WhatsApp',
+          actividad:[{fecha:today(),tipo:'WhatsApp',detalle:x.texto||''}],historialEtapa:[],notas:''});
+        await saveUI('prospects');
+      }
+      x.procesado=true;x.procesadoEl=new Date().toISOString();
+      if(!await saveUI('entrada'))return;
+      toast(m?'Registrado en su historia':'Prospecto creado');render();
+    });
+  }
+
+  /* La cola */
+  const q=document.createElement('div');q.className='card';q.style.marginBottom='16px';
+  const cola=(S.waCola||[]).slice().sort((a,b)=>String(b.creado||'').localeCompare(String(a.creado||'')));
+  q.innerHTML='<div class="ctitle">La cola <span class="cnt">'+cola.length+'</span></div>'+
+    (cola.length?'<div style="overflow-x:auto"><table class="t"><thead><tr><th>Cliente</th><th>Mensaje</th><th>Estado</th><th></th></tr></thead><tbody>'+
+      cola.slice(0,60).map(x=>'<tr><td><strong>'+esc(x.cliente||'')+'</strong><div style="font-size:11px;color:var(--tx3)">+'+esc(x.telefono)+'</div></td>'+
+        '<td style="font-size:12px;max-width:360px">'+esc(String(x.texto||'').slice(0,110))+(String(x.texto||'').length>110?'…':'')+'</td>'+
+        '<td>'+(x.estado==='enviado'?'<span class="p p-ok">Enviado</span>':x.estado==='error'?'<span class="p p-d" title="'+esc(x.error||'')+'">Error</span>':'<span class="p p-w">Pendiente</span>')+'</td>'+
+        '<td class="ta"><button class="ib" data-waq="'+x.id+'" title="Quitar de la cola"><i class="ti ti-trash"></i></button></td></tr>').join('')+
+      '</tbody></table></div>'
+      :'<div style="font-size:12.5px;color:var(--tx3)">Sin mensajes. Desde la ficha de un cliente, el botón de WhatsApp los pone aquí.</div>');
+  v.appendChild(q);
+  q.querySelectorAll('[data-waq]').forEach(b=>b.onclick=async()=>{
+    S.waCola=(S.waCola||[]).filter(x=>x.id!==b.dataset.waq);
+    if(!await saveUI('waCola'))return;toast('Quitado');render();
+  });
+
+  /* Plantillas */
+  const pl=document.createElement('div');pl.className='card';
+  pl.innerHTML='<div class="ctitle">Plantillas <span class="cnt">'+waPlantillas().length+'</span></div>'+
+    '<div class="sub" style="font-size:12.5px;margin-bottom:10px">Las variables se sustituyen con los datos reales del cliente al escribir: '+
+    WA_VARS.map(x=>'<code>{'+x[0]+'}</code>').join(' ')+'</div>'+
+    waPlantillas().map(p2=>'<div class="lrow"><div style="min-width:0"><div class="lname">'+esc(p2.nombre)+'</div>'+
+      '<div class="lsub" style="white-space:normal">'+esc(p2.texto)+'</div></div></div>').join('')+
+    '<div class="row" style="margin-top:12px"><div class="f"><label>Nombre de una plantilla nueva</label><input id="wa-pn" placeholder="Aviso de renovación"></div></div>'+
+    '<div class="f"><label>Texto</label><textarea id="wa-pt" rows="3" placeholder="Hola {cliente}, ..."></textarea></div>'+
+    '<div class="brow"><button class="b bp bs" id="wa-pa"><i class="ti ti-plus"></i>Agregar plantilla</button></div>';
+  v.appendChild(pl);
+  pl.querySelector('#wa-pa').onclick=async()=>{
+    const n=pl.querySelector('#wa-pn').value.trim(), t=pl.querySelector('#wa-pt').value.trim();
+    if(!n||!t){alert('Ponle nombre y texto.');return}
+    if(!Array.isArray(S.waPlantillas))S.waPlantillas=[];
+    S.waPlantillas.push({id:uid(),nombre:n,texto:t,uso:'propia'});
+    if(!await saveUI('waPlantillas'))return;toast('Plantilla agregada');render();
+  };
+
+  const bc=document.getElementById('wa-copiar');
+  if(bc)bc.onclick=()=>copiarTexto(JSON.stringify(waPendientes(),null,2));
+  const bl=document.getElementById('wa-limpiar');
+  if(bl)bl.onclick=async()=>{
+    if(!confirm('¿Quitar de la lista los mensajes ya enviados?'))return;
+    S.waCola=(S.waCola||[]).filter(x=>x.estado!=='enviado');
+    if(!await saveUI('waCola'))return;toast('Limpiado');render();
+  };
+}
+
+function waModal(c){
+  const tel=waTelefono(c);
+  const pl=waPlantillas();
+  let sel=pl[0];
+  const ov=document.createElement('div');ov.className='ov';ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  const md=document.createElement('div');md.className='mdl';
+  md.innerHTML='<div class="mhd"><div><div class="mtitle">Escribirle a '+esc(c.negocio)+'</div>'+
+    '<div class="esub">'+(tel?'+'+tel:'<span style="color:var(--amb)">Sin teléfono registrado</span>')+'</div></div>'+
+    '<button class="ib" id="wa-x"><i class="ti ti-x"></i></button></div>'+
+    '<div class="f"><label>Plantilla</label><div class="chips" style="margin:0">'+
+      pl.map((x,i)=>'<button type="button" class="chip'+(i===0?' on':'')+'" data-wp="'+i+'">'+esc(x.nombre)+'</button>').join('')+'</div></div>'+
+    '<div class="f"><label>Mensaje</label><textarea id="wa-txt" rows="7"></textarea>'+
+      '<div class="hint">Puedes editarlo. Variables: '+WA_VARS.map(v2=>'<code>{'+v2[0]+'}</code>').join(' ')+'</div></div>'+
+    '<div class="brow" style="justify-content:space-between;flex-wrap:wrap">'+
+      '<button class="b bg" id="wa-cola"><i class="ti ti-clock-plus"></i>Poner en la cola</button>'+
+      (tel?'<a class="b bv" id="wa-ir" target="_blank" rel="noopener" style="text-decoration:none"><i class="ti ti-brand-whatsapp"></i>Abrir WhatsApp</a>':'')+
+    '</div>';
+  ov.appendChild(md);document.body.appendChild(ov);
+  const ta=md.querySelector('#wa-txt');
+  const pintar=()=>{
+    ta.value=waRender(sel.texto,c);
+    const a=md.querySelector('#wa-ir');
+    if(a)a.href=waLink(c,ta.value);
+  };
+  md.querySelectorAll('[data-wp]').forEach(b=>b.onclick=()=>{
+    sel=pl[Number(b.dataset.wp)];
+    md.querySelectorAll('[data-wp]').forEach(x=>x.classList.toggle('on',x===b));
+    pintar();
+  });
+  ta.oninput=()=>{const a=md.querySelector('#wa-ir');if(a)a.href=waLink(c,ta.value)};
+  pintar();
+  md.querySelector('#wa-x').onclick=()=>ov.remove();
+  md.querySelector('#wa-cola').onclick=async()=>{
+    if(!tel){alert('Este cliente no tiene teléfono. Agrégalo en su ficha.');return}
+    waEncolar(c,ta.value,sel.id);
+    if(!Array.isArray(c.interacciones))c.interacciones=[];
+    c.interacciones.push({fecha:today(),canal:'WhatsApp',asunto:sel.nombre,nota:'En cola de envío'});
+    if(!await saveUI('waCola'))return;
+    await saveUI('companies');
+    ov.remove();toast('Mensaje en la cola de envío');render();
+  };
+  const ir=md.querySelector('#wa-ir');
+  if(ir)ir.onclick=async()=>{
+    if(!Array.isArray(c.interacciones))c.interacciones=[];
+    c.interacciones.push({fecha:today(),canal:'WhatsApp',asunto:sel.nombre,nota:'Enviado a mano'});
+    await saveUI('companies');
+    setTimeout(()=>{ov.remove();render()},80);
+  };
+}
+
+function vClienteCRM(v,c){
+  const sal=saludCliente(c), acc=accionesCliente(c), ev=lineaTiempoCliente(c);
+  const rn=repartoCliente(c), ec=estadoCuentaCliente(c);
+  head(v,'Cliente',esc(c.negocio),
+    [tipoContratoLabel(c),servicioDe(c),c.ubicacion].filter(Boolean).join(' · '),
+    '<button class="b bg" id="crm-volver"><i class="ti ti-arrow-left"></i>Volver</button>'+
+    '<button class="b bg" id="crm-wa"><i class="ti ti-brand-whatsapp"></i>Escribir</button>'+
+    '<button class="b bp" id="crm-edit"><i class="ti ti-edit"></i>Editar</button>');
+
+  /* Cabecera con la salud */
+  const hc=document.createElement('div');hc.className='card';hc.style.cssText='margin-bottom:16px;border-left:3px solid '+sal.color;
+  hc.innerHTML='<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'+
+    '<div class="saludring" style="--p:'+sal.puntos+';--c:'+sal.color+'"><span>'+sal.puntos+'</span></div>'+
+    '<div style="flex:1;min-width:170px"><div style="font-size:17px;font-weight:700;color:'+sal.color+'">'+sal.etiqueta+'</div>'+
+    '<div style="font-size:12.5px;color:var(--tx2);margin-top:3px">'+
+      sal.motivos.slice(0,3).map(m=>'<span style="color:'+(m.mal?'var(--red)':'var(--verde-hondo)')+'">'+(m.mal?'−':'+')+'</span> '+esc(m.txt)).join(' · ')+'</div></div>'+
+    '<div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:700">'+money(c.tarifaBruta)+'</div>'+
+    '<div style="font-size:11.5px;color:var(--tx3)">al mes</div></div></div>';
+  v.appendChild(hc);
+
+  /* Qué hacer ahora */
+  if(acc.length){
+    const ac=document.createElement('div');ac.className='card';ac.style.cssText='margin-bottom:16px;border-left:3px solid var(--amb)';
+    ac.innerHTML='<div class="ctitle">Qué toca hacer <span class="cnt">'+acc.length+'</span></div>'+
+      acc.map((a,i)=>'<div class="lrow" data-acc="'+i+'" style="cursor:pointer"><div style="display:flex;align-items:center;gap:10px">'+
+      '<i class="ti '+a.ic+'" style="font-size:18px;color:'+(a.urgente?'var(--red)':'var(--amb)')+'"></i>'+
+      '<span style="font-size:13px;font-weight:'+(a.urgente?'650':'600')+'">'+esc(a.txt)+'</span></div>'+
+      '<i class="ti ti-chevron-right" style="color:var(--tx3)"></i></div>').join('');
+    v.appendChild(ac);
+    ac.querySelectorAll('[data-acc]').forEach(r=>r.onclick=()=>{
+      const a=acc[Number(r.dataset.acc)];
+      if(a.accion==='crm'){window.scrollTo({top:0,behavior:'smooth'});return}
+      if(a.accion==='cobrar'){S.tab='cobros';S.presetCompany=c.id;render()}
+      else if(a.accion==='editar'){S.mCompany=c.id;S.eCompany=c.id;render()}
+      else waModal(c);
+    });
+  }
+
+  const g=document.createElement('div');g.className='g2b';
+  const izq=document.createElement('div');
+
+  /* Onboarding */
+  const ob=onboardingDe(c);
+  if(!ob.completo||c.fechaRenovacion){
+    const oc=document.createElement('div');oc.className='card';oc.style.cssText='margin-bottom:16px;border-left:3px solid var(--sky)';
+    const rv=renovacionDe(c);
+    oc.innerHTML='<div class="ctitle">Puesta en marcha <span class="cnt">'+ob.hechos+' de '+ob.total+'</span></div>'+
+      '<div class="fasebar" style="--c:var(--sky);margin-bottom:12px"><span style="width:'+ob.pct+'%"></span></div>'+
+      ob.pasos.map(x=>'<label class="lrow" style="cursor:pointer"><span style="display:flex;align-items:center;gap:10px">'+
+        '<input type="checkbox" class="obck" data-k="'+x.k+'" '+(x.hecho?'checked':'')+(x.k==='cobro'?' disabled':'')+' style="width:18px;height:18px;margin:0;accent-color:var(--verde)">'+
+        '<span style="font-size:13px'+(x.hecho?';color:var(--tx3)':'')+'">'+esc(x.lb)+'</span></span>'+
+        (x.k==='cobro'?'<span class="p p-g" style="font-size:9px">automático</span>':'')+'</label>').join('')+
+      '<div class="row" style="margin-top:12px"><div class="f"><label>Fecha de renovación del acuerdo</label>'+
+        '<input id="crm-renov" type="date" value="'+esc(c.fechaRenovacion||'')+'">'+
+        '<div class="hint">'+(rv?esc(rv.etiqueta):'Sin fecha: no habrá aviso de renovación.')+'</div></div></div>';
+    izq.appendChild(oc);
+    oc.querySelectorAll('.obck').forEach(ck=>ck.onchange=async()=>{
+      if(!c.onboarding)c.onboarding={};
+      c.onboarding[ck.dataset.k]=ck.checked;
+      if(!await saveUI('companies'))return;render();
+    });
+    oc.querySelector('#crm-renov').onchange=async e=>{
+      c.fechaRenovacion=e.target.value||'';
+      if(!await saveUI('companies'))return;toast('Guardado');render();
+    };
+  }
+
+  /* Dinero */
+  const dc=document.createElement('div');dc.className='card';dc.style.marginBottom='16px';
+  dc.innerHTML='<div class="ctitle">Dinero</div><div class="sim">'+
+    '<div class="simrow"><span>Tarifa</span><span class="v">'+money(rn.bruto)+'</span></div>'+
+    (rn.comision>0.005?'<div class="simrow neg"><span>Comisión '+pct(rn.comisionPct)+'</span><span class="v">−'+money(rn.comision)+'</span></div>':'')+
+    '<div class="simrow neg"><span>Equipo</span><span class="v">−'+money(rn.equipo)+'</span></div>'+
+    '<div class="simrow tot"><span>Deja a la agencia</span><span class="v" style="color:var(--verde-hondo)">'+money(rn.agencia)+'</span></div>'+
+    '<div class="simrow"><span>Cobrado hasta hoy</span><span class="v">'+money(ec.cobrado)+'</span></div>'+
+    (ec.saldo>0.01?'<div class="simrow"><span style="color:var(--red)">Saldo pendiente</span><span class="v" style="color:var(--red)">'+money(ec.saldo)+'</span></div>':'')+
+    '</div>';
+  izq.appendChild(dc);
+
+  /* Conversaciones */
+  const cc=document.createElement('div');cc.className='card';cc.style.marginBottom='16px';
+  const ints=interaccionesDe(c).slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  cc.innerHTML='<div class="ctitle">Conversaciones <span class="cnt">'+ints.length+'</span></div>'+
+    '<div class="row"><div class="f"><label>Canal</label><select id="crm-canal">'+
+      ['WhatsApp','Llamada','Email','Reunión','Mensaje IG','Nota'].map(x=>'<option>'+x+'</option>').join('')+'</select></div>'+
+    '<div class="f"><label>Qué pasó</label><div style="display:flex;gap:6px"><input id="crm-nota" placeholder="Pidió cambios · Confirmó pago"><button class="b bp bs" id="crm-add">Añadir</button></div></div></div>'+
+    (ints.length?ints.slice(0,6).map(i=>'<div class="lrow"><div><div class="lname">'+esc(i.canal)+'</div><div class="lsub">'+esc(i.nota||'')+'</div></div><span style="font-size:11.5px;color:var(--tx3)">'+fdate(i.fecha)+'</span></div>').join('')
+      :'<div style="font-size:12.5px;color:var(--tx3);padding:6px 0">Sin conversaciones registradas.</div>');
+  izq.appendChild(cc);
+  g.appendChild(izq);
+
+  /* Historia */
+  const der=document.createElement('div');
+  const tl=document.createElement('div');tl.className='card';
+  tl.innerHTML='<div class="ctitle">Historia <span class="cnt">'+ev.length+'</span></div>'+
+    (ev.length?'<div style="display:flex;flex-direction:column">'+ev.slice(0,40).map((e,i,arr)=>
+      '<div style="display:flex;gap:10px">'+
+        '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">'+
+          '<div style="width:26px;height:26px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;color:'+e.color+'"><i class="ti '+e.icono+'" style="font-size:14px"></i></div>'+
+          (i<arr.length-1?'<div style="width:2px;flex:1;background:var(--ln);min-height:14px"></div>':'')+
+        '</div>'+
+        '<div style="padding-bottom:14px;min-width:0;flex:1">'+
+          '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">'+
+            '<strong style="font-size:13px">'+esc(e.titulo)+'</strong>'+
+            '<span style="font-size:11.5px;color:var(--tx3);white-space:nowrap">'+fdate(e.fecha)+'</span></div>'+
+          (e.detalle?'<div style="font-size:12.5px;color:var(--tx2);margin-top:2px">'+esc(e.detalle)+'</div>':'')+
+        '</div></div>').join('')+'</div>'+
+      (ev.length>40?'<div class="sub" style="font-size:12px;margin-top:8px">y '+(ev.length-40)+' más…</div>':'')
+      :'<div style="font-size:12.5px;color:var(--tx3)">Sin movimientos todavía.</div>');
+  der.appendChild(tl);
+  g.appendChild(der);
+  v.appendChild(g);
+
+  v.querySelector('#crm-volver').onclick=()=>{S.crmCliente=null;render()};
+  v.querySelector('#crm-edit').onclick=()=>{S.mCompany=c.id;S.eCompany=c.id;render()};
+  v.querySelector('#crm-wa').onclick=()=>waModal(c);
+  const ba=document.getElementById('crm-add');
+  if(ba)ba.onclick=async()=>{
+    const nota=document.getElementById('crm-nota').value.trim();
+    if(!Array.isArray(c.interacciones))c.interacciones=[];
+    c.interacciones.push({fecha:today(),canal:document.getElementById('crm-canal').value,nota});
+    if(!await saveUI('companies'))return;
+    toast('Conversación registrada');render();
   };
 }
 
@@ -8988,6 +9782,8 @@ async function bootData(authUser){
   if(!appUser){S.loading=false;renderUnlinked(authUser.email||'');return}
   S.sessionUserId=appUser.id;
   S.loading=false;initSearch();initNavToggle();render();
+  /* Las reglas corren después de pintar, para no retrasar la carga. */
+  try{await correrReglasAlAbrir()}catch(e){console.error('reglas de cobro',e)}
 }
 boot();
 })();
